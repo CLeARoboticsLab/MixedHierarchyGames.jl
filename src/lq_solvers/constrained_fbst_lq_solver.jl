@@ -47,9 +47,16 @@ function constrained_fbst_lq_solver!(
 
     # K = BlockArray(zeros(M_size, nx), [nu, 2*l, nx*num_player, nx, 2*l, m], [nx]) # (4,1)
     # k = BlockArray(zeros(M_size, 1), [nu, 2*l, nx*num_player, nx, 2*l, m], [1]) # (4,1)
-    Π² = zeros(m, nu) 
+
+    # TODO: different policy gradients for each player - define for each player for myself
+    Π² = zeros(m, nu) # represents policy gradients at same stage - at time T need this only
     π̂², π̌² = zeros(m, nx), zeros(m, m) # π²'s dependence on x and u1
     
+    # lower case pi is policy
+    # Introduce Pi 3 (for policy gradient) matrix representing the policy gradients for the first and second players
+    # For first player, need higher dimensional matrix because neded to account for P2 and P3 gradients in current and next stage
+
+    # represents policy gradients at next stage
     Π_next = BlockArray(zeros(nu, nx*num_player), [nu], [nx for ii in 1:num_player]) # (1,2)
     π¹_next = zeros(m, nx) 
 
@@ -80,7 +87,7 @@ function constrained_fbst_lq_solver!(
         
         B̃ₜ₊₁ = zeros(num_player*nx, (num_player-1)*nu) 
         # R̃ₜ = zeros((num_player-1)*nu, nu) 
-        B̃² = [B[:,m+1:nu]; zeros(nx, m)]
+        B̃² = [B[:,m+1:nu]; zeros(nx, m)] # Includes the lagrangian terms
         Ĥ_x_terminal = BlockArray(zeros(2*l, 2*nx), [l,l], [nx,nx])
 
         H_uₜ²[Block(1,1)] = g.Hu_list[t][1][:,m+1:nu]
@@ -107,7 +114,7 @@ function constrained_fbst_lq_solver!(
 
 
         if t == T
-            # We first solve for the follower, player 2
+            # We first solve for the final follower, player N.
             
             for (ii, udxᵢ) in enumerate(g.players_u_index_list)
                 B̂ₜ[(ii-1)*nx+1:ii*nx, (ii-1)*m+1:ii*m] = B[:,udxᵢ]
@@ -212,7 +219,7 @@ function constrained_fbst_lq_solver!(
                 KKT_n[Block(5,1)] = KKT_n[Block(5,1)]*0.0
             end
         else
-            # when t < T, we first solve for the follower
+            # when t < T, we first solve for the final follower
             
             Ĥ_xₜ₊₁[Block(1,1)] = g.Hx_list[t+1][1]
             Ĥ_xₜ₊₁[Block(2,2)] = g.Hx_list[t+1][2]
@@ -316,6 +323,8 @@ function constrained_fbst_lq_solver!(
 
 
 
+            # TODO: Update this part to include the third player. Go over this with Jingqi.
+
             # in what follows, we construct the KKT matrix for the next time instant. Related to KKT residual loss
             M_size = M_size + new_M_size
             D1 = deepcopy(leader_Pₜ¹)
@@ -385,6 +394,7 @@ function constrained_fbst_lq_solver!(
                 Δx[t+1] = g.A_list[t]*Δx[t] + g.B_list[t]*Δu[t] + g.c_list[t] # update x
             end
         end
+        # KKT_M is control conditions, KKT_N is state conditions, KKT_n is offset conditions (also in Forrest's work)
         return Δx, Δu, μ, λ, η, ψ, KKT_M, KKT_N, KKT_n
     else
         return KKT_M, KKT_N, KKT_n
