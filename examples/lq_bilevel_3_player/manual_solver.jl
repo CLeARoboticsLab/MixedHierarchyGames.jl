@@ -33,8 +33,8 @@ K2 = sol23[1:2, 1:2]; # K2 is the feedback gain for player 2
 P2 = sol23[1:2, 3:4]; # P2 is the feedforward gain for player 2
 K3 = sol23[3:4, 1:2]; # K3 is the feedback gain for player 3
 P3 = sol23[3:4, 3:4]; # P3 is the feedforward gain for player 3
-# NE: u2 = K2 * x + P2 * u1
-# NE: u3 = K3 * x + P3 * u1
+# NE: u2 = -K2 * x - P2 * u1
+# NE: u3 = -K3 * x - P3 * u1
 
 """
 Solve the Stackelberg hierarchy for the leader (P1) at the terminal stage.
@@ -72,5 +72,5 @@ N1[13:14, :] = -K3;
 
 sol1 = -M1 \ N1 # P1 is the NE for player 1 for the terminal stage
 K1 = sol1[1:2, 1:2]; # K1 is the feedback gain for player 1
-# NE for player 1: u1 = K1 * x
+# NE for player 1: u1 = -K1 * x
 println("first with manual: ", K1)

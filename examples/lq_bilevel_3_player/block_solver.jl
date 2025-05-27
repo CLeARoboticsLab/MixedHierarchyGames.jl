@@ -34,8 +34,8 @@ K2 = sol23[Block(1,1)]; # K2 is the feedback gain for player 2
 P2 = sol23[Block(1,2)]; # P2 is the feedforward gain for player 2
 K3 = sol23[Block(2,1)]; # K3 is the feedback gain for player 3
 P3 = sol23[Block(2,2)]; # P3 is the feedforward gain for player 3
-# NE: u2 = K2 * x + P2 * u1
-# NE: u3 = K3 * x + P3 * u1
+# NE: u2 = -K2 * x - P2 * u1
+# NE: u3 = -K3 * x - P3 * u1
 
 
 """
@@ -62,5 +62,5 @@ N1 = BlockArray([
 
 sol1 = -M1 \ N1 # P1 is the NE for player 1 for the terminal stage
 K1 = sol1[Block(1, 1)]
-# NE for player 1: u1 = K1 * x
+# NE for player 1: u1 = -K1 * x
 println("first with blocks: ", K1)
