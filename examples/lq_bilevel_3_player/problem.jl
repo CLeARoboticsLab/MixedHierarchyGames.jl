@@ -8,7 +8,7 @@ Drawing (at time t):
   P2  P3
 
 Each player has a pure quadratic cost function and planar single-integrator dynamics, 
-i.e. state = 2D position and controls for each player are 2D velocity vectors.
+i.e. state = 2D position, and controls for each player are 2D velocity vectors.
 
 Assumptions:
 - Player controls are the same size.
@@ -23,42 +23,35 @@ Assumptions:
 
 using LinearAlgebra
 using BlockArrays
-using BlockDiagonals
 
+# Number of players
 N = 3;
 
 # State and control size.
-nⁱ = 2; # per-player state size
 mⁱ = 2; # control size per player
 
-n = N * nⁱ; # total state size
+n = 2;      # total state size (2D position)
 m = N * mⁱ; # total control size
 
-# Note: this is a decoupled optimization problem where each player costs their own portion of the state.
-# TODO: Adjust the costs to introduce coupling between players.
+# Define the cost matrices and dynamics for each player.
 Q = zeros(n, n, N);
-Q[1:nⁱ, 1:nⁱ, 1] = [1.0 0.1; 0.1 1.0];
-Q[nⁱ+1:2*nⁱ, nⁱ+1:2*nⁱ, 2] = [1.0 0.2; 0.2 1.0];
-Q[2*nⁱ+1:3*nⁱ, 2*nⁱ+1:3*nⁱ, 3] = [1.0 0.3; 0.3 1.0];
+Q[:, :, 1] = [1.0 0.1; 0.1 1.0];
+Q[:, :, 2] = [1.0 0.2; 0.2 1.0];
+Q[:, :, 3] = [1.0 0.3; 0.3 1.0];
 
 R = zeros(mⁱ, mⁱ, N);
 R[:, :, 1] = [1.0 0.1; 0.1 1.0];
 R[:, :, 2] = [1.0 0.2; 0.2 1.0];
 R[:, :, 3] = [1.0 0.3; 0.3 1.0];
 
-
+# Dynamics matrices for all players (n x n).
 A = zeros(n, n);
-Aⁱ = [1.0 0.0; 0.0 1.0];
-A = BlockDiagonal([Aⁱ, Aⁱ, Aⁱ]); # 3 players, each with 2D state
+A = [1.0 0.0; 0.0 1.0];
 
-B = zeros(n, mⁱ, N);
-B¹ = [1.0 0.1; 0.0 1.0]; # Player 1 control matrix is costed based on its own control.
-B² = [1.0 0.2; 0.0 1.0]; # Player 2 control matrix is costed based on its own control.
-B³ = [1.0 0.3; 0.0 1.0]; # Player 3 control matrix is costed based on its own control.
-B[:, :, 1] = BlockArray([B¹; zeros(nⁱ, mⁱ); zeros(nⁱ, mⁱ)], [nⁱ, nⁱ, nⁱ], [mⁱ]);
-B[:, :, 2] = BlockArray([zeros(nⁱ, mⁱ); B²; zeros(nⁱ, mⁱ)], [nⁱ, nⁱ, nⁱ], [mⁱ]);
-B[:, :, 3] = BlockArray([zeros(nⁱ, mⁱ); zeros(nⁱ, mⁱ); B³], [nⁱ, nⁱ, nⁱ], [mⁱ]);
-
+# Control matrices for all controls (n x m).
+B = zeros(n, m);
+B = [1.0 0.1 1.0 0.2 1.0 0.3;
+     0.0 1.0 0.0 1.0 0.0 1.0];
 
 player_control_list = [
     [1,2],

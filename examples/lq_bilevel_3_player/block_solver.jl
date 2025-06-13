@@ -11,7 +11,6 @@ Zeros2 = zeros(2, 2)
 Solve the Stackelberg hierarchy for the followers (P2 and P3) at the terminal stage.
 """
 # Construct M23 as a 10x10 block matrix.
-# BUG: Q^i_t should be 6x6, not 2x2 because it is multiplied by the whole state.
 M23 = BlockArray([
     [R[:,:,2] Zeros2 Zeros2 -B[:,player_control_list[2]]' Zeros2];
     [Zeros2 R[:,:,3] Zeros2 Zeros2 -B[:,player_control_list[3]]'];

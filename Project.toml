@@ -5,7 +5,6 @@ version = "0.1.0"
 
 [deps]
 BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
-BlockDiagonals = "0a1fb500-61f7-11e9-3c65-f5ef3456f9f0"
 FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 FilePathsBase = "48062228-2e41-5def-b9a4-89aafe57970f"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -19,5 +18,4 @@ Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
-BlockDiagonals = "0.2.0"
 Revise = "3.8.0"

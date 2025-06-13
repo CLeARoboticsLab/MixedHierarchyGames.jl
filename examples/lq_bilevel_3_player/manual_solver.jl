@@ -9,7 +9,6 @@ include("problem.jl")
 """
 Solve the Stackelberg hierarchy for the followers (P2 and P3) at the terminal stage.
 """
-# BUG: state/Q^i_t should be 6x6, not 2x2 because it is multiplied by the whole state.
 M23 = zeros(10, 10); # (2 + 2) + (2) + (2) + (2) = 10
 # rows 1:4
 M23[1:2, 1:2] = R[:,:,2];
