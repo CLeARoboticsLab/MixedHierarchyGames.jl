@@ -42,7 +42,7 @@ N23[Block(2,1)] = -A; # Dynamics for player 2
 N23[Block(2,2)] = -B[:, player_control_list[1]]; # Dynamics for player 3
 
 sol23 = -M23 \ N23 # P23 is the NE for players 2 and 3 for the terminal stage
-println("second with blocks: ", sol23)
+# println("second with blocks: ", sol23)
 
 K2 = sol23[Block(1,1)]; # K2 is the state gain for player 2
 P2 = sol23[Block(1,2)]; # P2 is the u1-gain 
@@ -82,7 +82,7 @@ N1[Block(2,1)] = -A;
 sol1 = -M1 \ N1 # P1 is the NE for player 1 for the terminal stage
 K1 = sol1[Block(1, 1)]
 # NE for player 1: u1 = -K1 * x
-println("first with blocks: ", K1)
+# println("first with blocks: ", K1)
 
 
 
