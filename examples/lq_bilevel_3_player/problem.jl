@@ -10,9 +10,13 @@ Drawing (at time t):
 Each player has a pure quadratic cost function and planar single-integrator dynamics, 
 i.e. state = 2D position, and controls for each player are 2D velocity vectors.
 
+TODO: Loosen these assumptions as we generalize the solver.
 Assumptions:
 - Player controls are the same size.
-- No constant terms in the dynamics or linear terms in the cost functions.
+- No constant terms in the dynamics or linear/constant terms in the cost functions.
+- No state-control coupling costs (x Q u).
+- Time invariant dynamics and costs.
+- Player control costs are dependent only on the player's own control input.
 
 # TODO: 
 # 0. double check our transcribed math is correct;
