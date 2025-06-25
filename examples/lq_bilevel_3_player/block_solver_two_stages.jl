@@ -146,8 +146,8 @@ ssol23 = -MM23 \ NN23;
 
 KK2 = ssol23[1:2, 1:2]; # K2 is the feedback gain for player 2
 PP2 = ssol23[1:2, 3:4]; # P2 is the feedforward gain for player 2
-KK3 = ssol23[1:2, 1:2]; # K3 is the feedback gain for player 3
-PP3 = ssol23[1:2, 3:4]; # P3 is the feedforward gain for player 3
+KK3 = ssol23[3:4, 1:2]; # K3 is the feedback gain for player 3
+PP3 = ssol23[3:4, 3:4]; # P3 is the feedforward gain for player 3
 
 
 

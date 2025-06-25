@@ -62,3 +62,7 @@ player_control_list = [
     [3,4],
     [5,6]
 ];
+
+B1 = B[:, player_control_list[1]]
+B2 = B[:, player_control_list[2]]
+B3 = B[:, player_control_list[3]]

@@ -10,6 +10,11 @@ mathcal{Z}ⁱₜ = [player i primal at t;
                 future player KKT states at t, zⁱₜ]
 Question: What do we do when we have multiple players in a more complex hierarchy?
 
+Dual variables:
+λ - dynamics
+ψ - intra-stage leadership
+η - inter-stage policy (between leaves and next stage)
+
 Note: For the information vector, we use the ordering
 mathcal{Y}ⁱₜ = [xₜ, u¹ₜ] for followers P2 and P3, and mathcal{Y}¹ₜ = [xₜ] for leader P1.
 """
@@ -158,8 +163,7 @@ K1 = sol1[Block(1,1)]; # K1 is the feedback gain for player 1.
 Solve the Stackelberg hierarchy for P2 and P3 at the penultimate stage (t=T-1).
 """
 # 1. We first define the ordering \mathcal{Z}ⁱₜ of the state zⁱₜ at time t=T-1 for players 2 and 3.
-#    We choose to combine dual for future policy constraints, ηⁱ⁻¹ₜ₊₁ = η²⁻¹ₜ₊₁ = η³⁻¹ₜ₊₁, because they represent 
-#    the same policy constraint.
+# \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
 # \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
 
 # 2. Compute the size of the stage state zⁱₜ for players 2 and 3 at time t=T-1.
@@ -192,50 +196,94 @@ MM23[Block(1,3)] = -B[:,player_control_list[2]]'; # λ²ₜ
 MM23[Block(2,2)] = R[:,:,3]; # u³ₜ
 MM23[Block(2,4)] = -B[:,player_control_list[3]]'; # λ³ₜ
 
-# Row 3 corresponds to the gradient of the P2 Lagrangian with respect to λ²ₜ (dynamics).
-MM23[Block(3,1)] = -B[:,player_control_list[2]]'; # u²ₜ
-MM23[Block(3,2)] = -B[:,player_control_list[3]]'; # u³ₜ
+# Row 3 corresponds to the dynamics equality constraint (primal feasibility condition).
+# We do not compute separate gradients for P2 wrt λ²ₜ and P3 wrt to λ³ₜ because dynamics are a shared constraint 
+# over the joint state. This is true of any constraint which is coupled.
+
+# Row 3 corresponds to the gradient of the P2 Lagrangian with respect to λ²ₜ (shared dynamics).
+MM23[Block(3,1)] = -B[:,player_control_list[2]]; # u²ₜ
+MM23[Block(3,2)] = -B[:,player_control_list[3]]; # u³ₜ
+MM23[Block(3,9)] = I(n);                          # xₜ
 
 NN23[Block(3,1)] = -A; # xₜ
-NN23[Block(3,2)] = -B[:,player_control_list[1]]'; # u¹ₜ
+NN23[Block(3,2)] = -B[:,player_control_list[1]]; # u¹ₜ
 
-# Row 4 corresponds to the gradient of the P3 Lagrangian with respect to λ³ₜ (duplicated dynamics),
-# which is the same in this problem as row 3.
-MM23[Block(4), Block.(1:length(zz_sizes²³ₜ))] = MM23[Block(3), Block.(1:length(zz_sizes²³ₜ))];
-NN23[Block(4), Block.(1:length(ww_sizes²³ₜ))] = NN23[Block(3), Block.(1:length(ww_sizes²³ₜ))];
+# # Row 4 corresponds to the gradient of the P3 Lagrangian with respect to λ³ₜ (duplicated dynamics),
+# # which is the same in this problem as row 3.
+# MM23[Block(4), Block.(1:length(zz_sizes²³ₜ))] = MM23[Block(3), Block.(1:length(zz_sizes²³ₜ))];
+# NN23[Block(4), Block.(1:length(ww_sizes²³ₜ))] = NN23[Block(3), Block.(1:length(ww_sizes²³ₜ))];
 
 # TODO: Create a lookup table for blocks based on variable and use it here so we can avoid these issues for earlier times.
-# Row 5 corresponds to the gradient of the P2 Lagrangian with respect to η²⁻¹ₜ₊₁ (policy constraint for P1 at future time T).
-MM23[Block(5, 9)] = -K1';   # xₜ₊₁
-MM23[Block(5, 10)] = I(mⁱ); # u¹ₜ₊₁ ∈ z¹ₜ₊₁
+# Row 4 corresponds to the gradient of the P2 Lagrangian with respect to u¹ₜ₊₁.
+MM23[Block(4,5)] = I(mⁱ); # η²⁻¹ₜ₊₁
 
-# Row 6 corresponds to the gradient of the P2 Lagrangian with respect to η²⁻³ₜ₊₁ (policy constraint for P3 at future time T).
-MM23[Block(6, 9)] = -K3';   # xₜ₊₁
-MM23[Block(6, 10)] = -P3';  # u¹ₜ₊₁ ∈ z¹ₜ₊₁
-MM23[Block(6, 15)] = I(mⁱ); # u³ₜ₊₁ ∈ z¹ₜ₊₁
+# TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
+# Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
+MM23[Block(4,6)] = -P2';   # η²⁻³ₜ₊₁
 
-# Row 7 corresponds to the gradient of the P3 Lagrangian with respect to η³⁻¹ₜ₊₁ (policy constraint for P1 at future time T, duplicates row 5).
-MM23[Block(7, 9)] = -K1';   # xₜ₊₁
-MM23[Block(7, 10)] = I(mⁱ); # u¹ₜ₊₁ ∈ z¹ₜ₊₁
+MM23[Block(4, 16)] = -B[:, player_control_list[1]]';  # λ²ₜ₊₁
 
-# Row 8 corresponds to the gradient of the P3 Lagrangian with respect to η³⁻²ₜ₊₁ (policy constraint for P2 at future time T).
-MM23[Block(8, 9)] = -K2';   # xₜ₊₁
-MM23[Block(8, 10)] = -P2';  # u¹ₜ₊₁ ∈ z¹ₜ₊₁
-MM23[Block(8, 14)] = I(mⁱ); # u²ₜ₊₁ ∈ z¹ₜ₊₁
+# Row 5 corresponds to the gradient of the P2 Lagrangian with respect to u³ₜ₊₁.
+MM23[Block(5,6)] = I(mⁱ); # η²⁻³ₜ₊₁
 
-# Row 9 corresponds to the gradient of the P2 Lagrangian with respect to xₜ₊₁ (state x_T at time t=T-1).
-MM23[Block(9, 3)] = I(n);     # λ²ₜ
-MM23[Block(9, 5)] = -K1';     # η²⁻¹ₜ₊₁
-MM23[Block(9, 6)] = -K3';     # η²⁻³ₜ₊₁
-MM23[Block(9, 9)] = Q[:,:,2]; # xₜ₊₁
+MM23[Block(5, 16)] = -B[:, player_control_list[3]]';  # λ²ₜ₊₁
 
-# Row 10 corresponds to the gradient of the P3 Lagrangian with respect to xₜ₊₁ (state x_T at time t=T-1).
-MM23[Block(10, 4)] = I(n);     # λ³ₜ
-MM23[Block(10, 7)] = -K1';     # η³⁻¹ₜ₊₁
-MM23[Block(10, 8)] = -K2';     # η³⁻²ₜ₊₁
-MM23[Block(10, 9)] = Q[:,:,3]; # xₜ₊₁
+# Row 6 corresponds to the gradient of the P3 Lagrangian with respect to u¹ₜ₊₁.
+MM23[Block(6,7)] = I(mⁱ); # η³⁻¹ₜ₊₁
 
-# Row 11 corresponds to the gradients of the P2 and P3 Lagrangian with respect to z¹ₜ₊₁ (i.e., KKT conditions at time t=T-1).
-llast_block_col = length(z_sizes¹ₜ);              # Last column index for z¹ₜ
-MM23[Block.(11:llast_block_col),Block.(10:llast_block_col)] = M1                            # KKT conditions for P2 and P3
+# TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
+# Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
+MM23[Block(6,8)] = -P3';   # η³⁻²ₜ₊₁
+
+MM23[Block(6, 17)] = -B[:, player_control_list[1]]';  # λ³ₜ₊₁
+
+# Row 7 corresponds to the gradient of the P3 Lagrangian with respect to u²ₜ₊₁.
+MM23[Block(7,8)] = I(mⁱ); # η³⁻²ₜ₊₁
+
+MM23[Block(7, 17)] = -B[:, player_control_list[2]]';  # λ³ₜ₊₁
+
+# Row 8 corresponds to the gradient of the P2 Lagrangian with respect to xₜ₊₁ (state x_T at time t=T-1).
+MM23[Block(8, 3)] = I(n);     # λ²ₜ
+
+# TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
+# Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
+MM23[Block(8, 5)] = -K1';     # η²⁻¹ₜ₊₁
+MM23[Block(8, 6)] = -K3';     # η²⁻³ₜ₊₁
+MM23[Block(8, 9)] = Q[:,:,2]; # xₜ₊₁
+
+MM23[Block(8, 16)] = -A';     # λ²ₜ₊₁
+
+# Row 9 corresponds to the gradient of the P3 Lagrangian with respect to xₜ₊₁ (state x_T at time t=T-1).
+MM23[Block(9, 4)] = I(n);     # λ³ₜ
+
+# TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
+# Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
+MM23[Block(9, 7)] = -K1';     # η³⁻¹ₜ₊₁
+MM23[Block(9, 8)] = -K2';     # η³⁻²ₜ₊₁
+MM23[Block(9, 9)] = Q[:,:,3]; # xₜ₊₁
+
+MM23[Block(9, 17)] = -A';     # λ³ₜ₊₁
+
+# Row 10 corresponds to the gradients of the P2 and P3 Lagrangian with respect to z¹ₜ₊₁ (i.e., KKT conditions at time t=T-1).
+llast_block_col = length(zz_sizes²³ₜ);                              # Last column index for z¹ₜ
+MM23[Block.(10:llast_block_col), Block(9)] = N1;                  # xₜ
+MM23[Block.(10:llast_block_col),Block.(10:llast_block_col)] = M1  # zₜ₊₁
+
+# # Complete MM23 by introducing N1 in the bottom left quadrant.
+# M1[Block.(llast_block_col+1:last_block_col), Block(1)] = N23[Block.(1:5), Block(2)];    # Player 2's control input
+# M1[Block.(5:last_block_col),Block.(5:last_block_col)] = M23                            # KKT conditions for P2 and P3
+
+
+
+# 7. [skipped due to assumptions] Compute n23 block vector for P2 and P3 at penultimate stage t=T-1.
+
+# 8. Compute the solution matrices for P2 and P3 at final stage t=T, i.e. for comparison.
+ssol23 = -MM23 \ NN23; # P23 is the NE for players 2 and 3 for the terminal stage
+
+KK2 = ssol23[Block(1,1)]; # KK2 is the feedback gain for player 2 at T-1
+PP2 = ssol23[Block(1,2)]; # PP2 is the feedforward gain for player 2 at T-1
+KK3 = ssol23[Block(2,1)]; # KK3 is the feedback gain for player 3 at T-1
+PP3 = ssol23[Block(2,2)]; # PP3 is the feedforward gain for player 3 at T-1
+# TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
+# Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
 
