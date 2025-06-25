@@ -92,8 +92,8 @@ Solve the Stackelberg hierarchy for the leader (P1) at the terminal stage.
 # ψ¹⁻²ₜ, ψ¹⁻³ₜ for the policy constraints which tie P1's problem at time t=T to that of followers P2 and P3.
 
 # 1. We first define the ordering \mathcal{Z}¹ₜ of the state z¹ₜ at time t=T for player 1.
-# \mathcal{Z}¹ₜ = [ u¹ₜ, u²ₜ, u³ₜ, xₜ₊₁, λ²ₜ, λ³ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ ] = [ u¹ₜ, z²³ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ ].
-# \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, xₜ₊₁ ] = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
+# [not this] \mathcal{Z}¹ₜ = [ u¹ₜ, u²ₜ, u³ₜ, xₜ₊₁, λ²ₜ, λ³ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ ] = [ u¹ₜ, z²³ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ ].
+# [this is correct] \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, xₜ₊₁ ] = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
 # We note that the ordering of z¹ₜ is a concatenation of the control of P1, P1's dual variables λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, and
 # the full state z²³ₜ of P2 and P3.
 
@@ -140,7 +140,7 @@ M1[Block(4, last_block_col)] = Q[:,:,1];        # Player 1's state cost
 
 # Fifth block row of KKT conditions corresponds to gradient of Lagrangian with respect to z²³ₜ.
 M1[Block.(5:last_block_col), Block(1)] = N23[Block.(1:5), Block(2)];    # Player 2's control input
-M1[Block.(5:last_block_col),Block.(5:last_block_col)] = M23                            # KKT conditions for P2 and P3
+M1[Block.(5:last_block_col), Block.(5:last_block_col)] = M23            # KKT conditions for P2 and P3
 
 # 6. Compute the N1 matrix (18x2) for P1 at final stage t=T.
 N1 = BlockArray([
@@ -163,7 +163,6 @@ K1 = sol1[Block(1,1)]; # K1 is the feedback gain for player 1.
 Solve the Stackelberg hierarchy for P2 and P3 at the penultimate stage (t=T-1).
 """
 # 1. We first define the ordering \mathcal{Z}ⁱₜ of the state zⁱₜ at time t=T-1 for players 2 and 3.
-# \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
 # \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
 
 # 2. Compute the size of the stage state zⁱₜ for players 2 and 3 at time t=T-1.
@@ -269,11 +268,6 @@ llast_block_col = length(zz_sizes²³ₜ);                              # Last c
 MM23[Block.(10:llast_block_col), Block(9)] = N1;                  # xₜ
 MM23[Block.(10:llast_block_col),Block.(10:llast_block_col)] = M1  # zₜ₊₁
 
-# # Complete MM23 by introducing N1 in the bottom left quadrant.
-# M1[Block.(llast_block_col+1:last_block_col), Block(1)] = N23[Block.(1:5), Block(2)];    # Player 2's control input
-# M1[Block.(5:last_block_col),Block.(5:last_block_col)] = M23                            # KKT conditions for P2 and P3
-
-
 
 # 7. [skipped due to assumptions] Compute n23 block vector for P2 and P3 at penultimate stage t=T-1.
 
@@ -287,3 +281,82 @@ PP3 = ssol23[Block(2,2)]; # PP3 is the feedforward gain for player 3 at T-1
 # TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
 # Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
 
+
+"""
+Solve the Stackelberg hierarchy for P1 at the penultimate stage (t=T-1).
+"""
+# 1. We first define the ordering \mathcal{Z}¹ₜ of the state z¹ₜ at time t=T-1 for P1.
+# \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
+# \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, η¹⁻²ₜ₊₁, η¹⁻³ₜ₊₁, z²³ₜ ].
+
+# 2. Compute the size of the stage state zⁱₜ for players 2 and 3 at time t=T-1.
+# (2) + (2) + (2+2) + (2+2) + (36) = 48
+zz_sizes¹ₜ = vcat([mⁱ, n, mⁱ, mⁱ, mⁱ, mⁱ], zz_sizes²³ₜ);
+ss¹ₜ = sum(zz_sizes¹ₜ);
+
+# TODO: This is consistent between stages, so can be done once at the beginning. Refactor to make it so.
+# 3. Identify the ordering \mathcal{Y}¹ₜ of the information vector (i.e. state and leader information that P1
+#    uses for decision-making) at t=T-1.
+# \mathcal{Y}¹ₜ = [ xₜ ].
+
+# TODO: This is consistent between stages, so can be done once at the beginning. No need to redefine variables.
+# 4. Compute the size s̃¹ₜ of the information vector yⁱₜ for P1 at time t=T-1.
+# (2) + (2) = 4 <=> 1 full state, 1 player control
+ww_sizes¹ₜ = [n];
+s̃s¹ₜ = sum(ww_sizes¹ₜ);
+
+# 5. Compute the MM23 matrix (36x36) for P2 and P3 at penultimate stage t=T-1.
+MM1 = BlockArray(zeros(ss¹ₜ, ss¹ₜ), zz_sizes¹ₜ, zz_sizes¹ₜ);
+
+# 6. In addition, we set up the NN23 matrix (36x4) for P2 and P3 at penultimate stage t=T-1.
+NN1 = BlockArray(zeros(ss¹ₜ, s̃s¹ₜ), zz_sizes¹ₜ, ww_sizes¹ₜ);
+
+# # TODO: Change these to use the standard control law u = -Kx - Pu
+# First block row of KKT conditions - gradient of P1's Lagrangian with respect to u¹ₜ.
+MM1[Block(1,1)] = R[:,:,1]; # u¹ₜ
+MM1[Block(1,2)] = -B1';     # λ¹ₜ
+MM1[Block(1,3)] = -PP2';    # ψ¹⁻²
+MM1[Block(1,4)] = -PP3';    # ψ¹⁻³
+
+# Second block row of KKT conditions - gradient of P1's Lagrangian with respect to u²ₜ.
+MM1[Block(2,2)] = -B2';
+MM1[Block(2,3)] = I(mⁱ);
+
+# Third block row of KKT conditions - gradient of P1's Lagrangian with respect to u³ₜ.
+MM1[Block(3,2)] = -B3';
+MM1[Block(3,4)] = I(mⁱ);
+
+# Fourth block row of KKT conditions - gradient of P1's Lagrangian with respect to u²ₜ₊₁.
+MM1[Block(4,5)]  = I(mⁱ);
+MM1[Block(4,17)] = -B2';
+
+# Fifth block row of KKT conditions - gradient of P1's Lagrangian with respect to u³ₜ₊₁.
+MM1[Block(5,6)]  = I(mⁱ);
+
+MM1[Block(5,17)] = -B3';
+
+# Sixth block row of KKT conditions - gradient of P1's Lagrangian with respect to xₜ₊₁.
+MM1[Block(6,2)] = I(n);
+MM1[Block(6,5)] = -KK2';
+MM1[Block(6,6)] = -KK3';
+
+MM1[Block(6,15)] = Q[:, :, 1];
+MM1[Block(6,17)] = -A';
+
+# Seventh block row of KKT conditions - gradient of P1's Lagrangian with respect to z²³ₜ.
+llast_block_col = length(zz_sizes¹ₜ)
+MM1[Block.(7:llast_block_col), Block(1)] = NN23[Block.(1:18), Block(2)];    # Player 2's control input
+MM1[Block.(7:llast_block_col), Block.(7:llast_block_col)] = MM23             # KKT conditions for P2 and P3
+
+# Note: dynamics constraint exists in the KKT conditions for P2 and P3, so we only need to add this term to the existing dynamics row.
+NN1[Block(9,1)] = -A; # xₜ
+
+# 7. [skipped due to assumptions] Compute n23 block vector for P2 and P3 at final stage t=T.
+
+# 8. Compute the solution matrices for P1 at final stage t=T, i.e. for comparison.
+ssol1 = -MM1 \ NN1; # P1 is the NE for players 1, 2, and 3 for the terminal stage
+# println("second with blocks: ", sol23)
+
+KK1 = ssol1[Block(1,1)]; # K1 is the feedback gain for player 1.
+# TODO: NE: u1 = -K1 * x
+# Current: NE: u1 = K1 * x
