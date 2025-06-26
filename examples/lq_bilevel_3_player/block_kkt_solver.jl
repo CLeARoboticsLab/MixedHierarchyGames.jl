@@ -212,6 +212,7 @@ NN23[Block(3,2)] = -B[:,player_control_list[1]]; # u¹ₜ
 # MM23[Block(4), Block.(1:length(zz_sizes²³ₜ))] = MM23[Block(3), Block.(1:length(zz_sizes²³ₜ))];
 # NN23[Block(4), Block.(1:length(ww_sizes²³ₜ))] = NN23[Block(3), Block.(1:length(ww_sizes²³ₜ))];
 
+# TODO: Try t* in the subscript for next stage?
 # TODO: Create a lookup table for blocks based on variable and use it here so we can avoid these issues for earlier times.
 # Row 4 corresponds to the gradient of the P2 Lagrangian with respect to u¹ₜ₊₁.
 MM23[Block(4,5)] = I(mⁱ); # η²⁻¹ₜ₊₁
@@ -263,6 +264,7 @@ MM23[Block(9, 9)] = Q[:,:,3]; # xₜ₊₁
 
 MM23[Block(9, 17)] = -A';     # λ³ₜ₊₁
 
+# TODO: Fix wording here to clarify that these are the appended KKT conditions.
 # Row 10 corresponds to the gradients of the P2 and P3 Lagrangian with respect to z¹ₜ₊₁ (i.e., KKT conditions at time t=T-1).
 llast_block_col = length(zz_sizes²³ₜ);                              # Last column index for z¹ₜ
 MM23[Block.(10:llast_block_col), Block(9)] = N1;                  # xₜ
@@ -275,9 +277,9 @@ MM23[Block.(10:llast_block_col),Block.(10:llast_block_col)] = M1  # zₜ₊₁
 ssol23 = -MM23 \ NN23; # P23 is the NE for players 2 and 3 for the terminal stage
 
 KK2 = ssol23[Block(1,1)]; # KK2 is the feedback gain for player 2 at T-1
-PP2 = ssol23[Block(1,2)]; # PP2 is the feedforward gain for player 2 at T-1
+PP2 = ssol23[Block(1,2)]; # PP2 is the u1 gain for player 2 at T-1
 KK3 = ssol23[Block(2,1)]; # KK3 is the feedback gain for player 3 at T-1
-PP3 = ssol23[Block(2,2)]; # PP3 is the feedforward gain for player 3 at T-1
+PP3 = ssol23[Block(2,2)]; # PP3 is the u1 gain for player 3 at T-1
 # TODO:  NE: u2 = -K2 * x - P2 * u1,  NE: u3 = -K3 * x - P3 * u1
 # Current:  NE: u2 = K2 * x + P2 * u1,  NE: u3 = K3 * x + P3 * u1
 
@@ -286,7 +288,6 @@ PP3 = ssol23[Block(2,2)]; # PP3 is the feedforward gain for player 3 at T-1
 Solve the Stackelberg hierarchy for P1 at the penultimate stage (t=T-1).
 """
 # 1. We first define the ordering \mathcal{Z}¹ₜ of the state z¹ₜ at time t=T-1 for P1.
-# \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
 # \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, η¹⁻²ₜ₊₁, η¹⁻³ₜ₊₁, z²³ₜ ].
 
 # 2. Compute the size of the stage state zⁱₜ for players 2 and 3 at time t=T-1.

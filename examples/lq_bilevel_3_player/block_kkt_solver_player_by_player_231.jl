@@ -51,10 +51,10 @@ w_sizes²³ = [n, mⁱ];
 # (2) = 2 <=> 1 full state
 w_sizes¹ = [n];
 
-s̃²ₜ = sum(w_sizes²ₜ);
-s̃³ₜ = sum(w_sizes³ₜ);
-s̃²³ₜ = sum(w_sizes²³ₜ);
-s̃¹ₜ = sum(w_sizes¹ₜ);
+s̃²ₜ = sum(w_sizes²);
+s̃³ₜ = sum(w_sizes³);
+s̃²³ₜ = sum(w_sizes²³);
+s̃¹ₜ = sum(w_sizes¹);
 
 # 0c. Within each stage, the order of computation/merging will be:
 """
@@ -78,18 +78,18 @@ mathcal{Z}ⁱₜ = [player i primals at t *(self, then follower, then Nash)*;
 Note: h ∈ t + {1, ..., T - t} = {t+1, ... , T}.
 
 Final stage:
-P2: \mathcal{Z}²ₜ = [ u²ₜ, λ²ₜ, u³ₜ, xₜ₊₁ ].
-P3: \mathcal{Z}³ₜ = [ u³ₜ, λ³ₜ, u²ₜ, xₜ₊₁ ].
-P23: \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, xₜ₊₁ ].
-P1: \mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
+P2: mathcal{Z}²ₜ = [ u²ₜ, λ²ₜ, u³ₜ, xₜ₊₁ ].
+P3: mathcal{Z}³ₜ = [ u³ₜ, λ³ₜ, u²ₜ, xₜ₊₁ ].
+P23: mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, xₜ₊₁ ].
+P1: mathcal{Z}¹ₜ = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
 
 All stages (t < T & t = T):
 Note: ηₜ₊₁ = {}, zⁱₜ₊₁ = {}
 Q: Does z¹ₜ₊₁ include all {η} at t in {t+2, ..., T}? If so, we can adjust the current time ηs. Adjusted per this comment.
-P2: \mathcal{Z}²ₜ   -> z²ₜ  = [ u²ₜ, λ²ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, u³ₜ, xₜ₊₁, z¹ₜ₊₁ ].
-P3: \mathcal{Z}³ₜ   -> z³ₜ  = [ u³ₜ, λ³ₜ, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, u²ₜ, xₜ₊₁, z¹ₜ₊₁ ].
-P23: \mathcal{Z}²³ₜ -> z²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
-P1: \mathcal{Z}¹ₜ   -> z¹ₜ  = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
+P2: mathcal{Z}²ₜ   -> z²ₜ  = [ u²ₜ, λ²ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, u³ₜ, xₜ₊₁, z¹ₜ₊₁ ].
+P3: mathcal{Z}³ₜ   -> z³ₜ  = [ u³ₜ, λ³ₜ, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, u²ₜ, xₜ₊₁, z¹ₜ₊₁ ].
+P23: mathcal{Z}²³ₜ -> z²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, η²⁻¹ₜ₊₁, η²⁻³ₜ₊₁, η³⁻¹ₜ₊₁, η³⁻²ₜ₊₁, xₜ₊₁, z¹ₜ₊₁ ].
+P1: mathcal{Z}¹ₜ   -> z¹ₜ  = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³ₜ, z²³ₜ ].
 """
 
 
@@ -98,8 +98,30 @@ P1: \mathcal{Z}¹ₜ   -> z¹ₜ  = [ u¹ₜ, λ¹ₜ, ψ¹⁻²ₜ, ψ¹⁻³�
 
 """
 P2:
+gradient of P2 wrt u²ₜ
+gradient of P2 wrt λ²ₜ
+gradient of P2 wrt u³ₜ
+gradient of P2 wrt xₜ₊₁
+"""
 
 
+"""
+P3:
+gradient of P3 wrt u³ₜ
+gradient of P3 wrt λ³ₜ
+gradient of P3 wrt u²ₜ
+gradient of P3 wrt xₜ₊₁
+"""
+
+
+"""
+P23:
+gradient of P2 wrt u²ₜ
+gradient of P3 wrt u³ₜ
+gradient of P2 wrt λ²ₜ (combined with following since dynamics constraints are shared)
+gradient of P3 wrt λ³ₜ (removed because it is a duplicate)
+gradient of P2 wrt xₜ₊₁
+gradient of P3 wrt xₜ₊₁
 """
 
 """
@@ -121,10 +143,102 @@ Solve the Stackelberg hierarchy for the follower P2 at the terminal stage.
 z_sizes²ₜ = [mⁱ, mⁱ, n, n];
 s²ₜ = sum(z_sizes²ₜ);
 
-# 3. Identify the ordering of the KKT conditions, \mathcal{K}²ₜ for P2 at time t=T.
-# \mathcal{K}²ₜ = [
-#   gradient of the Lagrangian of P2 w.r.t. u²ₜ,  # P2 own primal
-#   gradient of the Lagrangian of P2 w.r.t. λ²ₜ,  # P2 own dual (dynamics)
-#   gradient of the Lagrangian of P2 w.r.t. u³ₜ,  # P2 primal for P3 (Nash relationship)
-#   gradient of the Lagrangian of P2 w.r.t. xₜ₊₁, # P2 primal for the state (shared variable)
-# ].
+# 3. Construct M2 as a 8x8 block matrix, N2 as a 8x4 matrix.
+M2 = BlockArray(zeros(s²ₜ, s²ₜ), z_sizes²ₜ, z_sizes²ₜ);
+N2 = BlockArray(zeros(s²ₜ, s̃²ₜ), z_sizes²ₜ, w_sizes²);
+
+# Row 1 is the gradient of P2's Lagrangian with respect to u²ₜ.
+M2[Block(1,1)] = R[:,:,2]; # u²ₜ
+M2[Block(1,2)] = -B2';     # λ²ₜ
+
+# Row 2 is the gradient of P2's Lagrangian with respect to λ²ₜ (i.e. dynamics).
+M2[Block(2,1)] = -B2;      # u²ₜ
+M2[Block(2,3)] = -B3;      # u³ₜ
+M2[Block(2,4)] = I(n);     # xₜ₊₁
+
+N2[Block(2,1)] = -A;       # xₜ₊₁
+N2[Block(2,2)] = -B1;      # u¹ₜ
+
+# Row 3 is the gradient of P2's Lagrangian with respect to u³ₜ.
+M2[Block(3,2)] = -B3';     # λ²ₜ
+
+# Row 4 is the gradient of P2's Lagrangian with respect to xₜ₊₁.
+M2[Block(4,1)] = I(n);     # u²ₜ
+M2[Block(4,4)] = Q[:,:,2]; # xₜ₊₁
+
+
+# 4a. Compute the size of the stage state z³ₜ for P3 at time t=T.
+# (2 + 2) + (2) + (2) = 8 <=> 2 player controls, 1 dynamics constraint, 1 full state
+z_sizes³ₜ = [mⁱ, mⁱ, n, n];
+s³ₜ = sum(z_sizes³ₜ);
+
+# 4b. Construct M3 as a 8x8 block matrix, N3 as a 8x4 matrix.
+# \mathcal{Z}³ₜ = [ u³ₜ, λ³ₜ, u²ₜ, xₜ₊₁ ]. TODO: All caveats for P2 apply here.
+M3 = BlockArray(zeros(s³ₜ, s³ₜ), z_sizes³ₜ, z_sizes³ₜ);
+N3 = BlockArray(zeros(s³ₜ, s̃³ₜ), z_sizes³ₜ, w_sizes³);
+
+# Row 1 is the gradient of P3's Lagrangian with respect to u³ₜ.
+M3[Block(1,1)] = R[:,:,3]; # u³ₜ
+M3[Block(1,2)] = -B3';     # λ³ₜ
+
+# Row 2 is the gradient of P3's Lagrangian with respect to λ³ₜ (i.e. dynamics).
+M3[Block(2,1)] = -B3;      # u³ₜ
+M3[Block(2,3)] = -B2;      # u²ₜ
+M3[Block(2,4)] = I(n);     # xₜ₊₁
+
+N3[Block(2,1)] = -A;       # xₜ₊₁
+N3[Block(2,2)] = -B1;      # u¹ₜ
+
+# Row 3 is the gradient of P3's Lagrangian with respect to u²ₜ.
+M3[Block(3,2)] = -B2';     # λ³ₜ
+
+# Row 4 is the gradient of P3's Lagrangian with respect to xₜ₊₁.
+M3[Block(4,1)] = I(n);     # u³ₜ
+M3[Block(4,4)] = Q[:,:,3]; # xₜ₊₁
+
+
+# 5a. Merge M2 and M3. Construct M23 as a 10x10 block matrix, N23 as a 10x4 matrix. 
+# \mathcal{Z}²³ₜ = [ u²ₜ, u³ₜ, λ²ₜ, λ³ₜ, xₜ₊₁ ].
+# P23 row order:
+# gradient of P2 wrt u²ₜ
+# gradient of P3 wrt u³ₜ
+# gradient of P2 wrt λ²ₜ (combined with following since dynamics constraints are shared)
+# gradient of P3 wrt λ³ₜ (removed because it is a duplicate)
+# gradient of P2 wrt xₜ₊₁
+# gradient of P3 wrt xₜ₊₁
+
+# 5b. Compute the size of the stage state zⁱₜ for players 2 and 3 at time t=T.
+# (2 + 2) + (2) + (2) + (2) = 10 <=> 2 player controls, 2 dynamics constraints, 1 full state
+z_sizes²³ₜ = [mⁱ, mⁱ, n, n, n];
+s²³ₜ = sum(z_sizes²³ₜ);
+
+# 5c. Build M and N based on previous matrices M2, N2, M3, and N3.
+M23 = BlockArray(zeros(s²³ₜ, s²³ₜ), z_sizes²³ₜ, z_sizes²³ₜ);
+N23 = BlockArray(zeros(s²³ₜ, s̃²³ₜ), z_sizes²³ₜ, w_sizes²³);
+
+# First, identify the primal variables for the players being merged (P2 and P3 have controls u2 and u3).
+# Row 1 is the gradient of P2's Lagrangian with respect to u²ₜ.
+M23[Block(1,1)] = M2[Block(1,1)]; # u²ₜ
+M23[Block(1,3)] = M2[Block(1,2)]; # λ²ₜ
+
+# Row 2 is the gradient of P3's Lagrangian with respect to u³ₜ.
+M23[Block(2,2)] = M3[Block(1,1)]; # u³ₜ
+M23[Block(2,4)] = M3[Block(1,2)]; # λ³ₜ
+
+# Row 3 is the shared constraint, i.e. dynamics, i.e. gradient of Pi's Lagrangian with respect to uⁱₜ.
+M23[Block(3,1)] = M2[Block(2,1)]; # u²ₜ
+M23[Block(3,2)] = M3[Block(2,1)]; # u³ₜ
+M23[Block(3,5)] = M2[Block(2,4)]; # xₜ₊₁
+
+N23[Block(3,1)] = N3[Block(2,1)]; # xₜ₊₁
+N23[Block(3,2)] = N3[Block(2,2)]; # u¹ₜ
+
+# Row 4 is the gradient of P2's Lagrangian with respect to xₜ₊₁.
+M23[Block(4,3)] = M2[Block(4,1)]; # λ²ₜ
+M23[Block(4,5)] = M2[Block(4,4)]; # xₜ₊₁
+
+# Row 5 is the gradient of P3's Lagrangian with respect to xₜ₊₁.
+M23[Block(5,4)] = M3[Block(4,1)]; # λ³ₜ
+M23[Block(5,5)] = M3[Block(4,4)]; # xₜ₊₁
+
+
