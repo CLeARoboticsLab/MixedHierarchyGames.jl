@@ -43,3 +43,13 @@ TODO
     P1          P1
    /  \   -->   ||   -->  P123
   P2  P3        P23 
+
+
+
+Designing automated indexing for variables.
+-------------------------------------------
+
+
+
+
+

@@ -70,8 +70,8 @@ M1, N1 -> K1, P1
 """
 mathcal{Z}ⁱₜ = [player i primals at t *(self, then follower, then Nash)*;
                 player i dual (dynamics + policy) at t;
-                *Nash primals (Nash at t) at same time*;
-                *follower primals at same time t*;
+                *follower KKT conditions at t*;
+                *Nash KKT conditions at t*;
                 future player KKT states at t, zⁱₜ;
                 *shared variable (i.e. state)*]
 

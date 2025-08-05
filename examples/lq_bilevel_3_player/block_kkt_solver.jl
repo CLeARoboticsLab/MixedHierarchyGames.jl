@@ -333,7 +333,6 @@ MM1[Block(4,17)] = -B2';
 
 # Fifth block row of KKT conditions - gradient of P1's Lagrangian with respect to u³ₜ₊₁.
 MM1[Block(5,6)]  = I(mⁱ);
-
 MM1[Block(5,17)] = -B3';
 
 # Sixth block row of KKT conditions - gradient of P1's Lagrangian with respect to xₜ₊₁.
