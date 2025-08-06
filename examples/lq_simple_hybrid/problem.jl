@@ -24,6 +24,7 @@ Assumptions:
 
 using LinearAlgebra
 using BlockArrays
+using Graphs
 
 # Number of players
 N = 3;
@@ -63,3 +64,36 @@ player_control_list = [
 B1 = B[:, player_control_list[1]]
 B2 = B[:, player_control_list[2]]
 B3 = B[:, player_control_list[3]]
+
+
+# Define the hierarchy tree.
+roots = [1, 2];
+
+#   (i,j) =  1 <-> i is parent of j.
+#   (i,j) = -1 <-> i is child of j.
+#   (i,i) =  ∞ <-> i is self.
+#   (i,j) =  0 <-> i and j are Nash related.
+G = zeros(N, N);
+G[1, 1] = Inf;  # P1 is self
+G[2, 2] = Inf;  # P2 is self
+G[3, 3] = Inf;  # P3 is self
+
+G[2, 3] = 1;  # P2 is parent of P3
+G[3, 2] = -1; # P3 is child of P2
+
+g = SimpleDiGraph(N);
+add_edge!(g, 2, 3); # P2 -> P3
+
+# TODO: sizing lookup currently assumes all players have the same control size.
+var_sizes = Dict(
+    'x' => n,  # state size
+    'u' => mⁱ, # control size per player
+    'λ' => n,  # dynamics dual size
+    # 'ψ' => m,  # control dual size
+    'η' => mⁱ,  # leader-follower policy dual size
+)
+
+function lookup_varsize(var_name::Symbol)
+    symbol_str = string(var_name)
+    return var_sizes[symbol_str[1]]
+end
