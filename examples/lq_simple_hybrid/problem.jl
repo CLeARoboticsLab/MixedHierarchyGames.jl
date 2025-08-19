@@ -4,7 +4,7 @@ P2 leads P3, and both are in a Nash relationship with P1.
 
 Drawing (at time t):
   P1  P2
-      |
+      |    =>  P1  P2  =>  P12
       P3
 
 TODO: Loosen these assumptions as we generalize the solver.
