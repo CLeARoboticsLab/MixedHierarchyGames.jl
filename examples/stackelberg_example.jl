@@ -8,8 +8,10 @@ using SymbolicTracingUtils
 using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using TrajectoryGamesBase: unflatten_trajectory
 
+using Plots
+
 num_players = 3 # number of players
-T = 5 # time horizon
+T = 10 # time horizon
 state_dimension = 2 # player 1,2,3 state dimension
 control_dimension = 2 # player 1,2,3 control dimension
 x_dim = state_dimension * (T+1)
@@ -20,7 +22,7 @@ total_dimension = aggre_state_dimension + aggre_control_dimension
 primal_dimension_per_player = x_dim + u_dim
 
 # Dynamics
-Δt = 0.2 # time step
+Δt = 0.5 # time step
 A = I(state_dimension * num_players)
 B¹ = [Δt * I(control_dimension); zeros(4, 2)]
 B² = [zeros(2, 2); Δt * I(control_dimension); zeros(2, 2)]
@@ -30,65 +32,79 @@ B = [B¹ B² B³]
 
 ##### Baseline Solution via PATH ######
 
-# player 3 (follower)'s objective function
+# player 3 (follower)'s objective function: P3 follows P2
 function J₃(z₃, z₂, θ)
 	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 	xs³, us³ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 	xs², us² = xs, us
-	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.5*sum(sum(u³ .^ 2) for u³ in us³)
+	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³)
 end
 
-# player 2 (leader)'s objective function
-function J₂(z₂, θ)
+# player 2 (leader)'s objective function: P2 wants to get to the origin
+function J₂(z₂, z₁, z₃, θ)
+	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+	xs³, us³ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
-	0.5*sum(xs[end] .^ 2) + 0.5*sum(sum(u .^ 2) for u in us)
+	xs², us² = xs, us
+	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+	xs¹, us¹ = xs, us
+	sum((0.5*(xs¹[end] .+ xs³[end])).^2) + 0.05*sum(sum(u .^ 2) for u in us²)
 end
 
-# # system dynamics
-# function dynamics(z₂, z₃, t)
-# 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
-# 	xs², us² = xs, us
-# 	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-# 	xs³, us³ = xs, us
-# 	x = [xs²[t]; xs³[t]]
-# 	u = [us²[t]; us³[t]]
-# 	xp1 = [xs²[t+1]; xs³[t+1]]
-# 	return xp1 - A[3:6, 3:6]*x - B[3:6, 3:6]*u
-# end
+# player 1 (nash)'s objective function: P1 wants to get close to P2's final position
+function J₁(z₁, z₂, θ)
+	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+	xs¹, us¹ = xs, us
+	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+	xs², us² = xs, us
+	0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+end
 
 function dynamics(z, t)
-    (; xs, us) = unflatten_trajectory(z, state_dimension, control_dimension)
-    x  = xs[t]
-    u  = us[t]
-    xp1 = xs[t+1]
-    # rows 3:4 for p2 in A, and columns 3:4 for p2 in B when using the full stacked system
-    # but since A is I and B is block-diagonal by design, you can just write:
-    return xp1 - x - Δt*u
+	(; xs, us) = unflatten_trajectory(z, state_dimension, control_dimension)
+	x = xs[t]
+	u = us[t]
+	xp1 = xs[t+1]
+	# rows 3:4 for p2 in A, and columns 3:4 for p2 in B when using the full stacked system
+	# but since A is I and B is block-diagonal by design, you can just write:
+	return xp1 - x - Δt*u
 end
 
-g₂(z₂) = mapreduce(vcat, 1:T) do t; dynamics(z₂, t); end
-g₃(z₃) = mapreduce(vcat, 1:T) do t; dynamics(z₃, t); end
+g₁(z₁) =
+	mapreduce(vcat, 1:T) do t
+		dynamics(z₁, t)
+	end
+g₂(z₂) =
+	mapreduce(vcat, 1:T) do t
+		dynamics(z₂, t)
+	end
+g₃(z₃) =
+	mapreduce(vcat, 1:T) do t
+		dynamics(z₃, t)
+	end
 
 # Symbolic variables
 backend = SymbolicTracingUtils.SymbolicsBackend()
-# z₁ = SymbolicTracingUtils.make_variables(
-# 	backend,
-# 	Symbol("z̃1"),
-# 	primal_dimension_per_player,
-# )
+z₁ = SymbolicTracingUtils.make_variables(
+	backend,
+	Symbol("z̃1"),
+	primal_dimension_per_player,
+)
 z₂ = SymbolicTracingUtils.make_variables(
-    backend,
-    Symbol("z̃2"),
-    primal_dimension_per_player,
+	backend,
+	Symbol("z̃2"),
+	primal_dimension_per_player,
 )
 z₃ = SymbolicTracingUtils.make_variables(
-    backend,
-    Symbol("z̃3"),
-    primal_dimension_per_player,
+	backend,
+	Symbol("z̃3"),
+	primal_dimension_per_player,
 )
 symbolic_type = eltype(z₂)
 θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+xs¹, us¹ = xs, us
 (; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 xs², us² = xs, us
 (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
@@ -96,7 +112,7 @@ xs³, us³ = xs, us
 
 # KKT conditions of p3 (follower)
 # p3 initial condition (fixed)
-ic₃ = xs³[1] .- [2.0; 4.0]
+ic₃ = xs³[1] .- [-1.0; 2.0]
 
 λ₃ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_3"), length(g₃(z₃)) + length(ic₃))
 L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
@@ -108,23 +124,37 @@ ic₂ = xs²[1] .- [0.5; 1.0]
 
 # Leader Lagrangian: leader’s own constraints only
 λ₂ = SymbolicTracingUtils.make_variables(
-    backend, Symbol("λ_2"), length(π₃) + length(g₂(z₂)) + length(ic₂) 
+	backend, Symbol("λ_2"), length(π₃) + length(g₂(z₂)) + length(ic₂),
 )
-L₂ = J₂(z₂, θ) - λ₂' * [π₃; g₂(z₂); ic₂]
+L₂ = J₂(z₂, z₁, z₃, θ) - λ₂' * [π₃; g₂(z₂); ic₂]
 
 # Stationarity only w.r.t leader variables z₂ and λ₂
 ∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
 
+# KKT conditions of p1 (nash)
+# p1 initial condition (fixed)
+ic₁ = xs¹[1] .- [-2.0; 2.0]
+
+# p1 Lagrangian: nash’s own constraints only
+λ₁ = SymbolicTracingUtils.make_variables(
+	backend, Symbol("λ_1"), length(g₁(z₁)) + length(ic₁),
+)
+L₁ = J₁(z₁, z₂, θ) - λ₁' * [g₁(z₁); ic₁]
+∇L₁ = Symbolics.gradient(L₁, z₁)
+
 # Final MCP vector: leader stationarity + leader constraints + follower KKT
 F = Vector{symbolic_type}([
-    ∇L₂;                 # leader stationarity
-    g₂(z₂); ic₂;         # leader feasibility
-    π₃;                  # follower stationarity
-    g₃(z₃); ic₃;         # follower feasibility
+	∇L₁;                 # nash stationarity
+	∇L₂;                 # leader stationarity
+	π₃;                  # follower stationarity
+	g₁(z₁); ic₁;         # nash feasibility
+	g₂(z₂); ic₂;         # leader feasibility
+	g₃(z₃); ic₃;         # follower feasibility
 ])
 
-variables = vcat(z₂, z₃, λ₂, λ₃)  # ordering can vary
-z̲ = fill(-Inf, length(F)); z̅ = fill(Inf, length(F))
+variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
+z̲ = fill(-Inf, length(F));
+z̅ = fill(Inf, length(F))
 
 # Solve via PATH
 parameter_value = [1e-5]
@@ -143,11 +173,49 @@ z_sol, status, info = ParametricMCPs.solve(
 	use_start = true,
 )
 @show status
-z₂_sol = z_sol[1:length(z₂)]
-z₃_sol = z_sol[length(z₂)+1:length(z₂)+length(z₃)]
+z₁_sol = z_sol[1:length(z₁)]
+z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
+z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
+(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+println("P1 (x,u) solution : ($xs, $us)")
+println("P1 Objective: $(J₁(z₁_sol, z₂_sol, 0))")
 (; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 println("P2 (x,u) solution : ($xs, $us)")
 println("P2 Objective: $(J₂(z₂_sol, 0))")
 (; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 println("P3 (x,u) solution : ($xs, $us)")
 println("P3 Objective: $(J₃(z₃_sol, z₂_sol, 0))")
+
+
+
+# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
+state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
+
+# Reconstruct trajectories from solutions
+xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
+xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+
+X1 = state_matrix(xs1)  # 2 × (T+1)
+X2 = state_matrix(xs2)
+X3 = state_matrix(xs3)
+
+# Plot 2D paths
+plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
+	legend = :bottomright, aspect_ratio = :equal, grid = true)
+
+plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 3, label = "P1")
+plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2")
+plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3")
+
+# Mark start (t=0) and end (t=T) points
+scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
+	markershape = :star5, ms = 8, label = "start (t=0)")
+scatter!(plt, [X1[1, end], X2[1, end], X3[1, end]], [X1[2, end], X2[2, end], X3[2, end]];
+	markershape = :hexagon, ms = 8, label = "end (t=$T)")
+
+
+# Origin
+scatter!(plt, [0.0], [0.0]; marker = :cross, ms = 8, color = :black, label = "Origin (0,0)")
+
+display(plt)
