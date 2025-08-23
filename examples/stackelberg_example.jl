@@ -1,7 +1,7 @@
 
 using ParametricMCPs: ParametricMCPs
 
-using LinearAlgebra: I, norm, pinv, Diagonal
+using LinearAlgebra: I, norm, pinv, Diagonal, rank
 
 using Symbolics
 using SymbolicTracingUtils
@@ -49,7 +49,7 @@ function J₂(z₂, z₁, z₃, θ)
 	xs², us² = xs, us
 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 	xs¹, us¹ = xs, us
-	sum((0.5*(xs¹[end] .+ xs³[end])).^2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
 end
 
 # player 1 (nash)'s objective function: P1 wants to get close to P2's final position
@@ -122,14 +122,35 @@ L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
 # p2 initial condition (fixed)
 ic₂ = xs²[1] .- [0.5; 1.0]
 
-# Leader Lagrangian: leader’s own constraints only
-λ₂ = SymbolicTracingUtils.make_variables(
-	backend, Symbol("λ_2"), length(π₃) + length(g₂(z₂)) + length(ic₂),
-)
-L₂ = J₂(z₂, z₁, z₃, θ) - λ₂' * [π₃; g₂(z₂); ic₂]
+# # Leader Lagrangian: leader’s own constraints only
+# λ₂ = SymbolicTracingUtils.make_variables(
+# 	backend, Symbol("λ_2"), length(π₃) + length(g₂(z₂)) + length(ic₂),
+# )
+# L₂ = J₂(z₂, z₁, z₃, θ) - λ₂' * [π₃; g₂(z₂); ic₂]
 
-# Stationarity only w.r.t leader variables z₂ and λ₂
-∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
+# # Stationarity
+# ∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
+
+############### 08/20: Implict function theorem
+∇₂π₃ = Symbolics.jacobian(π₃, z₂) # 44 by 44
+∇₃π₃ = Symbolics.jacobian(π₃, z₃) # 44 by 44
+∇_λ₃π₃ = Symbolics.jacobian(π₃, λ₃) # 44 by 22
+
+sol = - hcat(∇₃π₃, ∇_λ₃π₃) \  ∇₂π₃ # A^-1 * b, 66 by 22
+
+∇₂π̃₃ = sol[1:length(z₂),:] # 44 by 44 
+n_rows, n_cols = size(∇₂π̃₃)
+λ₂ = SymbolicTracingUtils.make_variables(
+	backend, Symbol("λ_2"), length(g₂(z₂)) + length(ic₂) + n_rows,
+)
+λ₂₁ = λ₂[1:length(g₂(z₂)) + length(ic₂)]
+λ₂₂ = λ₂[(length(g₂(z₂)) + length(ic₂)+1):end]
+
+∇₂L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₂) - Symbolics.jacobian(vcat(g₂(z₂),ic₂), z₂)' * λ₂₁ - ∇₂π̃₃' * λ₂₂
+∇₃L₂ = Symbolics.gradient(0, z₃) # ??
+∇L₂ = vcat(∇₂L₂, ∇₃L₂)
+# ∇L₂ = ∇₂L₂
+##############
 
 # KKT conditions of p1 (nash)
 # p1 initial condition (fixed)
