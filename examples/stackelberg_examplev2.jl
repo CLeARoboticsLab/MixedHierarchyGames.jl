@@ -70,8 +70,6 @@ function dynamics(z, t)
 	x = xs[t]
 	u = us[t]
 	xp1 = xs[t+1]
-	# rows 3:4 for p2 in A, and columns 3:4 for p2 in B when using the full stacked system
-	# but since A is I and B is block-diagonal by design, you can just write:
 	return xp1 - x - Δt*u
 end
 
@@ -121,10 +119,7 @@ ic₃ = xs³[1] .- [-1.0; 2.0]
 λ₃ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_3"), length(g₃(z₃)) + length(ic₃))
 L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
 π₃ = vcat(Symbolics.gradient(L₃, z₃), g₃(z₃), ic₃)  # stationarity of follower only w.r.t its own vars
-# # π₃ = vcat(
-# # 	Symbolics.gradient(L₃, vcat(xs³...)), # 22
-# # 	Symbolics.gradient(L₃, vcat(us³...)), # 22
-# # )
+
 
 
 # X̲, Y̲ = let
@@ -146,7 +141,7 @@ L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
 # Mₜ³ = Symbolics.jacobian(π₃, X̲) 
 # Nₜ³ = Symbolics.jacobian(π₃, Y̲) 
 
-# π̃₃ =  - Mₜ³   Nₜ³ * vcat(flatten(xs²[Not(end)]), flatten(us²))
+# π̃₃ =  - Mₜ³ \ Nₜ³ * vcat(flatten(xs²[Not(end)]), flatten(us²))
 
 # Main.@infiltrate
 
@@ -154,34 +149,6 @@ L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
 # p2 initial condition (fixed)
 ic₂ = xs²[1] .- [0.5; 1.0]
 
-# # Leader Lagrangian: leader’s own constraints only
-# λ₂ = SymbolicTracingUtils.make_variables(
-# 	backend, Symbol("λ_2"), length(π₃) + length(g₂(z₂)) + length(ic₂),
-# )
-# L₂ = J₂(z₂, z₁, z₃, θ) - λ₂' * [π₃; g₂(z₂); ic₂]
-
-# # Stationarity
-# ∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
-
-# ############### 08/20: Implict function theorem
-# ∇₂π₃ = Symbolics.jacobian(π₃, z₂) # 44 by 44
-# ∇₃π₃ = Symbolics.jacobian(π₃, z₃) # 44 by 44
-# ∇_λ₃π₃ = Symbolics.jacobian(π₃, λ₃) # 44 by 22
-
-# sol = - hcat(∇₃π₃, ∇_λ₃π₃) \  ∇₂π₃ # A^-1 * b, 66 by 22
-
-# ∇₂π̃₃ = sol[1:length(z₂),:] # 44 by 44 
-# n_rows, n_cols = size(∇₂π̃₃)
-# λ₂ = SymbolicTracingUtils.make_variables(
-# 	backend, Symbol("λ_2"), length(g₂(z₂)) + length(ic₂) + n_rows,
-# )
-# λ₂₁ = λ₂[1:length(g₂(z₂)) + length(ic₂)]
-# λ₂₂ = λ₂[(length(g₂(z₂)) + length(ic₂)+1):end]
-
-# ∇₂L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₂) - Symbolics.jacobian(vcat(g₂(z₂),ic₂), z₂)' * λ₂₁ - ∇₂π̃₃' * λ₂₂
-# ∇₃L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₃) - λ₂₂
-# ∇L₂ = vcat(∇₂L₂, ∇₃L₂)
-# ##############
 
 # KKT conditions of p1 (nash)
 # p1 initial condition (fixed)
