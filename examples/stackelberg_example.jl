@@ -120,35 +120,7 @@ ic₃ = xs³[1] .- [-1.0; 2.0]
 
 λ₃ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_3"), length(g₃(z₃)) + length(ic₃))
 L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
-π₃ = vcat(Symbolics.gradient(L₃, z₃), g₃(z₃), ic₃)  # stationarity of follower only w.r.t its own vars
-# # π₃ = vcat(
-# # 	Symbolics.gradient(L₃, vcat(xs³...)), # 22
-# # 	Symbolics.gradient(L₃, vcat(us³...)), # 22
-# # )
-
-
-# X̲, Y̲ = let
-#     # X = [x_{t+1}; uₜ³; λ₃]
-#     x3_next = xs³[end]
-#     u3_flat = flatten(us³)
-
-#     X = vcat(x3_next, u3_flat, λ₃)
-
-#     # Y = [xₜ; uₜ²]
-#     x3_all_but_last = flatten(xs³[Not(end)])
-#     u2_flat         = flatten(us²)
-
-#     Y = vcat(x3_all_but_last, u2_flat)
-
-#     X, Y
-# end
-
-# Mₜ³ = Symbolics.jacobian(π₃, X̲) 
-# Nₜ³ = Symbolics.jacobian(π₃, Y̲) 
-
-# π̃₃ =  - Mₜ³   Nₜ³ * vcat(flatten(xs²[Not(end)]), flatten(us²))
-
-# Main.@infiltrate
+π₃ = vcat(Symbolics.gradient(L₃, z₃))  # stationarity of follower only w.r.t its own vars
 
 # KKT conditions of p2 (leader)
 # p2 initial condition (fixed)
@@ -163,25 +135,25 @@ ic₂ = xs²[1] .- [0.5; 1.0]
 # # Stationarity
 # ∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
 
-# ############### 08/20: Implict function theorem
-# ∇₂π₃ = Symbolics.jacobian(π₃, z₂) # 44 by 44
-# ∇₃π₃ = Symbolics.jacobian(π₃, z₃) # 44 by 44
-# ∇_λ₃π₃ = Symbolics.jacobian(π₃, λ₃) # 44 by 22
+############### 08/20: Implict function theorem
+∇₂π₃ = Symbolics.jacobian(π₃, z₂) # 44 by 44
+∇₃π₃ = Symbolics.jacobian(π₃, z₃) # 44 by 44
+∇_λ₃π₃ = Symbolics.jacobian(π₃, λ₃) # 44 by 22
 
-# sol = - hcat(∇₃π₃, ∇_λ₃π₃) \  ∇₂π₃ # A^-1 * b, 66 by 22
+sol = - hcat(∇₃π₃, ∇_λ₃π₃) \  ∇₂π₃ # A^-1 * b, 66 by 22
 
-# ∇₂π̃₃ = sol[1:length(z₂),:] # 44 by 44 
-# n_rows, n_cols = size(∇₂π̃₃)
-# λ₂ = SymbolicTracingUtils.make_variables(
-# 	backend, Symbol("λ_2"), length(g₂(z₂)) + length(ic₂) + n_rows,
-# )
-# λ₂₁ = λ₂[1:length(g₂(z₂)) + length(ic₂)]
-# λ₂₂ = λ₂[(length(g₂(z₂)) + length(ic₂)+1):end]
+∇₂π̃₃ = sol[1:length(z₂),:] # 44 by 44 
+n_rows, n_cols = size(∇₂π̃₃)
+λ₂ = SymbolicTracingUtils.make_variables(
+	backend, Symbol("λ_2"), length(g₂(z₂)) + length(ic₂) + n_rows,
+)
+λ₂₁ = λ₂[1:length(g₂(z₂)) + length(ic₂)]
+λ₂₂ = λ₂[(length(g₂(z₂)) + length(ic₂)+1):end]
 
-# ∇₂L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₂) - Symbolics.jacobian(vcat(g₂(z₂),ic₂), z₂)' * λ₂₁ - ∇₂π̃₃' * λ₂₂
-# ∇₃L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₃) - λ₂₂
-# ∇L₂ = vcat(∇₂L₂, ∇₃L₂)
-# ##############
+∇₂L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₂) - Symbolics.jacobian(vcat(g₂(z₂),ic₂), z₂)' * λ₂₁ - ∇₂π̃₃' * λ₂₂
+∇₃L₂ = Symbolics.gradient(J₂(z₂, z₁, z₃, θ), z₃) - λ₂₂
+∇L₂ = vcat(∇₂L₂, ∇₃L₂)
+##############
 
 # KKT conditions of p1 (nash)
 # p1 initial condition (fixed)
