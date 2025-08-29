@@ -34,7 +34,7 @@ B³ = [zeros(4, 2); Δt * I(control_dimension)]
 B = [B¹ B² B³]
 
 
-##### Baseline Solution via PATH ######
+##### Solution via PATH ######
 
 # player 3 (follower)'s objective function: P3 follows P2
 function J₃(z₃, z₂, θ)
@@ -42,27 +42,26 @@ function J₃(z₃, z₂, θ)
 	xs³, us³ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 	xs², us² = xs, us
-	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) #+ 0.05*sum(sum(u² .^ 2) for u² in us²)
 end
 
-# player 2 (leader)'s objective function: P2 wants to get to the origin
+# player 2 (middle leader)'s objective function: P2 follows P1
 function J₂(z₂, z₁, z₃, θ)
-	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-	xs³, us³ = xs, us
+	# (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+	# xs³, us³ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 	xs², us² = xs, us
 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 	xs¹, us¹ = xs, us
-	sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	# sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	0.5*sum((xs²[end] .- xs¹[end]) .^ 2) + 0.05*sum(sum(u² .^ 2) for u² in us²)
 end
 
-# player 1 (nash)'s objective function: P1 wants to get close to P2's final position
+# player 1 (leader)'s objective function: P1 wants to get to origin
 function J₁(z₁, z₂, θ)
 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 	xs¹, us¹ = xs, us
-	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
-	xs², us² = xs, us
-	0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	0.5*sum(xs¹[end] .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
 end
 
 function dynamics(z, t)
@@ -112,66 +111,89 @@ xs², us² = xs, us
 (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 xs³, us³ = xs, us
 
-# KKT conditions of p3 (follower)
-# p3 initial condition (fixed)
-ic₃ = xs³[1] .- [-1.0; 2.0]
+# Initial conditions
+ic₁ = xs¹[1] .- [0.0; 2.0]
+ic₂ = xs²[1] .- [2.0; 4.0]
+ic₃ = xs³[1] .- [6.0; 8.0]
 
+# KKT conditions of p3 (follower)
 λ₃ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_3"), length(g₃(z₃)) + length(ic₃))
 L₃ = J₃(z₃, z₂, θ) - λ₃' * [g₃(z₃); ic₃]
-π₃ = vcat(Symbolics.gradient(L₃, z₃), g₃(z₃), ic₃)  # stationarity of follower only w.r.t its own vars
+π₃ = vcat(
+	Symbolics.gradient(L₃, z₃), 
+	g₃(z₃), 
+	ic₃
+)  # stationarity of follower only w.r.t its own vars
 
 
-
-# X̲, Y̲ = let
-#     # X = [x_{t+1}; uₜ³; λ₃]
-#     x3_next = xs³[end]
-#     u3_flat = flatten(us³)
-
-#     X = vcat(x3_next, u3_flat, λ₃)
-
-#     # Y = [xₜ; uₜ²]
-#     x3_all_but_last = flatten(xs³[Not(end)])
-#     u2_flat         = flatten(us²)
-
-#     Y = vcat(x3_all_but_last, u2_flat)
-
-#     X, Y
-# end
-
-# Mₜ³ = Symbolics.jacobian(π₃, X̲) 
-# Nₜ³ = Symbolics.jacobian(π₃, Y̲) 
-
-# π̃₃ =  - Mₜ³ \ Nₜ³ * vcat(flatten(xs²[Not(end)]), flatten(us²))
-
-# Main.@infiltrate
-
-# KKT conditions of p2 (leader)
-# p2 initial condition (fixed)
-ic₂ = xs²[1] .- [0.5; 1.0]
+# KKT conditions of p2 (middle-leader)
+p₂_equality_dim = length(g₂(z₂)) + length(ic₂)
+p₂_lower_level_stationarity_dim = length(z₃)
+λ₂₁ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_2_1"), p₂_equality_dim)
+λ₂₂ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_2_2"), p₂_lower_level_stationarity_dim)
+λ₂ = Vector{Symbolics.Num}() # ASK
+push!(λ₂, λ₂₁..., λ₂₂...)
 
 
-# KKT conditions of p1 (nash)
-# p1 initial condition (fixed)
-ic₁ = xs¹[1] .- [-2.0; 2.0]
+M₂, N₂ = let
+	M = Symbolics.jacobian(π₃, [z₃; λ₃])
+	N = Symbolics.jacobian(π₃, [z₁; z₂])
+	M, N
+end
+ϕ³ = - hcat(I(length(z₃)), zeros(length(z₃), length(λ₃))) * (M₂ \ N₂ * [z₁; z₂])
 
-# p1 Lagrangian: nash’s own constraints only
-λ₁ = SymbolicTracingUtils.make_variables(
-	backend, Symbol("λ_1"), length(g₁(z₁)) + length(ic₁),
+L² = J₂(z₂, z₁, z₃, θ) - λ₂₁' * [g₂(z₂); ic₂] - λ₂₂' * (z₃ .- ϕ³)
+# L² = J₂(z₂, z₁, z₃, θ) - λ₂' * [g₂(z₂); ic₂; z₃ .- ϕ³]
+π₂ = vcat(
+	Symbolics.gradient(L², z₂),
+	Symbolics.gradient(L², z₃),
+	g₂(z₂),
+	ic₂,
 )
-L₁ = J₁(z₁, z₂, θ) - λ₁' * [g₁(z₁); ic₁]
-∇L₁ = Symbolics.gradient(L₁, z₁)
+
+# KKT conditions of p1 (leader)
+p₁_equality_dim = length(g₁(z₁)) + length(ic₁)
+p₁_lower_level_stationarity_dim₂ = length(z₂) 
+p₁_lower_level_stationarity_dim₃ = length(z₃)
+λ₁₁ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_1_1"), p₁_equality_dim)
+λ₁₂ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_1_2"), p₁_lower_level_stationarity_dim₂)
+λ₁₃ = SymbolicTracingUtils.make_variables(backend, Symbol("λ_1_3"), p₁_lower_level_stationarity_dim₃)
+λ₁	 = Vector{Symbolics.Num}()
+push!(λ₁, λ₁₁..., λ₁₂..., λ₁₃...)
+
+M₁, N₁ = let
+	M = Symbolics.jacobian(π₂, [z₂; z₃; λ₂; λ₃])
+	N = Symbolics.jacobian(π₂, z₁)
+	M, N
+end
+
+# M₁ = Symbolics.value.(M₁) if M₁ singular and use pinv(M₁)
+# N₁ = Symbolics.value.(N₁)
+ϕ² = - hcat(I(length(z₂)), zeros(length(z₂), length(z₃)+length(λ₂)+length(λ₃))) * (M₁ \ N₁ * z₁)
+
+L¹ = J₁(z₁, z₂, θ) - λ₁₁' * [g₁(z₁); ic₁] - λ₁₂' * (z₂ .- ϕ²) - λ₁₃' * (z₃ .- ϕ³)
+π₁ = vcat(
+	Symbolics.gradient(L¹, z₁),
+	Symbolics.gradient(L¹, z₂),
+	Symbolics.gradient(L¹, z₃),
+	g₁(z₁),
+	ic₁,
+)
+
+# # KKT conditions of p4 (nash) # TODO
+# λ₄ = SymbolicTracingUtils.make_variables(
+# 	backend, Symbol("λ_4"), length(g₄(z₄)) + length(ic₄),
+# )
+# L⁴ = J₄(z₄, θ) - λ₄' * [g₄(z₄); ic₄]
+# ∇L₄ = Symbolics.gradient(L₄, z₄)
+
 
 # Final MCP vector: leader stationarity + leader constraints + follower KKT
 F = Vector{symbolic_type}([
-	∇L₁;                 # nash stationarity
-	∇L₂;                 # leader stationarity
-	π₃;                  # follower stationarity
-	g₁(z₁); ic₁;         # nash feasibility
-	g₂(z₂); ic₂;         # leader feasibility
-	g₃(z₃); ic₃;         # follower feasibility
+	π₁;
+	π₂;
+	π₃
 ])
-
-Main.@infiltrate
 
 variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
 z̲ = fill(-Inf, length(F));
