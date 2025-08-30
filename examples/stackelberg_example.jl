@@ -135,7 +135,7 @@ ic₂ = xs²[1] .- [0.5; 1.0]
 # # Stationarity
 # ∇L₂ = Symbolics.gradient(L₂, [z₂; z₃])
 
-############### 08/20: Implict function theorem
+############### 08/20: Implict function theorem (2-player Stackelberg)
 ∇₂π₃ = Symbolics.jacobian(π₃, z₂) # 44 by 44
 ∇₃π₃ = Symbolics.jacobian(π₃, z₃) # 44 by 44
 ∇_λ₃π₃ = Symbolics.jacobian(π₃, λ₃) # 44 by 22
@@ -176,7 +176,7 @@ F = Vector{symbolic_type}([
 	g₃(z₃); ic₃;         # follower feasibility
 ])
 
-Main.@infiltrate
+# Main.@infiltrate
 
 variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
 z̲ = fill(-Inf, length(F));

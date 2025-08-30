@@ -1,9 +1,22 @@
+
+using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using Graphs
+using InvertedIndices
+using LinearAlgebra: I, norm, pinv, Diagonal, rank
+using ParametricMCPs: ParametricMCPs
+using Plots
+using Symbolics
+using SymbolicTracingUtils
+using TrajectoryGamesBase: unflatten_trajectory
 
 # TODO: Turn this into an extension of the string type using my own type.
 function make_symbol(args...)
     variable_name = args[1]
-    time = last(args)
+    time = string(last(args))
+
+    time_str = "_" * time
+    # Remove this line.
+    time_str = ""
 
     num_items = length(args)
 
@@ -11,19 +24,21 @@ function make_symbol(args...)
     variable_name_str = string(variable_name)
 
     if variable_name == :x && num_items == 2 # Just :x
-        return Symbol(variable_name_str * "_" * string(time))
+        return Symbol(variable_name_str * time_str)
     elseif variable_name in [:u, :λ, :z] && num_items == 3
-       return Symbol(variable_name_str * "^" * string(args[2]) * "_" * string(time))
+       return Symbol(variable_name_str * "^" * string(args[2]) * time_str)
     elseif variable_name in [:ψ, :μ] && num_items == 4
-        return Symbol(variable_name_str * "^(" * string(args[2]) * "-" * string(args[3]) * ")" * "_" * string(time))
+        return Symbol(variable_name_str * "^(" * string(args[2]) * "-" * string(args[3]) * ")" * time_str)
     elseif variable_name in [:z] && num_items > 3
         # For z variables, we assume the inputs are of the form (z, i, j, ..., t)
         indices = join(string.(args[2:num_items-1]), ",")
-        return Symbol(variable_name_str * "^(" * indices * ")" * "_"* string(time))
+        return Symbol(variable_name_str * "^(" * indices * ")" *time_str)
     else
         error("Invalid format has number of args $(num_items) for $args.")
     end
 end
+
+
 
 
 #### GRAPH UTILITIES ####
@@ -42,6 +57,7 @@ function get_roots(graph::SimpleDiGraph)
     return [v for v in vertices(graph) if is_root(graph, v)]
 end
 
+# TODO: Replace this call with a built-in search ordering.
 function get_all_leaders(graph::SimpleDiGraph, node::Int)
     parents_path = []
 
@@ -57,9 +73,10 @@ function get_all_leaders(graph::SimpleDiGraph, node::Int)
         parents = inneighbors(graph, parent)
     end
 
-    return parents_path
+    return reverse(parents_path)
 end
 
+# TODO: Replace this call with a built-in search ordering.
 # Get every follower of a node in the graph in an arbitrary order.
 # TODO: Make this order more educated once we have a better understanding of the hierarchy.
 # Note: Assumes that every vertex is the root of a tree.
@@ -111,81 +128,56 @@ end
 # end
 
 
-
-###### UTILS FOR PATH SOLVER  ######
-# TODO: Fix to make ti general based on whatever expressions are needed.
-# function solve_with_path()
-#     # Final MCP vector: leader stationarity + leader constraints + follower KKT
-#     F = Vector{symbolic_type}([
-#         # TODO: Fill in with actual expressions, automatically.
-#     ])
-
-#     # Main.@infiltrate
-
-#     # variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
-#     z̲ = fill(-Inf, length(F));
-#     z̅ = fill(Inf, length(F))
-
-#     # Solve via PATH
-#     parameter_value = [1e-5]
-#     parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
-#     z_sol, status, info = ParametricMCPs.solve(
-#         parametric_mcp,
-#         parameter_value;
-#         initial_guess = zeros(length(variables)),
-#         verbose = false,
-#         cumulative_iteration_limit = 100000,
-#         proximal_perturbation = 1e-2,
-#         # major_iteration_limit = 1000,
-#         # minor_iteration_limit = 2000,
-#         # nms_initial_reference_factor = 50,
-#         use_basics = true,
-#         use_start = true,
-#     )
-#     @show status
-# end
-
 function is_leaf(graph::SimpleDiGraph, node::Int)
     return outdegree(graph, node) == 0
 end
 
-function get_lagrangians(G::SimpleDiGraph,
-                         Js::Dict{Int, Any},
-                         zs::Dict{Int, Any},
-                         λs::Dict{Int, Any},
-                         μs::Dict{Tuple{Int,Int}, Any},
-                         gs::Dict{Int, Any}, 
-                         ws::Dict{Int, Any},
-                         ys::Dict{Int, Any},
-                         θ)
+function get_kkt_conditions(G::SimpleDiGraph,
+                            Js::Dict{Int, Any},
+                            zs,
+                            λs,
+                            μs::Dict{Tuple{Int,Int}, Any},
+                            gs, 
+                            ws::Dict{Int, Any},
+                            ys::Dict{Int, Any},
+                            θ)
+
+    # Values computed by this function.
+    Ms = Dict{Int, Any}()
+    Ns = Dict{Int, Any}()
+    πs = Dict{Int, Any}()
+    Φs = Dict{Int, Any}()
 
     # Compute reverse topological order to construct lagrangians and KKT conditions from leaves to root.
     order = reverse(topological_sort(G))
 
     println("Topological order of vertices:")
     for ii in order
-        println(v)
+        println(ii)
     end
 
     for ii in order
         # Include the objective of the player and its constraint term.
         Lᵢ = Js[ii](zs..., θ) - λs[ii]' * gs[ii](zs[ii])
 
-        # If the current player has no followers, then we can compute its KKT conditions directly.
+        # If the current player Pii has no followers, then the KKT conditions consist only of
+        # 1. ∇zᵢLᵢ  = 0: Stationarity of its own Lagrangian w.r.t its own variables, and
+        # 2. gᵢ(zᵢ) = 0: Its own constraints.
         if is_leaf(G, ii)
-            πᵢ = vcat(Symbolics.gradient(Lᵢ, zs[ii]), # stationarity of follower only w.r.t its own vars
+            πs[ii] = vcat(Symbolics.gradient(Lᵢ, zs[ii]), # stationarity of follower only w.r.t its own vars
                                       gs[ii](zs[ii])) # constraints for current player
 
-            # Compute ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0.
-            # TODO: Save in a new
-            Mᵢ = Symbolics.jacobian(πᵢ, ws[ii])
-            Nᵢ = Symbolics.jacobian(πᵢ, ys[ii])
+            # Compute ∇ᵢπᵢ? = Mᵢ wᵢ + Nᵢ yᵢ = 0.
+            Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
+            Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
         end
 
-        # If it has followers, then add the follower's stationarity conditions.
+        # If Pii has followers, then add the follower's constraint terms to the Lagrangian, which
+        # requires looking up/computing/extracting ∇wⱼΦʲ(wⱼ) for all followers j.
         if !is_leaf(G, ii)
 
-            # Iterate in breadth-first order over the followers.
+            # For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
+            # Iterate in breadth-first order over the followers so that we can finish up the computation.
             for jj in BFSIterator(G, ii)
 
                 # Skip the current player.
@@ -193,51 +185,94 @@ function get_lagrangians(G::SimpleDiGraph,
                     continue
                 end
 
-                # TODO: Look closely when I'm clear-eyed.
+                # Compute the policy term of follower j (TODO: Add a look up for efficiency).
+                πⱼ = πs[jj] # This term always exists if we are proceeding in reverse topological order.
 
-                πᵢ = vcat(πᵢ, Φʲ) # stationarity of follower j w.r.t its own vars
+                # If the policy exists for follower j, then look up its ∇wⱼΦʲ(wⱼ) and 
+                # extract ∇zᵢΦʲ(wⱼ) from it (i is a leader of j).
+                # If it doesn't exist, then compute it using Mⱼ and Nⱼ and extract z̃ⱼ = [0... I ...0] ∇zᵢΦʲ(wⱼ) w₍.
+                
+                # TODO: Uncomment so we have caching.
+                # if jj in keys(Φs)
+                #     Φʲ = Φs[jj]
+                # else
+                # Main.@infiltrate
+                # TODO: Implement automatic extract computation using sizes of ws and ys.
+                # zᵢ is usually the first element of wⱼ, so we can just extract the relevant rows.
+                zi_size = length(zs[ii])
+                extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+                
+                # SUPPOSE: we have these values which list the symbols and their sizes.
+                # ws_ordering;
+                # ws_sizes;
 
+                #
+                Φʲ = - extractor * (Ms[jj] \ Ns[jj]) * ys[jj] # TODO: Fill in the blank with a lookup?
 
+                # Cache the result for later leaders.
+                # Φs[jj] = Φʲ
+                # end
 
-
-            followers = get_all_followers(G, order[1])
-            for j in followers
-                Φʲ
-                Lᵢ -= μs[(ii, jj)]' * (zs[jj] - )
+                Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
             end
         end
 
+        # Once we have the Lagrangian constructed, we compute the KKT conditions by traversing in breadth-first order.
+        πᵢ = []
+        for jj in BFSIterator(G, ii)
+            # Note: the first jj should be ii itself, followed by each follower..
+            πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
+        end
+        πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
+        πs[ii] = πᵢ
+
+        # Compute ∇ᵢπᵢ? = Mᵢ wᵢ + Nᵢ yᵢ = 0.
+        Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
+        Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
     end
 
-    # roots = get_roots(graph)
-    # # TODO: Fix the NaN for variable length tuples. Use make_string/make_symbol?
-    # info_vector_variables = Dict(root => [:x] for root in roots)
+    return πs, Ms, Ns
+end
 
-    # parents = roots
-    # has_next_layer = true
-    # while has_next_layer
-    #     next_layer_parents = []
-    #     for parent in parents
-    #         children = outneighbors(graph, parent)
-    #         for child in children
-    #             # The child's info vector is the parent's, with the parent control appended.
-    #             child_info_vector = vcat(info_vector_variables[parent], [Symbol(:u, parent)])
-    #             info_vector_variables[child] = child_info_vector
 
-    #             # Add each children of current parents to next layer nodes vector.
-    #             append!(next_layer_parents, child)
-    #         end
-    #     end
-    #     parents = next_layer_parents
-    #     has_next_layer = !isempty(parents)
-    # end
-    # return info_vector_variables
+###### UTILS FOR PATH SOLVER  ######
+# TODO: Fix to make it general based on whatever expressions are needed.
+function solve_with_path(πs, variables, θ)
+    symbolic_type = eltype(variables)
+    # Final MCP vector: leader stationarity + leader constraints + follower KKT
+    F = Vector{symbolic_type}([
+        vcat(collect(values(πs))...)... # KKT conditions of all players
+    ])
 
+    # Main.@infiltrate
+
+    # variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
+    z̲ = fill(-Inf, length(F));
+    z̅ = fill(Inf, length(F))
+
+    # Solve via PATH
+    parameter_value = [1e-5]
+    parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+    z_sol, status, info = ParametricMCPs.solve(
+        parametric_mcp,
+        parameter_value;
+        initial_guess = zeros(length(variables)),
+        verbose = false,
+        cumulative_iteration_limit = 100000,
+        proximal_perturbation = 1e-2,
+        # major_iteration_limit = 1000,
+        # minor_iteration_limit = 2000,
+        # nms_initial_reference_factor = 50,
+        use_basics = true,
+        use_start = true,
+    )
+    @show status
+    return z_sol, status, info
 end
 
 
 # Main body of algorithm implementation. Will restructure as needed.
-function main()
+function main(verbose=false)
     N = 3 # number of players
 
     # Set up the information structure.
@@ -266,9 +301,44 @@ function main()
     primal_dimension_per_player = x_dim + u_dim
 
 
+    #### player objectives ####
+    # player 3 (follower)'s objective function: P3 follows P2
+    function J₃(z₁, z₂, z₃, θ)
+        (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+        xs³, us³ = xs, us
+        (; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+        xs², us² = xs, us
+        0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+    end
+
+    # player 2 (leader)'s objective function: P2 wants to get to the origin
+    function J₂(z₁, z₂, z₃, θ)
+        (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+        xs³, us³ = xs, us
+        (; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+        xs², us² = xs, us
+        (; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+        xs¹, us¹ = xs, us
+        sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+    end
+
+    # player 1 (top leader)'s objective function: P1 wants to get close to P2's final position
+    function J₁(z₁, z₂, z₃, θ)
+        (; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+        xs¹, us¹ = xs, us
+        (; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+        xs², us² = xs, us
+        0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+    end
+
+    Js = Dict{Int, Any}(
+        1 => J₁,
+        2 => J₂,
+        3 => J₃,
+    )
 
 
-    # Dynamics
+    #### player individual dynamics ####
     Δt = 0.5 # time step
     # A = I(state_dimension * num_players)
     # B¹ = [Δt * I(control_dimension); zeros(4, 2)]
@@ -329,19 +399,12 @@ function main()
     # Ms = Dict{Int, Any}()
     # Ns = Dict{Int, Any}()
     for i in 1:N
-        # Get all followers of i, create the variable for each, and store them in a Dict.
-        followers = get_all_followers(G, i)
-        for j in followers
-            μs[(i,j)] = SymbolicTracingUtils.make_variables(
-                backend,
-                make_symbol(:μ, i, j, H),
-                primal_dimension_per_player
-            )
-        end
-
+        # TODO: Replace this call with a built-in search ordering.
         # yᵢ is the information vector containing states zᴸ associated with leaders L of i.
+        # This call must ensure the highest leader comes first in the ordering.
         leaders = get_all_leaders(G, i)
-        ys[i] = vcat(zs[leaders])
+        ys[i] = vcat(zs[leaders]...)
+        ws[i] = [] # Initialize empty vector.
 
         # wᵢ is used to identify policy constraints by leaders of i.
         # Construct wᵢ by adding (1) zs which are not from leaders of i,
@@ -358,14 +421,88 @@ function main()
         end
 
         #                        (3) μs associated with i's follower policies.
-        for jj in leaders
-            ws[i] = vcat(ws[i], μs[(jj, i)])
+        # TODO: Replace this call with a built-in search ordering.
+        # Get all followers of i, create the variable for each, and store them in a Dict.
+        followers = get_all_followers(G, i)
+        for j in followers
+            μs[(i,j)] = SymbolicTracingUtils.make_variables(
+                backend,
+                make_symbol(:μ, i, j, H),
+                primal_dimension_per_player
+            )
+            ws[i] = vcat(ws[i], μs[(i, j)])
         end
-        println("ws for P$i: ", ws[i])
+
+
+        if verbose
+            println("ws for P$i ($(length(ws[i]))):\n", ws[i])
+            println()
+            println("ys for P$i ($(length(ys[i]))):\n", ys[i])
+            println()
+        end
     end
 
-    Ls
+    θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+    πs, _, _ = get_kkt_conditions(G, Js, zs, λs, μs, gs, ws, ys, θ)
 
-    # Construct
+    # Construct a list of all variables in order and solve.
+    all_variables = vcat(vcat(zs...), vcat(λs...), vcat(collect(values(μs))...))
+    z_sol, status, info = solve_with_path(πs, all_variables, θ)
+
+    println("z-lengths: ", length(zs[1]), " ", length(zs[2]), " ", length(zs[3]))
+    println("λ-lengths: ", length(λs[1]), " ", length(λs[2]), " ", length(λs[3]))
+    println("μ-lengths: ", [length(μs[(i,j)]) for (i,j) in keys(μs)])
+    println("Solution status: ", size(z_sol), " ", z_sol[1:36])
+
+
+    z₁ = zs[1]
+    z₂ = zs[2]
+    z₃ = zs[3]
+    z₁_sol = z_sol[1:length(z₁)]
+    z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
+    z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
+    (; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+    println("P1 (x,u) solution : ($xs, $us)")
+    println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+    (; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
+    println("P2 (x,u) solution : ($xs, $us)")
+    println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+    (; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+    println("P3 (x,u) solution : ($xs, $us)")
+    println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+
+    # Plot the trajectories of each player.
+    # Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
+    state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
+
+    # Reconstruct trajectories from solutions
+    xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+    xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
+    xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+
+    X1 = state_matrix(xs1)  # 2 × (T+1)
+    X2 = state_matrix(xs2)
+    X3 = state_matrix(xs3)
+
+    # Plot 2D paths
+    plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
+        legend = :bottomright, aspect_ratio = :equal, grid = true)
+
+    plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 3, label = "P1")
+    plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2")
+    plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3")
+
+    # Mark start (t=0) and end (t=T) points
+    scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
+        markershape = :star5, ms = 8, label = "start (t=0)")
+    scatter!(plt, [X1[1, end], X2[1, end], X3[1, end]], [X1[2, end], X2[2, end], X3[2, end]];
+        markershape = :hexagon, ms = 8, label = "end (t=$T)")
+
+
+    # Origin
+    scatter!(plt, [0.0], [0.0]; marker = :cross, ms = 8, color = :black, label = "Origin (0,0)")
+
+    display(plt)
 
 end
+
