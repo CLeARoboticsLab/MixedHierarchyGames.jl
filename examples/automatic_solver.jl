@@ -358,9 +358,9 @@ function main(verbose=false)
     end
 
     # Set up the equality constraints for each player.
-    ics = [[-2.0; 2.0], 
-           [ 0.5; 1.0], 
-           [-1.0; 2.0]] # initial conditions for each player
+    ics = [[0.0; 2.0], 
+           [2.0; 4.0], 
+           [6.0; 8.0]] # initial conditions for each player
 
     make_ic_constraint(i) = function (zᵢ)
         (; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
