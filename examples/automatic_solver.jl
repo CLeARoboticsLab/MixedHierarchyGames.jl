@@ -115,7 +115,8 @@ function get_kkt_conditions(G::SimpleDiGraph,
                             gs, 
                             ws::Dict{Int, Any},
                             ys::Dict{Int, Any},
-                            θ)
+                            θ;
+                            verbose=false)
 
     # Values computed by this function.
     Ms = Dict{Int, Any}()
@@ -126,9 +127,11 @@ function get_kkt_conditions(G::SimpleDiGraph,
     # Compute reverse topological order to construct lagrangians and KKT conditions from leaves to root.
     order = reverse(topological_sort(G))
 
-    println("Topological order of vertices:")
-    for ii in order
-        println(ii)
+    if verbose
+        println("Topological order of vertices:")
+        for ii in order
+            println(ii)
+        end
     end
 
     for ii in order
@@ -166,7 +169,6 @@ function get_kkt_conditions(G::SimpleDiGraph,
                 # if jj in keys(Φs)
                 #     Φʲ = Φs[jj]
                 # else
-                # Main.@infiltrate
                 # TODO: Implement automatic extract computation using sizes of ws and ys.
                 # zᵢ is often the first element of wⱼ, so we can just extract the relevant rows.
                 # BUG: This assumes that zᵢ is the first element of wⱼ, which is not always true (Nash KKT combinations).
@@ -209,7 +211,7 @@ end
 
 ###### UTILS FOR PATH SOLVER  ######
 # TODO: Fix to make it general based on whatever expressions are needed.
-function solve_with_path(πs, variables, θ)
+function solve_with_path(πs, variables, θ, parameter_value)
     symbolic_type = eltype(variables)
     # Final MCP vector: leader stationarity + leader constraints + follower KKT
     F = Vector{symbolic_type}([
@@ -220,11 +222,10 @@ function solve_with_path(πs, variables, θ)
     z̅ = fill(Inf, length(F))
 
     # Solve via PATH
-    parameter_value = [1e-5]
     parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
     z_sol, status, info = ParametricMCPs.solve(
         parametric_mcp,
-        parameter_value;
+        [parameter_value];
         initial_guess = zeros(length(variables)),
         verbose = false,
         cumulative_iteration_limit = 100000,
@@ -237,6 +238,50 @@ function solve_with_path(πs, variables, θ)
     )
     @show status
     return z_sol, status, info
+end
+
+"""
+    evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=false)
+
+Evaluates the symbolic KKT conditions `πs` at the numerical solution `z_sol`.
+
+This function substitutes the numerical values from `z_sol` and `parameter_value`
+into the symbolic expressions for each player's KKT conditions and computes the
+norm of the resulting residual vectors. These norms should be close to zero for a
+valid solution.
+
+# Arguments
+- `πs::Dict{Int, Any}`: A dictionary mapping player index to its symbolic KKT conditions.
+- `all_variables::Vector`: A vector of all symbolic decision variables.
+- `z_sol::Vector`: The numerical solution vector corresponding to `all_variables`.
+- `θ::SymbolicUtils.Symbolic`: The symbolic parameter.
+- `parameter_value::Number`: The numerical value for the parameter `θ`.
+- `verbose::Bool`: If true, prints the first few elements of each residual vector.
+
+# Returns
+- `Dict{Int, Float64}`: A dictionary mapping each player's index to the norm of their KKT residual.
+"""
+function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=false)
+    """
+    Evaluae the KKT conditions
+    """
+
+    all_πs = vcat(collect(values(πs))...)
+    π_fns = []
+    π_eval = []
+    for πₖ in all_πs
+        push!(π_fns, SymbolicTracingUtils.build_function([πₖ], all_variables; in_place = false))
+        push!(π_eval, only(π_fns[end](z_sol)))
+    end
+
+    println("\n" * "="^20 * " KKT Residuals " * "="^20)
+    println("Are all KKT conditions satisfied? ", all(π_eval .< 1e-6))
+    if norm(π_eval) < 1e-6
+        println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
+    end
+    println("="^55)    
+
+    return π_eval
 end
 
 
@@ -365,8 +410,6 @@ function main(verbose=false)
     μs = Dict{Tuple{Int,Int}, Any}()
     ws = Dict{Int, Any}()
     ys = Dict{Int, Any}()
-    # Ms = Dict{Int, Any}()
-    # Ns = Dict{Int, Any}()
     for i in 1:N
         # TODO: Replace this call with a built-in search ordering.
         # yᵢ is the information vector containing states zᴸ associated with leaders L of i.
@@ -420,26 +463,8 @@ function main(verbose=false)
     if !isempty(temp)
         all_variables = vcat(all_variables,  vcat(collect(values(μs))...))
     end
-    z_sol, status, info = solve_with_path(πs, all_variables, θ)
-
-    # TODO: Check KKT conditions at the solution.
-
-    # # Evaluate the KKT residuals (πs) at the solution to check solution quality.
-    # # The norm of these residuals should be close to zero.
-    # println("\n" * "="^20 * " KKT Residuals " * "="^20)
-    # sub_dict = Dict(all_variables .=> z_sol)
-    # for i in 1:N
-    #     # Substitute the numerical solution into the symbolic expression for πᵢ
-    #     pi_i_at_sol = Symbolics.substitute(πs[i], sub_dict)
-    #     # Convert the symbolic result to a numerical vector
-    #     pi_i_numerical = Symbolics.value.(pi_i_at_sol)
-
-    #     # println("Norm of π for player $i: ", norm(pi_i_numerical))
-    #     if verbose
-    #         println("π for player $i (first 5 elements): ", first(pi_i_numerical, 5))
-    #     end
-    # end
-    # println("="^55 * "\n")
+    parameter_value = 1e-5
+    z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
 
     println("z-lengths: ", length(zs[1]), " ", length(zs[2]), " ", length(zs[3]))
     println("λ-lengths: ", length(λs[1]), " ", length(λs[2]), " ", length(λs[3]))
@@ -453,6 +478,13 @@ function main(verbose=false)
     z₁_sol = z_sol[1:length(z₁)]
     z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
     z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
+
+
+    # Evaluate the KKT residuals at the solution to check solution quality.
+
+    z_sols = [z₁_sol, z₂_sol, z₃_sol]
+    evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=verbose)
+
     (; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
     println("P1 (x,u) solution : ($xs, $us)")
     println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
