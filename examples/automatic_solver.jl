@@ -48,7 +48,7 @@ function has_leader(graph::SimpleDiGraph, node::Int)
 end
 
 function is_root(graph::SimpleDiGraph, node::Int)
-    return iszero(indegree(graph, v))
+    return iszero(indegree(graph, node))
     
 end
 
@@ -65,7 +65,9 @@ function get_all_leaders(graph::SimpleDiGraph, node::Int)
 
     while !isempty(parents)
         # Identify and save each parent until we reach the root.
-        # TODO: We assume this is a tree for now.
+        # TODO: We assume this is a tree for now. To generalize, we need to handle multiple parents 
+        #       and check if the parent is already in the tree.
+
         parent = only(parents)
         push!(parents_path, parent)
 
@@ -167,14 +169,9 @@ function get_kkt_conditions(G::SimpleDiGraph,
             πs[ii] = vcat(Symbolics.gradient(Lᵢ, zs[ii]), # stationarity of follower only w.r.t its own vars
                                       gs[ii](zs[ii])) # constraints for current player
 
-            # Compute ∇ᵢπᵢ? = Mᵢ wᵢ + Nᵢ yᵢ = 0.
-            Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
-            Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
-        end
-
         # If Pii has followers, then add the follower's constraint terms to the Lagrangian, which
         # requires looking up/computing/extracting ∇wⱼΦʲ(wⱼ) for all followers j.
-        if !is_leaf(G, ii)
+        else
 
             # For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
             # Iterate in breadth-first order over the followers so that we can finish up the computation.
@@ -198,7 +195,9 @@ function get_kkt_conditions(G::SimpleDiGraph,
                 # else
                 # Main.@infiltrate
                 # TODO: Implement automatic extract computation using sizes of ws and ys.
-                # zᵢ is usually the first element of wⱼ, so we can just extract the relevant rows.
+                # zᵢ is often the first element of wⱼ, so we can just extract the relevant rows.
+                # BUG: This assumes that zᵢ is the first element of wⱼ, which is not always true (Nash KKT combinations).
+
                 zi_size = length(zs[ii])
                 extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
                 
@@ -209,7 +208,7 @@ function get_kkt_conditions(G::SimpleDiGraph,
                 #
                 Φʲ = - extractor * (Ms[jj] \ Ns[jj]) * ys[jj] # TODO: Fill in the blank with a lookup?
 
-                # Cache the result for later leaders.
+                # TODO: Cache the result for later leaders.
                 # Φs[jj] = Φʲ
                 # end
 
@@ -220,13 +219,13 @@ function get_kkt_conditions(G::SimpleDiGraph,
         # Once we have the Lagrangian constructed, we compute the KKT conditions by traversing in breadth-first order.
         πᵢ = []
         for jj in BFSIterator(G, ii)
-            # Note: the first jj should be ii itself, followed by each follower..
+            # Note: the first jj should be ii itself, followed by each follower.
             πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
         end
         πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
         πs[ii] = πᵢ
 
-        # Compute ∇ᵢπᵢ? = Mᵢ wᵢ + Nᵢ yᵢ = 0.
+        # Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0.
         Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
         Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
     end
@@ -244,9 +243,6 @@ function solve_with_path(πs, variables, θ)
         vcat(collect(values(πs))...)... # KKT conditions of all players
     ])
 
-    # Main.@infiltrate
-
-    # variables = vcat(z₁, z₂, z₃, λ₁, λ₂, λ₃)
     z̲ = fill(-Inf, length(F));
     z̅ = fill(Inf, length(F))
 
@@ -278,7 +274,7 @@ function main(verbose=false)
     # Set up the information structure.
     # This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
     G = SimpleDiGraph(N);
-    add_edge!(G, 1, 2); # P1 -> P2
+    add_edge!(G, 2, 1); # P1 -> P2
     add_edge!(G, 2, 3); # P2 -> P3
 
 
@@ -311,7 +307,7 @@ function main(verbose=false)
         0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
     end
 
-    # player 2 (leader)'s objective function: P2 wants to get to the origin
+    # player 2 (leader)'s objective function: P2 wants P1 and P3 to get to the origin
     function J₂(z₁, z₂, z₃, θ)
         (; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
         xs³, us³ = xs, us
@@ -359,7 +355,7 @@ function main(verbose=false)
 
     # Set up the equality constraints for each player.
     ics = [[-2.0; 2.0], 
-           [ 0.5; 1.0], 
+           [ 1.5; 1.0], 
            [-1.0; 2.0]] # initial conditions for each player
 
     make_ic_constraint(i) = function (zᵢ)
@@ -404,12 +400,12 @@ function main(verbose=false)
         # This call must ensure the highest leader comes first in the ordering.
         leaders = get_all_leaders(G, i)
         ys[i] = vcat(zs[leaders]...)
-        ws[i] = [] # Initialize empty vector.
+        ws[i] = zs[i] # Initialize vector with current agent's state.
 
         # wᵢ is used to identify policy constraints by leaders of i.
-        # Construct wᵢ by adding (1) zs which are not from leaders of i,
+        # Construct wᵢ by adding (1) zs which are not from leaders of i and not i itself,
         for jj in 1:N
-            if jj in leaders
+            if jj in leaders || jj == i
                 continue
             end
             ws[i] = vcat(ws[i], zs[jj])
@@ -421,7 +417,7 @@ function main(verbose=false)
         end
 
         #                        (3) μs associated with i's follower policies.
-        # TODO: Replace this call with a built-in search ordering.
+        # TODO: Replace this call with a built-in search ordering (mix with BFS above).
         # Get all followers of i, create the variable for each, and store them in a Dict.
         followers = get_all_followers(G, i)
         for j in followers
@@ -446,8 +442,31 @@ function main(verbose=false)
     πs, _, _ = get_kkt_conditions(G, Js, zs, λs, μs, gs, ws, ys, θ)
 
     # Construct a list of all variables in order and solve.
-    all_variables = vcat(vcat(zs...), vcat(λs...), vcat(collect(values(μs))...))
+    temp = vcat(collect(values(μs))...)
+    all_variables = vcat(vcat(zs...), vcat(λs...))
+    if !isempty(temp)
+        all_variables = vcat(all_variables,  vcat(collect(values(μs))...))
+    end
     z_sol, status, info = solve_with_path(πs, all_variables, θ)
+
+    # TODO: Check KKT conditions at the solution.
+
+    # # Evaluate the KKT residuals (πs) at the solution to check solution quality.
+    # # The norm of these residuals should be close to zero.
+    # println("\n" * "="^20 * " KKT Residuals " * "="^20)
+    # sub_dict = Dict(all_variables .=> z_sol)
+    # for i in 1:N
+    #     # Substitute the numerical solution into the symbolic expression for πᵢ
+    #     pi_i_at_sol = Symbolics.substitute(πs[i], sub_dict)
+    #     # Convert the symbolic result to a numerical vector
+    #     pi_i_numerical = Symbolics.value.(pi_i_at_sol)
+
+    #     # println("Norm of π for player $i: ", norm(pi_i_numerical))
+    #     if verbose
+    #         println("π for player $i (first 5 elements): ", first(pi_i_numerical, 5))
+    #     end
+    # end
+    # println("="^55 * "\n")
 
     println("z-lengths: ", length(zs[1]), " ", length(zs[2]), " ", length(zs[3]))
     println("λ-lengths: ", length(λs[1]), " ", length(λs[2]), " ", length(λs[3]))
@@ -504,5 +523,5 @@ function main(verbose=false)
 
     display(plt)
 
+    return z_sol, status, info, πs, all_variables
 end
-
