@@ -103,33 +103,6 @@ function get_all_followers(graph::SimpleDiGraph, node)
     return all_children
 end
 
-# function compute_info_vector_ordering(graph::SimpleDiGraph)
-#     roots = get_roots(graph)
-#     # TODO: Fix the NaN for variable length tuples. Use make_string/make_symbol?
-#     info_vector_variables = Dict(root => [:x] for root in roots)
-
-#     parents = roots
-#     has_next_layer = true
-#     while has_next_layer
-#         next_layer_parents = []
-#         for parent in parents
-#             children = outneighbors(graph, parent)
-#             for child in children
-#                 # The child's info vector is the parent's, with the parent control appended.
-#                 child_info_vector = vcat(info_vector_variables[parent], [Symbol(:u, parent)])
-#                 info_vector_variables[child] = child_info_vector
-
-#                 # Add each children of current parents to next layer nodes vector.
-#                 append!(next_layer_parents, child)
-#             end
-#         end
-#         parents = next_layer_parents
-#         has_next_layer = !isempty(parents)
-#     end
-#     return info_vector_variables
-# end
-
-
 function is_leaf(graph::SimpleDiGraph, node::Int)
     return outdegree(graph, node) == 0
 end
@@ -354,9 +327,9 @@ function main(verbose=false)
     end
 
     # Set up the equality constraints for each player.
-    ics = [[-2.0; 2.0], 
-           [ 1.5; 1.0], 
-           [-1.0; 2.0]] # initial conditions for each player
+    ics = [[0.0; 2.0], 
+           [2.0; 4.0], 
+           [6.0; 8.0]] # initial conditions for each player
 
     make_ic_constraint(i) = function (zᵢ)
         (; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
