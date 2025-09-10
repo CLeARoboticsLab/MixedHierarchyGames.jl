@@ -5,11 +5,12 @@ using SymbolicTracingUtils
 using TrajectoryGamesBase: unflatten_trajectory
 using InvertedIndices
 
+using Plots
 # ------------------------------------------------------------
 # Problem setup
 # ------------------------------------------------------------
 N                           = 3
-T                           = 10
+T                           = 40
 state_dimension             = 2
 control_dimension           = 2
 x_dim                       = state_dimension * (T + 1)
@@ -17,7 +18,7 @@ u_dim                       = control_dimension * (T + 1)
 primal_dimension_per_player = x_dim + u_dim
 
 # simple single-integrator dynamics step: x_{t+1} = x_t + Δt * u_t
-Δt = 0.5
+Δt = 0.1
 
 # ------------------------------------------------------------
 # Helpers
@@ -85,7 +86,7 @@ symbolic_type = eltype(z₁)
 xs¹, _ = unpack(z₁);
 xs², _ = unpack(z₂);
 xs³, _ = unpack(z₃)
-ic₁ = xs¹[1] .- [0.0; 2.0]
+ic₁ = xs¹[1] .- [0.0; 2.0] # (p_x, p_y) in meters INPUT from Tianyu
 ic₂ = xs²[1] .- [2.0; 4.0]
 ic₃ = xs³[1] .- [6.0; 8.0]
 
@@ -200,9 +201,10 @@ print_solution("P3", z₃_sol, J₃(z₁_sol, z₂_sol, z₃_sol))
 state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
 
 # Reconstruct trajectories from solutions
-xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
-xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
-xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+xs1, us1 = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+xs2, us2 = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
+xs3, us3 = unflatten_trajectory(z₃_sol, state_dimension, control_dimension) 
+# (v_x, v_y) in m/s OUTPUT to Tianyu
 
 X1 = state_matrix(xs1)  # 2 × (T+1)
 X2 = state_matrix(xs2)
