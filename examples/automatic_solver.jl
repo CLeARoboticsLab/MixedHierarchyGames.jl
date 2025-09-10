@@ -284,6 +284,83 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; 
     return π_eval
 end
 
+function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value=1e-5, verbose=false)
+    N = nv(graph) # number of players
+
+    # Construct symbols for each player's decision variables.
+    # TODO: Construct sizes and orderings.
+    backend = SymbolicTracingUtils.SymbolicsBackend()
+    zs = [SymbolicTracingUtils.make_variables(
+            backend,
+            make_symbol(:z, i, H),
+            primal_dimension_per_player,
+        ) for i in 1:N]
+
+    λs = [SymbolicTracingUtils.make_variables(
+            backend,
+            make_symbol(:λ, i, H),
+            length(gs[i](zs[i]))
+        ) for i in 1:N]
+
+    μs = Dict{Tuple{Int,Int}, Any}()
+    ws = Dict{Int, Any}()
+    ys = Dict{Int, Any}()
+    for i in 1:N
+        # TODO: Replace this call with a built-in search ordering.
+        # yᵢ is the information vector containing states zᴸ associated with leaders L of i.
+        # This call must ensure the highest leader comes first in the ordering.
+        leaders = get_all_leaders(graph, i)
+        ys[i] = vcat(zs[leaders]...)
+        ws[i] = zs[i] # Initialize vector with current agent's state.
+
+        # wᵢ is used to identify policy constraints by leaders of i.
+        # Construct wᵢ by adding (1) zs which are not from leaders of i and not i itself,
+        for jj in 1:N
+            if jj in leaders || jj == i
+                continue
+            end
+            ws[i] = vcat(ws[i], zs[jj])
+        end
+
+        #                        (2) λs of i and its followers, and
+        for jj in BFSIterator(graph, i)
+            ws[i] = vcat(ws[i], λs[jj])
+        end
+
+        #                        (3) μs associated with i's follower policies.
+        # TODO: Replace this call with a built-in search ordering (mix with BFS above).
+        # Get all followers of i, create the variable for each, and store them in a Dict.
+        followers = get_all_followers(graph, i)
+        for j in followers
+            μs[(i,j)] = SymbolicTracingUtils.make_variables(
+                backend,
+                make_symbol(:μ, i, j, H),
+                primal_dimension_per_player
+            )
+            ws[i] = vcat(ws[i], μs[(i, j)])
+        end
+
+
+        if verbose
+            println("ws for P$i ($(length(ws[i]))):\n", ws[i])
+            println()
+            println("ys for P$i ($(length(ys[i]))):\n", ys[i])
+            println()
+        end
+    end
+    θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+    πs, _, _ = get_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
+
+    # Construct a list of all variables in order and solve.
+    temp = vcat(collect(values(μs))...)
+    all_variables = vcat(vcat(zs...), vcat(λs...))
+    if !isempty(temp)
+        all_variables = vcat(all_variables,  vcat(collect(values(μs))...))
+    end
+    z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
+
+    z_sol, status, info, all_variables, (; πs, zs, λs, μs, θ)
+end
 
 # Main body of algorithm implementation. Will restructure as needed.
 function main(verbose=false)
@@ -390,82 +467,12 @@ function main(verbose=false)
                              make_ic_constraint(i)(zᵢ))
           end for i in 1:N] # each player has the same dynamics constraint
 
-
-
-    # Construct symbols for each player's decision variables.
-    # TODO: Construct sizes and orderings.
-    backend = SymbolicTracingUtils.SymbolicsBackend()
-    zs = [SymbolicTracingUtils.make_variables(
-            backend,
-            make_symbol(:z, i, H),
-            primal_dimension_per_player,
-        ) for i in 1:N]
-
-    λs = [SymbolicTracingUtils.make_variables(
-            backend,
-            make_symbol(:λ, i, H),
-            length(gs[i](zs[i]))
-        ) for i in 1:N]
-
-    μs = Dict{Tuple{Int,Int}, Any}()
-    ws = Dict{Int, Any}()
-    ys = Dict{Int, Any}()
-    for i in 1:N
-        # TODO: Replace this call with a built-in search ordering.
-        # yᵢ is the information vector containing states zᴸ associated with leaders L of i.
-        # This call must ensure the highest leader comes first in the ordering.
-        leaders = get_all_leaders(G, i)
-        ys[i] = vcat(zs[leaders]...)
-        ws[i] = zs[i] # Initialize vector with current agent's state.
-
-        # wᵢ is used to identify policy constraints by leaders of i.
-        # Construct wᵢ by adding (1) zs which are not from leaders of i and not i itself,
-        for jj in 1:N
-            if jj in leaders || jj == i
-                continue
-            end
-            ws[i] = vcat(ws[i], zs[jj])
-        end
-
-        #                        (2) λs of i and its followers, and
-        for jj in BFSIterator(G, i)
-            ws[i] = vcat(ws[i], λs[jj])
-        end
-
-        #                        (3) μs associated with i's follower policies.
-        # TODO: Replace this call with a built-in search ordering (mix with BFS above).
-        # Get all followers of i, create the variable for each, and store them in a Dict.
-        followers = get_all_followers(G, i)
-        for j in followers
-            μs[(i,j)] = SymbolicTracingUtils.make_variables(
-                backend,
-                make_symbol(:μ, i, j, H),
-                primal_dimension_per_player
-            )
-            ws[i] = vcat(ws[i], μs[(i, j)])
-        end
-
-
-        if verbose
-            println("ws for P$i ($(length(ws[i]))):\n", ws[i])
-            println()
-            println("ys for P$i ($(length(ys[i]))):\n", ys[i])
-            println()
-        end
-    end
-
-    θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
-    πs, _, _ = get_kkt_conditions(G, Js, zs, λs, μs, gs, ws, ys, θ)
-
-    # Construct a list of all variables in order and solve.
-    temp = vcat(collect(values(μs))...)
-    all_variables = vcat(vcat(zs...), vcat(λs...))
-    if !isempty(temp)
-        all_variables = vcat(all_variables,  vcat(collect(values(μs))...))
-    end
     parameter_value = 1e-5
-    z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
+    z_sol, status, info, all_variables, vars = run_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose=verbose)
+    (; πs, zs, λs, μs, θ) = vars
 
+
+    # Print some information about the solution.
     println("z-lengths: ", length(zs[1]), " ", length(zs[2]), " ", length(zs[3]))
     println("λ-lengths: ", length(λs[1]), " ", length(λs[2]), " ", length(λs[3]))
     println("μ-lengths: ", [length(μs[(i,j)]) for (i,j) in keys(μs)])
