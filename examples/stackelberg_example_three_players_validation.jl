@@ -10,7 +10,7 @@ using Plots
 # Problem setup
 # ------------------------------------------------------------
 N                           = 3
-T                           = 40
+T                           = 10
 state_dimension             = 2
 control_dimension           = 2
 x_dim                       = state_dimension * (T + 1)
@@ -18,7 +18,7 @@ u_dim                       = control_dimension * (T + 1)
 primal_dimension_per_player = x_dim + u_dim
 
 # simple single-integrator dynamics step: x_{t+1} = x_t + Δt * u_t
-Δt = 0.1
+Δt = 0.2
 
 # ------------------------------------------------------------
 # Helpers
@@ -114,7 +114,7 @@ function J₃(z₁, z₂, z₃)
 	xs³, us³ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 	xs², us² = xs, us
-	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³)
 end
 
 # player 2 (leader)'s objective function: P2 wants to get to the origin
@@ -125,7 +125,8 @@ function J₂(z₁, z₂, z₃)
 	xs², us² = xs, us
 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 	xs¹, us¹ = xs, us
-	sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	# sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	0.5*sum((xs²[end] .- xs¹[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
 end
 
 # player 1 (top leader)'s objective function: P1 wants to get close to P2's final position
@@ -134,7 +135,8 @@ function J₁(z₁, z₂, z₃)
 	xs¹, us¹ = xs, us
 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 	xs², us² = xs, us
-	0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	# 0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	0.5*sum(xs¹[end] .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
 end
 # ------------------------------------------------------------
 # Stackelberg (P1 leader; P2 middle-leader; P3 follower)
@@ -196,14 +198,14 @@ z₁_sol, z₂_sol, z₃_sol = split3(z_all, length(z₁), length(z₂), length(
 print_solution("P1", z₁_sol, J₁(z₁_sol, z₂_sol, z₃_sol))
 print_solution("P2", z₂_sol, J₂(z₁_sol, z₂_sol, z₃_sol))
 print_solution("P3", z₃_sol, J₃(z₁_sol, z₂_sol, z₃_sol))
- 
+
 # Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
 state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
 
 # Reconstruct trajectories from solutions
 xs1, us1 = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 xs2, us2 = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
-xs3, us3 = unflatten_trajectory(z₃_sol, state_dimension, control_dimension) 
+xs3, us3 = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 # (v_x, v_y) in m/s OUTPUT to Tianyu
 
 X1 = state_matrix(xs1)  # 2 × (T+1)

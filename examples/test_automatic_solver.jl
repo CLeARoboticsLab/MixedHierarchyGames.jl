@@ -3,11 +3,13 @@ using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using Graphs
 using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using ParametricMCPs: ParametricMCPs
 using Plots
 using Symbolics
 using SymbolicTracingUtils
 using TrajectoryGamesBase: unflatten_trajectory
+using SciMLBase: SciMLBase
 
 # TODO: Turn this into an extension of the string type using my own type.
 function make_symbol(args...)
@@ -233,9 +235,57 @@ function solve_with_path(πs, variables, θ, parameter_value)
 		use_basics = true,
 		use_start = true,
 	)
+
 	@show status
 	return z_sol, status, info
 end
+
+"""                      
+∇F(z; ϵ) δz = -F(z; ϵ).
+"""
+function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+)
+	symbolic_type = eltype(variables)
+	# Final MCP vector: leader stationarity + leader constraints + follower KKT
+	F = Vector{symbolic_type}([
+		vcat(collect(values(πs))...)..., # KKT conditions of all players
+	])
+
+	z̲ = fill(-Inf, length(F));
+	z̅ = fill(Inf, length(F))
+
+	# Form mcp via PATH
+	parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+
+	∇F = parametric_mcp.jacobian_z!.result_buffer
+	F = zeros(length(F))
+	δz = zeros(length(variables))
+
+	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+
+	#TODO: Add line search for non-LQ case
+	status = :solved
+
+	parametric_mcp.f!(F, δz, [parameter_value])
+	parametric_mcp.jacobian_z!(∇F, δz, [parameter_value])
+	linsolve.A = ∇F
+	linsolve.b = -F
+	solution = solve!(linsolve)
+
+	if !SciMLBase.successful_retcode(solution) &&
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
+	else
+		z_sol = solution.u
+	end
+
+
+	return z_sol, status
+end
+
 
 """
 	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=false)
@@ -356,6 +406,11 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 	end
 	z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
 
+	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value)
+
+	# Main.@infiltrate
+	@assert isapprox(z_sol, z_sol_custom, atol = 1e-2)
+	@show status
 	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
 
@@ -502,6 +557,6 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
 
 	return next_state, curr_control
-    # next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
-    # curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
+	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
+	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
