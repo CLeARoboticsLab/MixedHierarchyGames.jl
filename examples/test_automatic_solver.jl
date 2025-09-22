@@ -261,12 +261,19 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 	F = zeros(length(F))
 	δz = zeros(length(variables))
 
+	# while norm(F) > tol
+	 # Update F and ∇F at current z
+     # compute δz by linear solve
+	 # Choose alpha step in direction δz (Wolfe condition)
+	 # Update z
+	# end
+
 	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
 
 	#TODO: Add line search for non-LQ case
 	status = :solved
 
-	parametric_mcp.f!(F, δz, [parameter_value])
+	parametric_mcp.f!(F, δz, [parameter_value]) # TODO: z instead of δz
 	parametric_mcp.jacobian_z!(∇F, δz, [parameter_value])
 	linsolve.A = ∇F
 	linsolve.b = -F
@@ -282,6 +289,7 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 		z_sol = solution.u
 	end
 
+	# end for
 
 	return z_sol, status
 end
@@ -409,9 +417,9 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value)
 
 	# Main.@infiltrate
-	@assert isapprox(z_sol, z_sol_custom, atol = 1e-2)
+	@assert isapprox(z_sol, z_sol_custom, atol = 1e-4)
 	@show status
-	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θ)
+	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
 
 ######### INPUT: Initial conditions ##########################
