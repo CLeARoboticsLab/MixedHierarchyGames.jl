@@ -243,8 +243,7 @@ end
 """                      
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
-function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
-)
+function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
 	symbolic_type = eltype(variables)
 	# Final MCP vector: leader stationarity + leader constraints + follower KKT
 	F = Vector{symbolic_type}([
@@ -260,40 +259,68 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 	∇F = parametric_mcp.jacobian_z!.result_buffer
 	F = zeros(length(F))
 	δz = zeros(length(variables))
-
-	# while norm(F) > tol
-	 # Update F and ∇F at current z
-     # compute δz by linear solve
-	 # Choose alpha step in direction δz (Wolfe condition)
-	 # Update z
-	# end
+	z = zeros(length(variables)) # TODO: add initial guess z₀ using @something
 
 	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
 
 	#TODO: Add line search for non-LQ case
+	# Main Solver loop
 	status = :solved
+	total_iters = 0
+	iters = 0
+	max_iters = 50
+	tol = 1e-6
+	# TODO: make these parameters/input
 
-	parametric_mcp.f!(F, δz, [parameter_value]) # TODO: z instead of δz
-	parametric_mcp.jacobian_z!(∇F, δz, [parameter_value])
-	linsolve.A = ∇F
-	linsolve.b = -F
-	solution = solve!(linsolve)
+	kkt_error = Inf
+	while kkt_error > tol && iters <= max_iters
+		iters += 1
 
-	if !SciMLBase.successful_retcode(solution) &&
-	   (solution.retcode !== SciMLBase.ReturnCode.Default)
-		verbose &&
-			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
-		status = :failed
-		# break
-	else
-		z_sol = solution.u
+		parametric_mcp.f!(F, z, [parameter_value])
+		parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
+		linsolve.A = ∇F
+		linsolve.b = -F
+		solution = solve!(linsolve)
+
+		if !SciMLBase.successful_retcode(solution) &&
+		   (solution.retcode !== SciMLBase.ReturnCode.Default)
+			verbose &&
+				@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+			status = :failed
+			break
+		end
+
+		δz .= solution.u
+
+		# α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
+		α_z = 1.0 # TODO: add line search?
+
+		@. z += α_z * δz
+
+		kkt_error = norm(F, Inf)
+		verbose && @show norm(F, Inf)
 	end
 
-	# end for
+	verbose && @show iters
 
-	return z_sol, status
+	return z, status
 end
 
+"""Helper function to compute the step size `α` which solves:
+				   α* = max(α ∈ [0, 1] : v + α δ ≥ (1 - τ) v).
+"""
+function fraction_to_the_boundary_linesearch(v, δ; τ = 0.995, decay = 0.5, tol = 1e-4)
+	α = 1.0
+	while any(@. v + α * δ < (1 - τ) * v)
+		if α < tol
+			return NaN
+		end
+
+		α *= decay
+	end
+
+	α
+end
 
 """
 	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=false)
@@ -414,7 +441,7 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 	end
 	z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
 
-	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value)
+	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
 
 	# Main.@infiltrate
 	@assert isapprox(z_sol, z_sol_custom, atol = 1e-4)
@@ -529,7 +556,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	end for i in 1:N] # each player has the same dynamics constraint
 
 	parameter_value = 1e-5
-	z_sol, status, info, all_variables, vars = run_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose = verbose)
+	z_sol, status, info, all_variables, vars = run_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
 
