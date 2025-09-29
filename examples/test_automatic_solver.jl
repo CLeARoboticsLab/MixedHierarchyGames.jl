@@ -347,14 +347,10 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; 
 	"""
 	Evaluae the KKT conditions
 	"""
-
-	all_πs = vcat(collect(values(πs))...)
-	π_fns = []
-	π_eval = []
-	for πₖ in all_πs
-		push!(π_fns, SymbolicTracingUtils.build_function([πₖ], all_variables; in_place = false))
-		push!(π_eval, only(π_fns[end](z_sol)))
-	end
+	all_πs = Vector{Symbolics.Num}(vcat(collect(values(πs))...))
+	# TODO: Run with inplace true to do the opposite of chun chun hee.
+	π_fns = SymbolicTracingUtils.build_function(all_πs, all_variables; in_place = false)
+	π_eval = π_fns(z_sol)
 
 	println("\n" * "="^20 * " KKT Residuals " * "="^20)
 	println("Are all KKT conditions satisfied? ", all(π_eval .< 1e-6))
@@ -476,7 +472,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 10 # time horizon
+	T = 3 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
