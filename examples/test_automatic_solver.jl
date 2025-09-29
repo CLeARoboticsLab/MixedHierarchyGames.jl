@@ -179,8 +179,36 @@ function get_kkt_conditions(G::SimpleDiGraph,
 				# ws_ordering;
 				# ws_sizes;
 
-				#
-				Φʲ = - extractor * (Ms[jj] \ Ns[jj]) * ys[jj] # TODO: Fill in the blank with a lookup?
+				Main.@infiltrate
+				# Φʲ = - extractor * (Ms[jj] \ Ns[jj]) * ys[jj] # TODO: Fill in the blank with a lookup?
+
+				# all_πs = Vector{Symbolics.Num}(vcat(collect(values(πs))...))
+				# # TODO: Run with inplace true to do bali bali.
+				# π_fns = SymbolicTracingUtils.build_function(all_πs, all_variables; in_place = false)
+				# π_eval = π_fns(z_sol)
+
+				# Construct a list of all variables in order and solve.
+				# TODO: Make a helpie fn for getting all variables.
+				temp = vcat(collect(values(μs))...)
+				all_variables = vcat(vcat(zs...), vcat(λs...))
+				if !isempty(temp)
+					all_variables = vcat(all_variables, vcat(collect(values(μs))...))
+				end
+
+
+				# Build function for substituting values for symbolic M and N matrices.
+				M_fn = SymbolicTracingUtils.build_function(Ms[jj], all_variables; in_place = false)
+				N_fn = SymbolicTracingUtils.build_function(Ns[jj], all_variables; in_place = false)
+
+				# TODO: Get current estimate of z (probably all variables not just primals) as input.
+				z_estimate = zeros(length(all_variables))
+
+				# Evaluate M and N at current estimate, reshaping to counteract automatic flattening.
+				M_jj_eval = reshape(M_fn(z_estimate), size(Ms[jj]))
+				N_jj_eval = reshape(N_fn(z_estimate), size(Ns[jj]))
+
+				# Solve Mw + Ny = 0 using approximated M and N values at z_estimate.
+				Φʲ = - extractor * (M_jj_eval \ N_jj_eval) * ys[jj]
 
 				# TODO: Cache the result for later leaders.
 				# Φs[jj] = Φʲ
@@ -206,7 +234,6 @@ function get_kkt_conditions(G::SimpleDiGraph,
 
 	return πs, Ms, Ns
 end
-
 
 ###### UTILS FOR PATH SOLVER  ######
 # TODO: Fix to make it general based on whatever expressions are needed.
@@ -266,7 +293,6 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 	#TODO: Add line search for non-LQ case
 	# Main Solver loop
 	status = :solved
-	total_iters = 0
 	iters = 0
 	max_iters = 50
 	tol = 1e-6
@@ -345,7 +371,7 @@ valid solution.
 """
 function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = false)
 	"""
-	Evaluae the KKT conditions
+	Evaluate the KKT conditions
 	"""
 	all_πs = Vector{Symbolics.Num}(vcat(collect(values(πs))...))
 	# TODO: Run with inplace true to do the opposite of chun chun hee.
@@ -427,6 +453,8 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 		end
 	end
 	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+	Main.@infiltrate
+
 	πs, _, _ = get_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
 
 	# Construct a list of all variables in order and solve.
@@ -435,11 +463,11 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 	if !isempty(temp)
 		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
 	end
+
 	z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
 
 	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
 
-	# Main.@infiltrate
 	@assert isapprox(z_sol, z_sol_custom, atol = 1e-4)
 	@show status
 	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
@@ -460,7 +488,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# Set up the information structure.
 	# This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P1 -> P2
+	add_edge!(G, 2, 1); # P2 -> P1
 	add_edge!(G, 2, 3); # P2 -> P3
 
 
@@ -490,7 +518,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+		0.5*sum((xs³[end] .- xs²[end]) .^ 4) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
 	end
 
 	# player 2 (leader)'s objective function: P2 wants P1 and P3 to get to the origin
@@ -552,6 +580,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	end for i in 1:N] # each player has the same dynamics constraint
 
 	parameter_value = 1e-5
+	Main.@infiltrate
 	z_sol, status, info, all_variables, vars = run_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
