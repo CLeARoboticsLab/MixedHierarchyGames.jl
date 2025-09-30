@@ -1,0 +1,55 @@
+"""
+Drawing (at time t):
+    P1               P1            P1           P1
+   /  \     -->     /  \     -->  /  \    -->   |     -->    P123456
+  P2  P3           P2  P3       P24 P356      P23456
+ /     \ \        /    |
+P4     P5 P6     P4    P56
+
+P4's info vector contains x, u1 and u2
+P5's info vector contains x, u1 and u3
+P6's info vector contains x, u1 and u3
+P5+P6's joint info vector contains x, u1 and u3
+P2's info vector contains x, u1
+P2+P4's joint info vector contains x, u1, but not u2
+P3+P5+P6's joint info vector contains x, u1, but not u3
+P2-6's joint info vector contains x, u1
+P1's joint info vector contains x
+
+Merge KKT conditions in topological order to take advantage of structure
+    around having the same leaders and the same Nash relations.
+
+For merging:
+Compute KKT conditions for all leaves.
+Starting depth-first with the further leaf from the root, merge KKT conditions with its own leaders until it the leader
+    has other children. Then merge joint KKT conditions of each child of the leader before identifying leader conditions.
+How to manage Nash conditions?
+
+Order for this example:
+P4 (leaf)
+P5 (leaf)
+P6 (leaf)
+P56 (merge - multiple children which share P3 as leader)
+P24 (chain - P2 and P4 have same Nash relations with other players)
+P356 (chain - P3 and P56 have same Nash relations with other players)
+P23456 (merge - multiple children which share P1 as leader)
+P1 (chain)
+
+State ordering for each player:
+TODO
+
+
+
+    P1          P1
+   /  \   -->   ||   -->  P123
+  P2  P3        P23 
+
+
+
+Designing automated indexing for variables.
+-------------------------------------------
+
+
+
+
+

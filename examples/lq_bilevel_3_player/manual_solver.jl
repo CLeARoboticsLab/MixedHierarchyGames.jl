@@ -1,5 +1,6 @@
 """
-This solver manually computes the Stackelberg hierarchy equilibrium for a 3-player LQ game.
+This solver manually computes the Stackelberg hierarchy equilibrium for a 3-player LQ game, by solving for each player
+i's controls at each time t and using the solution to build the KKT conditions at the next time.
 """
 
 # Import the game costs and dynamics from the problem definition.
