@@ -518,7 +518,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs³[end] .- xs²[end]) .^ 4) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
 	end
 
 	# player 2 (leader)'s objective function: P2 wants P1 and P3 to get to the origin
