@@ -16,6 +16,8 @@ include("solve_kkt_conditions.jl")
 include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
+include("automatic_solver.jl")
+
 
 
 """                      
@@ -85,88 +87,15 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 end
 
 
-function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
-	N = nv(graph) # number of players
+function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
-	# Construct symbols for each player's decision variables.
-	# TODO: Construct sizes and orderings.
-	backend = SymbolicTracingUtils.SymbolicsBackend()
-	zs = [SymbolicTracingUtils.make_variables(
-		backend,
-		make_symbolic_variable(:z, i, H),
-		primal_dimension_per_player,
-	) for i in 1:N]
-
-	λs = [SymbolicTracingUtils.make_variables(
-		backend,
-		make_symbolic_variable(:λ, i, H),
-		length(gs[i](zs[i])),
-	) for i in 1:N]
-
-	μs = Dict{Tuple{Int, Int}, Any}()
-	ws = Dict{Int, Any}()
-	ys = Dict{Int, Any}()
-	for i in 1:N
-		# TODO: Replace this call with a built-in search ordering.
-		# yᵢ is the information vector containing states zᴸ associated with leaders L of i.
-		# This call must ensure the highest leader comes first in the ordering.
-		leaders = get_all_leaders(graph, i)
-		ys[i] = vcat(zs[leaders]...)
-		ws[i] = zs[i] # Initialize vector with current agent's state.
-
-		# wᵢ is used to identify policy constraints by leaders of i.
-		# Construct wᵢ by adding (1) zs which are not from leaders of i and not i itself,
-		for jj in 1:N
-			if jj in leaders || jj == i
-				continue
-			end
-			ws[i] = vcat(ws[i], zs[jj])
-		end
-
-		#                        (2) λs of i and its followers, and
-		for jj in BFSIterator(graph, i)
-			ws[i] = vcat(ws[i], λs[jj])
-		end
-
-		#                        (3) μs associated with i's follower policies.
-		# TODO: Replace this call with a built-in search ordering (mix with BFS above).
-		# Get all followers of i, create the variable for each, and store them in a Dict.
-		followers = get_all_followers(graph, i)
-		for j in followers
-			μs[(i, j)] = SymbolicTracingUtils.make_variables(
-				backend,
-				make_symbolic_variable(:μ, i, j, H),
-				primal_dimension_per_player,
-			)
-			ws[i] = vcat(ws[i], μs[(i, j)])
-		end
-
-
-		if verbose
-			println("ws for P$i ($(length(ws[i]))):\n", ws[i])
-			println()
-			println("ys for P$i ($(length(ys[i]))):\n", ys[i])
-			println()
-		end
-	end
-	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
-	Main.@infiltrate
-
-	πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
-
-	# Construct a list of all variables in order and solve.
-	temp = vcat(collect(values(μs))...)
-	all_variables = vcat(vcat(zs...), vcat(λs...))
-	if !isempty(temp)
-		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
-	end
-
-	z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
-
+	# Run the PATH solver through the run_solver call.
+	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
 
-	@assert isapprox(z_sol, z_sol_custom, atol = 1e-4)
+	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
 	@show status
+
 	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
 
@@ -178,7 +107,7 @@ x0 = [
 ]
 ###############################################################
 
-# Main body of algorithm implementation. Will restructure as needed.
+# Main body of algorithm implementation for hardware. Will restructure as needed.
 function nplayer_hierarchy_navigation(x0; verbose = false)
 	N = 3 # number of players
 
@@ -278,7 +207,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	parameter_value = 1e-5
 	Main.@infiltrate
-	z_sol, status, info, all_variables, vars = run_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
 
