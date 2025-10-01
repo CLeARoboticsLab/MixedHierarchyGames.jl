@@ -15,11 +15,10 @@ include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
 
-function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose = false)
 	N = nv(graph) # number of players
 
 	# Construct symbols for each player's decision variables.
-	# TODO: Construct sizes and orderings.
 	backend = SymbolicTracingUtils.SymbolicsBackend()
 	zs = [SymbolicTracingUtils.make_variables(
 		backend,
@@ -71,7 +70,6 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 			ws[i] = vcat(ws[i], μs[(i, j)])
 		end
 
-
 		if verbose
 			println("ws for P$i ($(length(ws[i]))):\n", ws[i])
 			println()
@@ -80,6 +78,23 @@ function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_val
 		end
 	end
 	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+
+	# Construct a list of all variables in order and solve.
+	temp = vcat(collect(values(μs))...)
+	all_variables = vcat(vcat(zs...), vcat(λs...))
+	if !isempty(temp)
+		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
+	end
+
+	(; all_variables, zs, λs, μs, θ, ws, ys)
+end
+
+function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+	N = nv(graph) # number of players
+
+	# Construct symbols for each player's decision variables.
+	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+
 	πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
 
 	# Construct a list of all variables in order and solve.
@@ -181,8 +196,8 @@ function main(verbose = false)
 
 	# Set up the equality constraints for each player.
 	ics = [[0.0; 2.0],
-		[2.0; 4.0],
-		[6.0; 8.0]] # initial conditions for each player
+	       [2.0; 4.0],
+		   [6.0; 8.0]] # initial conditions for each player
 
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
@@ -197,7 +212,7 @@ function main(verbose = false)
 
 	gs = [function (zᵢ)
 		vcat(dynamics_constraint(zᵢ),
-			make_ic_constraint(i)(zᵢ))
+			 make_ic_constraint(i)(zᵢ))
 	end for i in 1:N] # each player has the same dynamics constraint
 
 	parameter_value = 1e-5
