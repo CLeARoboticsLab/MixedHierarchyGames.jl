@@ -15,11 +15,10 @@ include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
 
-function setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose = false)
+function setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend = SymbolicTracingUtils.SymbolicsBackend(), verbose = false)
 	N = nv(graph) # number of players
 
 	# Construct symbols for each player's decision variables.
-	backend = SymbolicTracingUtils.SymbolicsBackend()
 	zs = [SymbolicTracingUtils.make_variables(
 		backend,
 		make_symbolic_variable(:z, i, H),
@@ -127,7 +126,7 @@ function main(verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 10 # time horizon
+	T = 3 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
