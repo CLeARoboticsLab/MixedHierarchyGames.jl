@@ -349,6 +349,7 @@ function setup_fast_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_variable
 	π_sizes = Dict{Int, Any}()
 
 	K_syms = Dict{Int, Any}()
+	πs = Dict{Int, Any}()
 
 	M_fns = Dict{Int, Any}()
 	N_fns = Dict{Int, Any}()
@@ -399,8 +400,10 @@ function setup_fast_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_variable
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
 			end
-			πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
 		end
+		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
+		πs[ii] = πᵢ
+
 
 		# Finally, we compute symbolic versions of M and N that only depend on the symbolic versions of lower-level algorithms.
 		# This allows us to evaluate M and N at any z_est without needing to recompute the entire symbolic gradient.
@@ -458,7 +461,7 @@ function setup_fast_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_variable
 		)		
 	end
 
-	return fast_kkt_solver, out_all_augment_variables, (; K_syms = K_syms, M_fns = M_fns, N_fns = N_fns, π_sizes = π_sizes)
+	return fast_kkt_solver, out_all_augment_variables, (; πs = πs, K_syms = K_syms, M_fns = M_fns, N_fns = N_fns, π_sizes = π_sizes)
 end
 
 

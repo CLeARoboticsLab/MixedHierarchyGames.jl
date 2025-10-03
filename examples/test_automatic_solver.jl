@@ -86,12 +86,12 @@ function custom_solve_unnecessary_loop(πs, variables, θ, parameter_value; line
 	return z, status
 end
 
-"""                      
+"""       
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
 # TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
 # TODO: Do initialization to create mcp_obj ahead of time and then add an argument here.
-function solve_with_linsolve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
+function solve_with_linsolve_too_big(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
 	symbolic_type = eltype(variables)
 
 	@timeit to "[Linear Solve] Setup ParametricMCP Inputs" begin
@@ -153,6 +153,115 @@ function solve_with_linsolve(πs, variables, θ, parameter_value; linear_solve_a
 end
 
 
+"""       
+∇F(z; ϵ) δz = -F(z; ϵ).
+"""
+# TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
+# TODO: Do initialization to create mcp_obj ahead of time and then add an argument here.
+function unoptimized_solve_with_linsolve(πs, variables, vectorized_Ks, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
+	symbolic_type = eltype(variables)
+
+	@timeit to "[Linear Solve] Setup ParametricMCP Inputs" begin
+		# Final MCP vector: leader stationarity + leader constraints + follower KKT
+		F = Vector{symbolic_type}([
+			vcat(collect(values(πs))...)..., # KKT conditions of all players
+		])
+
+		z̲ = fill(-Inf, length(F));
+		z̅ = fill(Inf, length(F))
+
+		# Form mcp via ParametricMCP initialization.
+		mcp_obj = ParametricMCPs.ParametricMCP(F, variables, vectorized_Ks, z̲, z̅; compute_sensitivities = false)
+	end
+	@timeit to "[Linear Solve] ParametricMCP Setup" begin
+		∇F = mcp_obj.jacobian_z!.result_buffer
+		F = zeros(length(F))
+		δz = zeros(length(F))
+	end
+
+	@timeit to "[Linear Solve] Solver Setup" begin
+		# TODO: Move outside so we do it once.
+		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	end
+
+	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
+
+		#TODO: Add line search for non-LQ case
+		status = :solved
+
+		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
+		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
+		linsolve.A = ∇F
+		linsolve.b = -F
+	end
+
+	@timeit to "[Linear Solve] Call to Solver" begin
+		solution = solve!(linsolve)
+	end
+
+	if !SciMLBase.successful_retcode(solution) &&
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
+	else
+		z_sol = solution.u
+	end
+
+	# end for
+
+	return z_sol, status
+end
+
+
+function solve_with_linsolve(mcp_obj, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
+	
+	@timeit to "[Linear Solve] ParametricMCP Setup" begin
+		∇F = mcp_obj.jacobian_z!.result_buffer
+
+		F_size = size(∇F, 1)
+		F = zeros(F_size)
+		δz = zeros(F_size)
+	end
+
+	@timeit to "[Linear Solve] Solver Setup" begin
+		# TODO: Move outside so we do it once.
+		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	end
+
+	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
+
+		#TODO: Add line search for non-LQ case
+		linsolve_status = :solved
+
+		# Main.@infiltrate
+		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
+		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
+		linsolve.A = ∇F
+		linsolve.b = -F
+	end
+
+	@timeit to "[Linear Solve] Call to Solver" begin
+		solution = solve!(linsolve)
+	end
+
+	if !SciMLBase.successful_retcode(solution) &&
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		linsolve_status = :failed
+		# break
+	else
+		z_sol = solution.u
+	end
+
+	# end for
+
+	return z_sol, linsolve_status
+end
+
+
 function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
 	# Run the PATH solver through the run_solver call.
@@ -173,7 +282,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 	#TODO: Add line search for non-LQ case
 	# Main Solver loop
-	status = :solved
+	nonlq_solver_status = :solved
 	iters = 0
 
 	# Create a TimerOutput object
@@ -191,6 +300,27 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		# solver_fn = setup_fast_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, to)
 		solver_fn, out_all_augment_variables, setup_info = setup_fast_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
 		K_syms = setup_info.K_syms
+		πs = setup_info.πs
+		# Main.@infiltrate
+		all_vectorized_Ks = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		println("all_vectorized_Ks size: ", size(all_vectorized_Ks), eltype(all_vectorized_Ks))
+		π_sizes = setup_info.π_sizes
+	end
+
+	symbolic_type = eltype(all_variables)
+
+	@timeit to "[Linear Solve] Setup ParametricMCP" begin
+		# Final MCP vector: leader stationarity + leader constraints + follower KKT
+		F = Vector{symbolic_type}([
+			vcat(collect(values(πs))...)..., # KKT conditions of all players
+		])
+
+		z̲ = fill(-Inf, length(F));
+		z̅ = fill(Inf, length(F))
+
+		# Form mcp via ParametricMCP initialization.
+		println(length(all_variables), " variables, ", length(F), " conditions")
+		mcp_obj = ParametricMCPs.ParametricMCP(F, all_variables, all_vectorized_Ks, z̲, z̅; compute_sensitivities = false)
 	end
 
 	# Main.@infiltrate
@@ -208,8 +338,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
 				# πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
 				# πs, _, _ = get_lq_kkt_conditions_optimized(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
-				πs, _, _, info = solver_fn(z_est)
-				
+				est_πs, _, _, info = solver_fn(z_est)
+				println(length.(collect(values(est_πs))), " KKT conditions")
+
+				# Main.@infiltrate
 
 				# Compute the numeric vectors (of type Float64, generally).
 				K_evals = info.K_evals
@@ -218,21 +350,22 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 					# println(ii, eltype(K_evals[ii]))
 					# println("K_evals[$ii] size: ", K_evals[ii])
 				end
-				println("Variables eltype: ", eltype(all_variables))
-				for ii in 1:N
-					println("K_evals[$ii] eltype: ", eltype(K_evals[ii]))
-				end
-				all_vectorized_Ks = map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:N) |> vcat
-				augmented_z = vcat(z_est, all_vectorized_Ks)
+				# println("Variables eltype: ", eltype(all_variables))
+				# for ii in 1:N
+				# 	println("K_evals[$ii] eltype: ", eltype(K_evals[ii]))
+				# end
+				all_vectorized_Kevals = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:N)...)
+				# augmented_z = vcat(z_est, all_vectorized_Kevals)
 			end
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
-				dz_sol, status = solve_with_linsolve(πs, out_all_augment_variables, θ, parameter_value; to)
+				# dz_sol, linsolve_status = unoptimized_solve_with_linsolve(est_πs, all_variables, [θ], parameter_value; to)
+				dz_sol, linsolve_status = solve_with_linsolve(mcp_obj, all_vectorized_Kevals; to)
 			end
 			# println("dz_sol: ", dz_sol[1:5])
 
-			if status != :solved
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(status)"
+			if linsolve_status != :solved
+				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
 				break
 			end
 
@@ -258,7 +391,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	# TODO: Redo to add more general output.
 	info = Dict()
 	πs = πs_est
-	z_est, status, info, all_variables, (; πs, zs, λs, μs, θ)
+	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
 
 
