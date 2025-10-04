@@ -5,6 +5,7 @@ using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using Plots
+using SparseArrays
 using Symbolics
 using SymbolicTracingUtils
 using TrajectoryGamesBase: unflatten_trajectory
@@ -215,8 +216,9 @@ function unoptimized_solve_with_linsolve(πs, variables, vectorized_Ks, K_evals_
 end
 
 
-function solve_with_linsolve(mcp_obj, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
-	
+# function solve_with_linsolve(mcp_obj, linsolver, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
+function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(), verbose = false)
+
 	@timeit to "[Linear Solve] ParametricMCP Setup" begin
 		∇F = mcp_obj.jacobian_z!.result_buffer
 
@@ -225,10 +227,10 @@ function solve_with_linsolve(mcp_obj, K_evals_vec; linear_solve_algorithm = Line
 		δz = zeros(F_size)
 	end
 
-	@timeit to "[Linear Solve] Solver Setup" begin
+	# @timeit to "[Linear Solve] Solver Setup" begin
 		# TODO: Move outside so we do it once.
-		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
-	end
+		# linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	# end
 
 	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
 
@@ -236,14 +238,15 @@ function solve_with_linsolve(mcp_obj, K_evals_vec; linear_solve_algorithm = Line
 		linsolve_status = :solved
 
 		# Main.@infiltrate
+		# Main.@infiltrate
 		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
 		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
-		linsolve.A = ∇F
-		linsolve.b = -F
+		linsolver.A = ∇F
+		linsolver.b = -F
 	end
 
 	@timeit to "[Linear Solve] Call to Solver" begin
-		solution = solve!(linsolve)
+		solution = solve!(linsolver)
 	end
 
 	if !SciMLBase.successful_retcode(solution) &&
@@ -279,6 +282,7 @@ end
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
 						  parameter_value = 1e-5, max_iters = 3, tol = 1e-6, verbose = false)
 	N = nv(graph) # number of players
+	reverse_topological_order = reverse(topological_sort(graph))
 
 	#TODO: Add line search for non-LQ case
 	# Main Solver loop
@@ -301,10 +305,19 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		solver_fn, out_all_augment_variables, setup_info = setup_fast_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
 		K_syms = setup_info.K_syms
 		πs = setup_info.πs
+		M_fns = setup_info.M_fns
+		N_fns = setup_info.N_fns
+
 		# Main.@infiltrate
 		all_vectorized_Ks = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
 		println("all_vectorized_Ks size: ", size(all_vectorized_Ks), eltype(all_vectorized_Ks))
 		π_sizes = setup_info.π_sizes
+	end
+
+	@timeit to "Linear Solver Initialization" begin
+		F_size = sum(values(π_sizes))
+		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
 	end
 
 	symbolic_type = eltype(all_variables)
@@ -338,13 +351,52 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
 				# πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
 				# πs, _, _ = get_lq_kkt_conditions_optimized(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
-				est_πs, _, _, info = solver_fn(z_est)
-				println(length.(collect(values(est_πs))), " KKT conditions")
+				# est_πs, _, _, info = solver_fn(z_est)
+				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate M]" begin
+
+					M_evals = Dict{Int, Any}()
+
+					N_evals = Dict{Int, Any}()
+					K_evals = Dict{Int, Any}()
+					for ii in reverse_topological_order
+						# TODO: Can be made more efficient if needed.
+						# πⁱ has size num constraints + num primal variables of i AND its followers.
+						# π_sizes[ii] = length(gs[ii](zs[ii]))
+						# for jj in BFSIterator(G, ii) # loop includes ii itself.
+						# 	π_sizes[ii] += length(zs[jj])
+						# end
+
+						# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
+						# Get the list of symbols we need values for.
+						# augmented_variables = all_augmented_variables[ii]
+
+						if has_leader(graph, ii)
+						# if is_leaf(G, ii) 
+						# 	M_evals[ii] = M_fns[ii](z_est)
+						# 	N_evals[ii] = N_fns[ii](z_est)
+						# else
+							# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
+							augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
+							augmented_z_est = vcat(z_est, augmented_z_est...)
+							
+							# Produce linearized versions of the current M and N values which can be used.
+							M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
+							N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
+
+							K_evals[ii] = M_evals[ii] \ N_evals[ii]
+						else
+							M_evals[ii] = nothing
+							N_evals[ii] = nothing
+							K_evals[ii] = nothing
+						end
+					end
+				end
 
 				# Main.@infiltrate
 
 				# Compute the numeric vectors (of type Float64, generally).
-				K_evals = info.K_evals
+				# K_evals = info.K_evals
+				# M_fns
 				for ii in 1:N
 					K_evals[ii] = @something(K_evals[ii], Float64[])
 					# println(ii, eltype(K_evals[ii]))
@@ -360,7 +412,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
 				# dz_sol, linsolve_status = unoptimized_solve_with_linsolve(est_πs, all_variables, [θ], parameter_value; to)
-				dz_sol, linsolve_status = solve_with_linsolve(mcp_obj, all_vectorized_Kevals; to)
+				dz_sol, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals; to)
 			end
 			# println("dz_sol: ", dz_sol[1:5])
 
@@ -424,7 +476,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 3 # time horizon
+	T = 20 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
