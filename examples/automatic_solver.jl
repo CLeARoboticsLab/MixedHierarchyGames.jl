@@ -15,7 +15,7 @@ include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
 
-function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 	N = nv(graph) # number of players
 
 	# Construct symbols for each player's decision variables.

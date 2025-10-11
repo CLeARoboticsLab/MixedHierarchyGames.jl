@@ -19,7 +19,6 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-
 """                      
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
