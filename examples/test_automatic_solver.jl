@@ -279,14 +279,12 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; param
 
 	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 	all_lq_variables = lq_vars.all_variables
-	# lq_πs = lq_vars.πs
 	lq_zs = lq_vars.zs
 	lq_λs = lq_vars.λs
 	lq_μs = lq_vars.μs
 	lq_θ = lq_vars.θ
 	lq_ws = lq_vars.ws
 	lq_ys = lq_vars.ys
-	# (; zs, λs, μs, θ) = lq_vars
 
 	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
 	z_sol_custom, status = lq_game_solve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)

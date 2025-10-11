@@ -88,7 +88,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 	(; all_variables, zs, λs, μs, θ, ws, ys)
 end
 
-function run_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 	N = nv(graph) # number of players
 
 	# Construct symbols for each player's decision variables.
