@@ -25,7 +25,7 @@ include("automatic_solver.jl")
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
 # TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
-function custom_solve_unnecessary_loop(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
+function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
 	symbolic_type = eltype(variables)
 	# Final MCP vector: leader stationarity + leader constraints + follower KKT
 	F = Vector{symbolic_type}([
@@ -53,36 +53,36 @@ function custom_solve_unnecessary_loop(πs, variables, θ, parameter_value; line
 	tol = 1e-6
 	# TODO: make these parameters/input
 
-	kkt_error = Inf
-	while kkt_error > tol && iters <= max_iters
-		iters += 1
+	# kkt_error = Inf
+	# while kkt_error > tol && iters <= max_iters
+	# 	iters += 1
 
-		parametric_mcp.f!(F, z, [parameter_value])
-		parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
-		linsolve.A = ∇F
-		linsolve.b = -F
-		solution = solve!(linsolve)
+	parametric_mcp.f!(F, z, [parameter_value])
+	parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
+	linsolve.A = ∇F
+	linsolve.b = -F
+	solution = solve!(linsolve)
 
-		if !SciMLBase.successful_retcode(solution) &&
-		   (solution.retcode !== SciMLBase.ReturnCode.Default)
-			verbose &&
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
-			status = :failed
-			break
-		end
-
-		δz .= solution.u
-
-		# α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
-		α_z = 1.0 # TODO: add line search?
-
-		@. z += α_z * δz
-
-		kkt_error = norm(F, Inf)
-		verbose && @show norm(F, Inf)
+	if !SciMLBase.successful_retcode(solution) &&
+		(solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
 	end
 
-	verbose && @show iters
+	z .= solution.u
+
+		# # α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
+		# α_z = 1.0 # TODO: add line search?
+
+		# @. z += α_z * δz
+
+		# kkt_error = norm(F, Inf)
+		# verbose && @show norm(F, Inf)
+	# end
+
+	# verbose && @show iters
 
 	return z, status
 end
@@ -239,7 +239,7 @@ function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(),
 
 		# Main.@infiltrate
 		# Main.@infiltrate
-		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
+		mcp_obj.f!(F, δz, K_evals_vec) # K_evals_vec in place of parameters \theta		
 		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
 		linsolver.A = ∇F
 		linsolver.b = -F
@@ -261,7 +261,7 @@ function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(),
 
 	# end for
 
-	return z_sol, linsolve_status
+	return z_sol, ∇F, linsolve_status
 end
 
 
@@ -269,10 +269,31 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; param
 
 	# Run the PATH solver through the run_solver call.
 	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	# z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
+	
+	# TODOS:
+	# 1. Plot the results and see the difference in solutions.
+	# 2. Clean up and land the refactoring.
+	# 3. Clean up solver code for nonlinear solver.
+	# 4. Implement more time optimization (warm start, etc.)
+	println("PATH solver status after $(info["iterations"]) iterations: $(status)")
+
+	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+	all_lq_variables = lq_vars.all_variables
+	# lq_πs = lq_vars.πs
+	lq_zs = lq_vars.zs
+	lq_λs = lq_vars.λs
+	lq_μs = lq_vars.μs
+	lq_θ = lq_vars.θ
+	lq_ws = lq_vars.ws
+	lq_ys = lq_vars.ys
+	# (; zs, λs, μs, θ) = lq_vars
+
+	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+	z_sol_custom, status = lq_game_solve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
 	z_sol_custom = z_sol_path
 
 	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
+	@show "Are they the same? > $(isapprox(z_sol_path, z_sol_custom, atol = 1e-4))"
 	@show status
 
 	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
@@ -412,7 +433,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
 				# dz_sol, linsolve_status = unoptimized_solve_with_linsolve(est_πs, all_variables, [θ], parameter_value; to)
-				dz_sol, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals; to)
+				dz_sol, ∇F, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals; to)
 			end
 			# println("dz_sol: ", dz_sol[1:5])
 
@@ -428,7 +449,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			# Update the convergence criterion.
 			# TODO: Switch to gradient norm.
-			convergence_criterion = norm(next_z_est - z_est, Inf)
+			convergence_criterion = norm(∇F, Inf)
+			# convergence_criterion = norm(next_z_est - z_est, Inf)
 
 			# Update the current estimate.
 			z_est = next_z_est
@@ -437,11 +459,11 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		# println("Loop time: ", loop_time)
 	end
 
-	show(to)
-	println()
+	# show(to)
+	# println()
 
 	# TODO: Redo to add more general output.
-	info = Dict()
+	info = Dict("iterations" => iters, "final convergence_criterion" => convergence_criterion)
 	πs = πs_est
 	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
@@ -476,7 +498,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 20 # time horizon
+	T = 3 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
