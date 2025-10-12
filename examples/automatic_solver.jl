@@ -28,6 +28,16 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 						    player's decision variable zᵢ.
 	backend (SymbolicTracingUtils.Backend) : The symbolic backend to use (default: SymbolicsBackend()).
 	verbose (Bool) : Whether to print verbose output (default: false).
+
+	Returns
+	-------
+	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
+	zs (Vector{Vector{Num}}) : A vector of each player's decision variable symbols.
+	λs (Vector{Vector{Num}}) : A vector of each player's Lagrange multiplier symbols for their constraints.
+	μs (Dict{Tuple{Int, Int}, Vector{Num}}) : A dictionary of Lagrange multiplier symbols for each leader-follower pair.
+	θ (Num) : The parameter symbol.
+	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
+	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
 	"""
 
 	N = nv(graph) # number of players
@@ -99,7 +109,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
 	end
 
-	(; all_variables, zs, λs, μs, θ, ws, ys)
+	(; all_variables, zs, λs, μs, θ, ys, ws)
 end
 
 
