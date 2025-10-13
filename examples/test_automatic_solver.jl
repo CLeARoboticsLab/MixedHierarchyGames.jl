@@ -92,18 +92,6 @@ function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorit
 end
 
 
-function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
-
-	# Run the PATH solver through the run_solver call.
-	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_custom, status = lq_game_solve(πs, all_variables, θ, parameter_value; verbose)
-
-	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
-	@show status
-
-	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
-end
-
 ######### INPUT: Initial conditions ##########################
 x0 = [
 	[0.0; 2.0], # [px, py]
@@ -208,7 +196,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
 	parameter_value = 1e-5
-	z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	_, _, z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
 

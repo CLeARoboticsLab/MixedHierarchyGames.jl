@@ -3,7 +3,9 @@ using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using Graphs
 using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using Plots
+using SciMLBase: SciMLBase
 using Symbolics
 using SymbolicTracingUtils
 using TimerOutputs
@@ -162,6 +164,23 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 end
 
 
+function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+	"""
+	Compares the solution to an LQ hierarchical game using the PATH solver and using a custom linear solver.
+	Ensures that both solvers return the same solution on the LQ problem.
+	"""
+
+	# Run the PATH solver through the run_solver call.
+	z_sol_path, path_status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs, all_variables, θ, parameter_value; verbose)
+
+	@assert isapprox(z_sol_path, z_sol_linsolve, atol = 1e-4)
+	@show "PATH status: $path_status"
+	@show "LinSolve status: $linsolve_status"
+
+	z_sol_path, path_status, z_sol_linsolve, linsolve_status, info, all_variables, (; πs, zs, λs, μs, θ)
+end
+
 # Main body of algorithm implementation for simple example. Will restructure as needed.
 function main(verbose = false)
 	# Number of players in the game
@@ -265,7 +284,7 @@ function main(verbose = false)
 
 	### Solve the LQ game using the automatic solver. ###
 	parameter_value = 1e-5
-	z_sol, status, info, all_variables, vars = run_lq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose = verbose)
+	z_sol, status, _, _, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
 
