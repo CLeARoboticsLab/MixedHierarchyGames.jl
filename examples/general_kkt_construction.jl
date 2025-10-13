@@ -132,3 +132,127 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 	return πs, Ms, Ns, (;K_evals = nothing)
 end
+
+
+function construct_augmented_variables(ii, all_variables, K_syms, G)
+	"""
+	Constructs an augmented list of variables including symbolic M and N matrices for use in optimized KKT solving.
+	This vector can not have extra terms because of the dependencies among the evaluated M and N matrices.
+	"""
+	# If ii is a leaf, then any computations can be completed with the main set of variables.
+	if is_leaf(G, ii)
+		return all_variables
+	end
+
+	# If ii is not a leaf, we need to include the symbolic M and N matrices.
+	augmented_variables = copy(all_variables)
+	
+	for jj in BFSIterator(G, ii)
+		if has_leader(G, jj)
+			# Vectorize them for storage.
+			vcat(augmented_variables, reshape(K_syms[jj], :))
+		end
+	end
+
+	return augmented_variables
+end
+
+
+function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
+	"""
+	Precomputes symbolic KKT conditions, and functions for evaluating M and N matrices for each player in the game.
+
+	Intended for use in a nonlinear solver that can take advantage of precomputed M and N matrices evaluated at z_est.
+	This sets up an augmented symbolic system where each Mi and Ni depend only on symbolic versions of the M and N 
+	matrices of its followers.
+	"""
+	N = nv(G) # number of players
+	H = 1 # open-loop for now
+
+	reverse_topological_order = reverse(topological_sort(G))
+
+	π_sizes = Dict{Int, Any}()
+
+	K_syms = Dict{Int, Any}()
+	πs = Dict{Int, Any}()
+
+	M_fns = Dict{Int, Any}()
+	N_fns = Dict{Int, Any}()
+
+	augmented_variables = Dict{Int, Any}()
+
+	for ii in reverse_topological_order
+		# TODO: This whole optimization is for computing M and N, which is only for players with leaders.
+		#       Look into skipping players without leaders. 
+
+		# TODO: Can be made more efficient if needed.
+		# πⁱ has size num constraints + num primal variables of i AND its followers.
+		π_sizes[ii] = length(gs[ii](zs[ii]))
+		for jj in BFSIterator(G, ii) # loop includes ii itself.
+			π_sizes[ii] += length(zs[jj])
+		end
+
+		if has_leader(G, ii)
+			# TODO: Use this directly instead of Msym and Nsym, for optimization.
+			K_syms[ii] = reshape(SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:K, ii, H),
+				length(ws[ii]) * length(ys[ii]),
+			), length(ws[ii]), length(ys[ii]))
+		else
+			K_syms[ii] = Symbolics.Num[]
+		end
+
+		# Build the Lagrangian using these variables.
+		Lᵢ = Js[ii](zs..., θ) - λs[ii]' * gs[ii](zs[ii])
+		for jj in BFSIterator(G, ii)
+			if ii == jj
+				continue
+			end
+
+			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
+			zi_size = length(zs[ii])
+			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - extractor * K_syms[jj] * ys[jj])
+		end
+
+		# Compute the KKT conditions [∇ᵢπᵢ; ⋯; ∇ⱼπᵢ; ⋯; gᵢ(zᵢ)] based on the Lagrangians.
+		πᵢ = []
+		for jj in BFSIterator(G, ii)
+			@timeit to "[KKT Precompute] Compute πᵢ" begin
+				# Note: the first jj should be ii itself, followed by each follower.
+				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
+			end
+		end
+		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
+		πs[ii] = πᵢ
+
+
+		# Finally, we compute symbolic versions of M and N that only depend on the symbolic versions of lower-level algorithms.
+		# This allows us to evaluate M and N at any z_est without needing to recompute the entire symbolic gradient.
+		# In general, solving M \ N requires a nonlinear solve. To keep things linear, we do computations using a symbolic variable K.
+		# We then evaluate M and N at a given z_est, and compute K = M \ N numerically before substituting the evaluation into K for later 
+		# computations.
+		if has_leader(G, ii)
+			@timeit to "[KKT Precompute] Compute M and N for player $ii" begin
+				Mᵢ = Symbolics.jacobian(πᵢ, ws[ii])
+				Nᵢ = Symbolics.jacobian(πᵢ, ys[ii])
+				# TODO: Explore adding a solve for K here.
+			end
+
+			@timeit to "[KKT Precompute] Compute M, N functions for player $ii" begin
+				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, G)
+				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
+				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
+			end
+		else
+			# TODO: dirty code, clean up
+			augmented_variables[ii] = all_variables
+		end
+	end
+
+	# Identify all augmented variables.
+	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
+
+	return out_all_augmented_variables, (; πs = πs, K_syms = K_syms, M_fns = M_fns, N_fns = N_fns, π_sizes = π_sizes)
+end

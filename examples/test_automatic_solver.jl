@@ -8,6 +8,7 @@ using Plots
 using TimerOutputs: TimerOutput, @timeit
 using TrajectoryGamesBase: unflatten_trajectory
 using SciMLBase: SciMLBase
+using SparseArrays: spzeros
 using Symbolics
 using SymbolicTracingUtils
 
@@ -20,75 +21,295 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-"""                      
+"""
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
 # TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
-function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
-	"""
-	Custom linear solver for LQ games using KKT conditions.
-
-	Parameters
-	----------
-	πs: Dict{Int, Vector{Symbolics.Num}}
-		Dictionary mapping player indices to their KKT conditions.
-	variables: Vector{Symbolics.Num}
-		Vector of all symbolic variables in the game.
-	θ: Symbolics.Num
-		Symbolic parameter for the game.
-	parameter_value: Float64
-		Numeric value to substitute for the symbolic parameter θ.
-	linear_solve_algorithm: LinearSolve algorithm (default: UMFPACKFactorization)
-		Algorithm to use for the linear solve step (from LinearSolve.jl).
-	verbose: Bool (default: false)
-		Whether to print verbose output.
-
-	Returns
-	-------
-	z: Vector{Float64}
-		Solution vector for all variables.
-	status: Symbol
-		Status of the solver (:solved or :failed).
-	"""
-
+# TODO: Do initialization to create mcp_obj ahead of time and then add an argument here.
+function unoptimized_solve_with_linsolve(πs, variables, vectorized_Ks, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
 	symbolic_type = eltype(variables)
-	# Final MCP vector: leader stationarity + leader constraints + follower KKT
-	F = Vector{symbolic_type}([
-		vcat(collect(values(πs))...)..., # KKT conditions of all players
-	])
 
-	z̲ = fill(-Inf, length(F));
-	z̅ = fill(Inf, length(F))
+	@timeit to "[Linear Solve] Setup ParametricMCP Inputs" begin
+		# Final MCP vector: leader stationarity + leader constraints + follower KKT
+		F = Vector{symbolic_type}([
+			vcat(collect(values(πs))...)..., # KKT conditions of all players
+		])
 
-	# Form mcp via PATH
-	parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+		z̲ = fill(-Inf, length(F));
+		z̅ = fill(Inf, length(F))
 
-	∇F = parametric_mcp.jacobian_z!.result_buffer
-	F = zeros(length(F))
-	δz = zeros(length(variables))
+		# Form mcp via ParametricMCP initialization.
+		mcp_obj = ParametricMCPs.ParametricMCP(F, variables, vectorized_Ks, z̲, z̅; compute_sensitivities = false)
+	end
+	@timeit to "[Linear Solve] ParametricMCP Setup" begin
+		∇F = mcp_obj.jacobian_z!.result_buffer
+		F = zeros(length(F))
+		δz = zeros(length(F))
+	end
 
-	# We use an arbitrary initial point for this LQ solver.
-	arbitrary_init_pt = zeros(length(variables))
+	@timeit to "[Linear Solve] Solver Setup" begin
+		# TODO: Move outside so we do it once.
+		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	end
 
-	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
 
-	parametric_mcp.f!(F, arbitrary_init_pt, [parameter_value])
-	parametric_mcp.jacobian_z!(∇F, arbitrary_init_pt, [parameter_value])
-	linsolve.A = ∇F
-	linsolve.b = -F
-	solution = solve!(linsolve)
+		#TODO: Add line search for non-LQ case
+		status = :solved
 
-	linsolve_status = :solved
+		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
+		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
+		linsolve.A = ∇F
+		linsolve.b = -F
+	end
+
+	@timeit to "[Linear Solve] Call to Solver" begin
+		solution = solve!(linsolve)
+	end
+
 	if !SciMLBase.successful_retcode(solution) &&
-		(solution.retcode !== SciMLBase.ReturnCode.Default)
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
+	else
+		z_sol = solution.u
+	end
+
+	# end for
+
+	return z_sol, status
+end
+
+
+function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(), verbose = false)
+
+	@timeit to "[Linear Solve] ParametricMCP Setup" begin
+		∇F = mcp_obj.jacobian_z!.result_buffer
+
+		F_size = size(∇F, 1)
+		F = zeros(F_size)
+		δz = zeros(F_size)
+	end
+
+	# @timeit to "[Linear Solve] Solver Setup" begin
+		# TODO: Move outside so we do it once.
+		# linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+	# end
+
+	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
+
+		#TODO: Add line search for non-LQ case
+		linsolve_status = :solved
+
+		# Main.@infiltrate
+		# Main.@infiltrate
+		mcp_obj.f!(F, δz, K_evals_vec) # K_evals_vec in place of parameters \theta		
+		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
+		linsolver.A = ∇F
+		linsolver.b = -F
+	end
+
+	@timeit to "[Linear Solve] Call to Solver" begin
+		solution = solve!(linsolver)
+	end
+
+	if !SciMLBase.successful_retcode(solution) &&
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
 		verbose &&
 			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
 		linsolve_status = :failed
+		# break
+	else
+		z_sol = solution.u
 	end
 
-	z = solution.u
+	# end for
 
-	return z, linsolve_status
+	return z_sol, ∇F, linsolve_status
+end
+
+# TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
+function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
+						  parameter_value = 1e-5, max_iters = 0, tol = 1e-6, verbose = false)
+	N = nv(graph) # number of players
+	reverse_topological_order = reverse(topological_sort(graph))
+
+	#TODO: Add line search for non-LQ case
+	# Main Solver loop
+	nonlq_solver_status = :solved
+	iters = 0
+
+	# Create a TimerOutput object
+	to = TimerOutput()
+
+	# Construct symbolic backend for each player's decision variables.
+	backend = SymbolicTracingUtils.SymbolicsBackend()
+
+	# Construct symbols for each player's decision variables.
+	@timeit to "Variable Setup" begin
+		(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend, verbose)
+	end
+
+	@timeit to "Precomputation of KKT Jacobians" begin
+		out_all_augment_variables, setup_info = setup_approximate_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
+		K_syms = setup_info.K_syms
+		πs = setup_info.πs
+		M_fns = setup_info.M_fns
+		N_fns = setup_info.N_fns
+
+		all_vectorized_Ks = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		π_sizes = setup_info.π_sizes
+	end
+
+	@timeit to "Linear Solver Initialization" begin
+		F_size = sum(values(π_sizes))
+		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
+	end
+
+	symbolic_type = eltype(all_variables)
+
+	@timeit to "[Linear Solve] Setup ParametricMCP" begin
+		# Final MCP vector: leader stationarity + leader constraints + follower KKT
+		F = Vector{symbolic_type}([
+			vcat(collect(values(πs))...)..., # KKT conditions of all players
+		])
+
+		z̲ = fill(-Inf, length(F));
+		z̅ = fill(Inf, length(F))
+
+		# Form mcp via ParametricMCP initialization.
+		println(length(all_variables), " variables, ", length(F), " conditions")
+		mcp_obj = ParametricMCPs.ParametricMCP(F, all_variables, all_vectorized_Ks, z̲, z̅; compute_sensitivities = false)
+	end
+
+	# Initial guess for primal and dual variables.
+	z_est = @something(z0_guess, zeros(length(all_variables)))
+	πs_est = nothing
+
+	convergence_criterion = Inf
+	while convergence_criterion > tol && iters <= max_iters
+		@timeit to "Iterative Loop" begin
+			# println("Iteration $iters $(z_est[1:5])")
+			iters += 1
+
+			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
+				# πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
+				# πs, _, _ = get_lq_kkt_conditions_optimized(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
+				# est_πs, _, _, info = solver_fn(z_est)
+				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate M]" begin
+
+					M_evals = Dict{Int, Any}()
+
+					N_evals = Dict{Int, Any}()
+					K_evals = Dict{Int, Any}()
+					for ii in reverse_topological_order
+						# TODO: Can be made more efficient if needed.
+						# πⁱ has size num constraints + num primal variables of i AND its followers.
+						# π_sizes[ii] = length(gs[ii](zs[ii]))
+						# for jj in BFSIterator(G, ii) # loop includes ii itself.
+						# 	π_sizes[ii] += length(zs[jj])
+						# end
+
+						# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
+						# Get the list of symbols we need values for.
+						# augmented_variables = all_augmented_variables[ii]
+
+						if has_leader(graph, ii)
+							# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
+							augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
+							augmented_z_est = vcat(z_est, augmented_z_est...)
+							
+							# Produce linearized versions of the current M and N values which can be used.
+							M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
+							N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
+
+							K_evals[ii] = M_evals[ii] \ N_evals[ii]
+						else
+							M_evals[ii] = nothing
+							N_evals[ii] = nothing
+							K_evals[ii] = nothing
+						end
+					end
+				end
+
+
+				# Compute the numeric vectors (of type Float64, generally).
+				for ii in 1:N
+					K_evals[ii] = @something(K_evals[ii], Float64[])
+				end
+				all_vectorized_Kevals = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:N)...)
+			end
+
+			@timeit to "Iterative Loop[Linear Solve]" begin
+				# dz_sol, linsolve_status = unoptimized_solve_with_linsolve(est_πs, all_variables, [θ], parameter_value; to)
+				dz_sol, ∇F, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals; to)
+			end
+
+			if linsolve_status != :solved
+				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+				break
+			end
+
+			# Update the estimate.
+			# TODO: Using a constant step size for now. Add line search here if we see oscillation.
+			α = 1.
+			next_z_est = z_est .+ α * dz_sol
+
+			# Update the convergence criterion.
+			# TODO: Switch to gradient norm.
+			convergence_criterion = norm(∇F, Inf)
+			# convergence_criterion = norm(next_z_est - z_est, Inf)
+
+			# Update the current estimate.
+			z_est = next_z_est
+			πs_est = πs
+		end
+	end
+
+	if verbose
+		show(to)
+	end
+
+	# TODO: Redo to add more general output.
+	info = Dict("iterations" => iters, "final convergence_criterion" => convergence_criterion)
+	πs = πs_est
+	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ)
+end
+
+
+function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+
+	# Run the PATH solver through the run_solver call.
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ) = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	
+	# TODOS:
+	# 1. Plot the results and see the difference in solutions.
+	# 2. Clean up and land the refactoring.
+	# 3. Clean up solver code for nonlinear solver.
+	# 4. Implement more time optimization (warm start, etc.)
+	println("Non-LQ solver status after $(info_nonlq["iterations"]) iterations: $(status_nonlq)")
+
+	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+	all_lq_variables = lq_vars.all_variables
+	lq_zs = lq_vars.zs
+	lq_λs = lq_vars.λs
+	lq_μs = lq_vars.μs
+	lq_θ = lq_vars.θ
+	lq_ws = lq_vars.ws
+	lq_ys = lq_vars.ys
+
+	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+	z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
+	# z_sol_custom = z_sol_path
+
+	# @assert isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
+	@show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
+	@show status_lq
+
+	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ)
 end
 
 
@@ -196,9 +417,9 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
 	parameter_value = 1e-5
-	_, _, z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol = z_sol_nonlq
 	(; πs, zs, λs, μs, θ) = vars
-
 
 	z₁ = zs[1]
 	z₂ = zs[2]
@@ -207,10 +428,18 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
 	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
-
+	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
-	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
+	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
+
+	# Reconstruct trajectories from solutions
+	xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
+	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
+	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+
+	# Plot the trajectories.
+	plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
 
 	###################OUTPUT: next state, current control ######################
 	next_state = Vector{Vector{Float64}}()
