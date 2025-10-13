@@ -86,17 +86,110 @@ function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorit
 	return z, status
 end
 
+"""
+∇F(z; ϵ) δz = -F(z; ϵ).
+"""
+# TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
+function solve_with_linsolve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+)
+	symbolic_type = eltype(variables)
+	# Final MCP vector: leader stationarity + leader constraints + follower KKT
+	F = Vector{symbolic_type}([
+		vcat(collect(values(πs))...)..., # KKT conditions of all players
+	])
+
+	z̲ = fill(-Inf, length(F));
+	z̅ = fill(Inf, length(F))
+
+	# Form mcp via PATH
+	parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+
+	∇F = parametric_mcp.jacobian_z!.result_buffer
+	F = zeros(length(F))
+	δz = zeros(length(variables))
+
+	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
+
+	#TODO: Add line search for non-LQ case
+	status = :solved
+
+	parametric_mcp.f!(F, δz, [parameter_value]) # TODO: z instead of δz
+	parametric_mcp.jacobian_z!(∇F, δz, [parameter_value])
+	linsolve.A = ∇F
+	linsolve.b = -F
+	solution = solve!(linsolve)
+
+	if !SciMLBase.successful_retcode(solution) &&
+	   (solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
+	else
+		z_sol = solution.u
+	end
+
+	# end for
+
+	return z_sol, status
+end
+
 
 function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
 	# Run the PATH solver through the run_solver call.
-	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_custom, status = lq_game_solve(πs, all_variables, θ, parameter_value; verbose)
+	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	# z_sol_custom, status = lq_game_solve(πs, all_variables, θ, parameter_value; verbose)
+	z_sol_custom = z_sol_path
 
 	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
 	@show status
 
 	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
+end
+
+# TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
+function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing;
+						  parameter_value = 1e-5, max_iters = 3, tol = 1e-6, verbose = false)
+	N = nv(graph) # number of players
+
+	#TODO: Add line search for non-LQ case
+	# Main Solver loop
+	status = :solved
+	iters = 0
+
+	# Construct symbols for each player's decision variables.
+	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+
+	# Initial guess for primal and dual variables.
+	z_est = @something(z0_guess, zeros(length(all_variables)))
+
+	convergence_criterion = Inf
+	while convergence_criterion > tol && iters <= max_iters
+		println("Iteration $iters $(z_est[1:5])")
+		iters += 1
+
+		πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ; z_est)
+
+		dz_sol, status = solve_with_linsolve(πs, all_variables, θ, parameter_value)
+		println("dz_sol: ", dz_sol[1:5])
+
+		if status != :solved
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(status)"
+			break
+		end
+
+		# Update the estimate.
+		# TODO: Using a constant step size for now. Add line search here.
+		α = 1.
+		next_z_est = z_est .+ α * dz_sol
+
+		# Update the current estimate.
+		z_est = next_z_est
+	end
+
+	# TODO: Redo to add more general output.
+	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
 
 ######### INPUT: Initial conditions ##########################
