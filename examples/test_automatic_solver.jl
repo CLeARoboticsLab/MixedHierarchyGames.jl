@@ -5,6 +5,7 @@ using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using Plots
+using SparseArrays
 using Symbolics
 using SymbolicTracingUtils
 using TrajectoryGamesBase: unflatten_trajectory
@@ -125,7 +126,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 3 # time horizon
+	T = 20 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
