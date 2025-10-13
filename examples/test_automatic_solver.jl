@@ -23,7 +23,7 @@ include("automatic_solver.jl")
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
 # TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
-function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
+function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
 	symbolic_type = eltype(variables)
 	# Final MCP vector: leader stationarity + leader constraints + follower KKT
 	F = Vector{symbolic_type}([
@@ -51,36 +51,36 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 	tol = 1e-6
 	# TODO: make these parameters/input
 
-	kkt_error = Inf
-	while kkt_error > tol && iters <= max_iters
-		iters += 1
+	# kkt_error = Inf
+	# while kkt_error > tol && iters <= max_iters
+	# 	iters += 1
 
-		parametric_mcp.f!(F, z, [parameter_value])
-		parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
-		linsolve.A = ∇F
-		linsolve.b = -F
-		solution = solve!(linsolve)
+	parametric_mcp.f!(F, z, [parameter_value])
+	parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
+	linsolve.A = ∇F
+	linsolve.b = -F
+	solution = solve!(linsolve)
 
-		if !SciMLBase.successful_retcode(solution) &&
-		   (solution.retcode !== SciMLBase.ReturnCode.Default)
-			verbose &&
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
-			status = :failed
-			break
-		end
-
-		δz .= solution.u
-
-		# α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
-		α_z = 1.0 # TODO: add line search?
-
-		@. z += α_z * δz
-
-		kkt_error = norm(F, Inf)
-		verbose && @show norm(F, Inf)
+	if !SciMLBase.successful_retcode(solution) &&
+		(solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		status = :failed
+		# break
 	end
 
-	verbose && @show iters
+	z .= solution.u
+
+		# # α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
+		# α_z = 1.0 # TODO: add line search?
+
+		# @. z += α_z * δz
+
+		# kkt_error = norm(F, Inf)
+		# verbose && @show norm(F, Inf)
+	# end
+
+	# verbose && @show iters
 
 	return z, status
 end
@@ -90,7 +90,7 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; param
 
 	# Run the PATH solver through the run_solver call.
 	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
+	z_sol_custom, status = lq_game_solve(πs, all_variables, θ, parameter_value; verbose)
 
 	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
 	@show status
