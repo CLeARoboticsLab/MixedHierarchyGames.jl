@@ -6,6 +6,7 @@ using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using Plots
 using Symbolics
 using SymbolicTracingUtils
+using TimerOutputs
 using TrajectoryGamesBase: unflatten_trajectory
 
 include("graph_utils.jl")
@@ -147,7 +148,7 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 	# Construct symbols for each player's decision variables.
 	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 
-	πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
+	πs, _, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
 
 	# Construct a list of all variables in order and solve.
 	temp = vcat(collect(values(μs))...)

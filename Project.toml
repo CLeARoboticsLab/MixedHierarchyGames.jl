@@ -26,6 +26,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 SymbolicTracingUtils = "77ddf47f-b2ab-4ded-95ee-54f4fa148129"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 TrajectoryGamesBase = "ac1ac542-73eb-4349-ae1b-660ab3609574"
 
 [compat]
@@ -40,4 +41,5 @@ SciMLBase = "2.87.0"
 StatsPlots = "0.15.7"
 SymbolicTracingUtils = "0.1.3"
 Symbolics = "6.51.0"
+TimerOutputs = "0.5.29"
 TrajectoryGamesBase = "0.3.11"
