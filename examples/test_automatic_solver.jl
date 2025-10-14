@@ -147,9 +147,82 @@ function compute_K_evals(z_est, problem_vars, setup_info)
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals)
 end
 
+function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; α_init=1.0, β=0.5, c₁=1e-4, max_ls_iters=10)
+	"""
+	Performs an Armijo backtracking line search to find an appropriate step size for updating the estimate of decision variables.
+
+	Parameters
+	----------
+	mcp_obj: MCPObject
+		The MCP object containing the function and gradient information.
+	compute_Ks_with_z: Function
+		A function that computes the K matrices given the current estimate of decision variables z.
+	z_est: Vector{Float64}
+		Current estimate of all decision variables.
+	dz_sol: Vector{Float64}
+		Proposed update direction for the decision variables.
+		Proposed update direction for the decision variables.
+	α_init: Float64 (default: 1.0)
+		Initial step size.
+	β: Float64 (default: 0.5)
+		Step size reduction factor.
+	c₁: Float64 (default: 1e-4)
+		Armijo condition parameter.
+	max_ls_iters: Int (default: 10)
+		Maximum number of line search iterations.
+
+	Returns
+	-------
+	step_size: Float64
+		The determined step size for updating the decision variables.
+	success: Bool
+		Whether a suitable step size was found within the maximum iterations.
+	"""
+
+	zk = copy(z_est)
+	p = dz_sol
+
+	α = α_init
+	∇F = similar(mcp_obj.jacobian_z!.result_buffer, Float64)
+	F_size = size(∇F, 1)
+	F = zeros(F_size)
+
+	# Compute the right hand side of the Armijo condition.
+	K_vec0, _ = compute_Ks_with_z(zk)
+	mcp_obj.f!(F, zk, K_vec0)
+	mcp_obj.jacobian_z!(∇F, zk, K_vec0)
+
+	armijo_F0_norm = norm(F)^2
+	armijo_∇F0_term = c₁ * (∇F' * F)' * p
+
+
+	success = false
+
+	for kk in 1:max_ls_iters
+		zkp1 = zk .+ α * dz_sol
+		all_Ks_vec_kp1 = compute_Ks_with_z(zkp1)
+		mcp_obj.f!(F, zkp1, all_Ks_vec_kp1) # No parameters
+
+		# This term uses the chain rule to compute the derivative of the merit function ϕ(z + α p) wrt to α.
+		DF_kp1 = ∇F' * F
+		if norm(F)^2 <= armijo_F0_norm + α * armijo_∇F0_term
+			success = true
+			break
+		else
+			α *= β
+		end
+	end
+
+	println("Final step size: $α")
+	println("Line search successful: $success")
+
+	return α, success
+end
+
 # TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
-						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false)
+						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false,
+						  ls_α_init=1.0, ls_β=0.5, ls_c₁=1e-4, max_ls_iters=10)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -172,6 +245,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 								an unspecified route, which should not happen.
 	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
+	ls_α_init (Float64, optional) : Initial step size for line search (default: 1.0).
+	ls_β (Float64, optional) : Step size reduction factor for line search (default: 0.5).
+	ls_c₁ (Float64, optional) : Armijo condition parameter for line search (default: 1e-4).
+	max_ls_iters (Int, optional) : Maximum number of line search iterations (default: 10).
 
 	Returns
 	-------
@@ -217,6 +294,12 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 		all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
 		π_sizes = setup_info.π_sizes
+
+		# Set up a function to evaluate the K matrices using only z.
+		function compute_Ks_with_z(z)
+			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+			return all_K_evals_vec
+		end
 
 		out_all_augmented_z_est = nothing
 	end
@@ -270,6 +353,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
 				mcp_obj.f!(F_eval, z_est, all_K_evals_vec)
 				convergence_criterion = norm(F_eval)
+				println("Convergence criterion non-lq iters=$num_iterations: $convergence_criterion")
 				verbose && println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				if convergence_criterion < tol
 					# Handle the case where max_iters is set to 0 by checking whether the guess is optimal and then returning.
@@ -287,8 +371,9 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			# Update the number of iterations after we check for convergence of the previous iteration.
 			num_iterations += 1
 
+			# TODO: F_eval is compute multiple times in each loop (in this call, above, linesearch). Optimize if needed.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
-				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
+				dz_sol, F_eval_linsolve, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
 			end
 
 			# If there is a linear solver failure, then exit the loop and return a failure status.
@@ -301,7 +386,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			# Update the estimate.
 			# TODO: Using a constant step size. Add a line search here since we see oscillation.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
-				α = 1.
+				# α = 1.
+				α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; α_init=ls_α_init, β=ls_β, c₁=ls_c₁, max_ls_iters=max_ls_iters)
 				next_z_est = z_est .+ α * dz_sol
 			end
 
