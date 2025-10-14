@@ -5,10 +5,11 @@ using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using Plots
-using Symbolics
-using SymbolicTracingUtils
+using TimerOutputs: TimerOutput, @timeit
 using TrajectoryGamesBase: unflatten_trajectory
 using SciMLBase: SciMLBase
+using Symbolics
+using SymbolicTracingUtils
 
 include("graph_utils.jl")
 include("make_symbolic_variables.jl")
@@ -23,7 +24,33 @@ include("automatic_solver.jl")
 ∇F(z; ϵ) δz = -F(z; ϵ).
 """
 # TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
-function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
+function lq_game_solve(πs, variables, θ, parameter_value; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
+	"""
+	Custom linear solver for LQ games using KKT conditions.
+
+	Parameters
+	----------
+	πs: Dict{Int, Vector{Symbolics.Num}}
+		Dictionary mapping player indices to their KKT conditions.
+	variables: Vector{Symbolics.Num}
+		Vector of all symbolic variables in the game.
+	θ: Symbolics.Num
+		Symbolic parameter for the game.
+	parameter_value: Float64
+		Numeric value to substitute for the symbolic parameter θ.
+	linear_solve_algorithm: LinearSolve algorithm (default: UMFPACKFactorization)
+		Algorithm to use for the linear solve step (from LinearSolve.jl).
+	verbose: Bool (default: false)
+		Whether to print verbose output.
+
+	Returns
+	-------
+	z: Vector{Float64}
+		Solution vector for all variables.
+	status: Symbol
+		Status of the solver (:solved or :failed).
+	"""
+
 	symbolic_type = eltype(variables)
 	# Final MCP vector: leader stationarity + leader constraints + follower KKT
 	F = Vector{symbolic_type}([
@@ -39,64 +66,31 @@ function custom_solve(πs, variables, θ, parameter_value; linear_solve_algorith
 	∇F = parametric_mcp.jacobian_z!.result_buffer
 	F = zeros(length(F))
 	δz = zeros(length(variables))
-	z = zeros(length(variables)) # TODO: add initial guess z₀ using @something
+
+	# We use an arbitrary initial point for this LQ solver.
+	arbitrary_init_pt = zeros(length(variables))
 
 	linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
 
-	#TODO: Add line search for non-LQ case
-	# Main Solver loop
-	status = :solved
-	iters = 0
-	max_iters = 50
-	tol = 1e-6
-	# TODO: make these parameters/input
+	parametric_mcp.f!(F, arbitrary_init_pt, [parameter_value])
+	parametric_mcp.jacobian_z!(∇F, arbitrary_init_pt, [parameter_value])
+	linsolve.A = ∇F
+	linsolve.b = -F
+	solution = solve!(linsolve)
 
-	kkt_error = Inf
-	while kkt_error > tol && iters <= max_iters
-		iters += 1
-
-		parametric_mcp.f!(F, z, [parameter_value])
-		parametric_mcp.jacobian_z!(∇F, z, [parameter_value])
-		linsolve.A = ∇F
-		linsolve.b = -F
-		solution = solve!(linsolve)
-
-		if !SciMLBase.successful_retcode(solution) &&
-		   (solution.retcode !== SciMLBase.ReturnCode.Default)
-			verbose &&
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
-			status = :failed
-			break
-		end
-
-		δz .= solution.u
-
-		# α = fraction_to_the_boundary_linesearch(z, δz; τ=0.995, decay=0.5, tol=1e-4)
-		α_z = 1.0 # TODO: add line search?
-
-		@. z += α_z * δz
-
-		kkt_error = norm(F, Inf)
-		verbose && @show norm(F, Inf)
+	linsolve_status = :solved
+	if !SciMLBase.successful_retcode(solution) &&
+		(solution.retcode !== SciMLBase.ReturnCode.Default)
+		verbose &&
+			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		linsolve_status = :failed
 	end
 
-	verbose && @show iters
+	z = solution.u
 
-	return z, status
+	return z, linsolve_status
 end
 
-
-function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
-
-	# Run the PATH solver through the run_solver call.
-	z_sol_path, status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_custom, status = custom_solve(πs, all_variables, θ, parameter_value; verbose)
-
-	@assert isapprox(z_sol_path, z_sol_custom, atol = 1e-4)
-	@show status
-
-	z_sol_custom, status, info, all_variables, (; πs, zs, λs, μs, θ)
-end
 
 ######### INPUT: Initial conditions ##########################
 x0 = [
@@ -108,12 +102,13 @@ x0 = [
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
 function nplayer_hierarchy_navigation(x0; verbose = false)
-	N = 3 # number of players
+	# Number of players in the game
+	N = 3
 
 	# Set up the information structure.
 	# This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P2 -> P1
+	add_edge!(G, 2, 1); # P1 -> P2
 	add_edge!(G, 2, 3); # P2 -> P3
 
 
@@ -124,10 +119,11 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	flatten(vs) = collect(Iterators.flatten(vs))
 
 	# Initial sizing of various dimensions.
-	N = 3 # number of players
 	T = 3 # time horizon
-	state_dimension = 2 # player 1,2,3 state dimension
-	control_dimension = 2 # player 1,2,3 control dimension
+	state_dimension = 2 # player 1,2,3's state dimension
+	control_dimension = 2 # player 1,2,3's control dimension
+
+	# Additional dimension computations.
 	x_dim = state_dimension * (T+1)
 	u_dim = control_dimension * (T+1)
 	aggre_state_dimension = x_dim * N
@@ -136,17 +132,18 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	primal_dimension_per_player = x_dim + u_dim
 
 
-	#### player objectives ####
-	# player 3 (follower)'s objective function: P3 follows P2
-	function J₃(z₁, z₂, z₃, θ)
-		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-		xs³, us³ = xs, us
+	#### Player Objectives ####
+	# Player 1's objective function: P1 wants to get close to P2's final position 
+	# considering only its own control effort.
+	function J₁(z₁, z₂, z₃, θ)
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+		0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
 	end
 
-	# player 2 (leader)'s objective function: P2 wants P1 and P3 to get to the origin
+	# Player 2's objective function: P2 wants P1 and P3 to get to the origin
 	function J₂(z₁, z₂, z₃, θ)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
@@ -157,13 +154,13 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
 	end
 
-	# player 1 (top leader)'s objective function: P1 wants to get close to P2's final position
-	function J₁(z₁, z₂, z₃, θ)
-		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
-		xs¹, us¹ = xs, us
+	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
+	function J₃(z₁, z₂, z₃, θ)
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
 	end
 
 	Js = Dict{Int, Any}(
@@ -194,19 +191,12 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		return x1 - x0[i]
 	end
 
-	dynamics_constraint(zᵢ) =
-		mapreduce(vcat, 1:T) do t
-			dynamics(zᵢ, t)
-		end
-
-	gs = [function (zᵢ)
-		vcat(dynamics_constraint(zᵢ),
-			make_ic_constraint(i)(zᵢ))
-	end for i in 1:N] # each player has the same dynamics constraint
+	# In this game, each player has the same dynamics constraint.
+	dynamics_constraint(zᵢ) = mapreduce(vcat, 1:T) do t dynamics(zᵢ, t) end
+	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
 	parameter_value = 1e-5
-	Main.@infiltrate
-	z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	_, _, z_sol, status, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 
 
