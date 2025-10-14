@@ -21,7 +21,34 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to=TimerOutput(), verbose = false)
+function approximate_solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to=TimerOutput(), verbose = false)
+	"""
+	Solves the linear system (approximately about point z) defined by the ParametricMCP object using the provided LinearSolve linsolver.
+
+	Parameters
+	----------
+	mcp_obj: ParametricMCPs.ParametricMCP
+		ParametricMCP object defining the system to solve.
+	linsolver: LinearSolve.LinearProblem
+		LinearSolve object initialized with a linear solve algorithm.
+	K_evals_vec: Vector{Float64}
+		Vector of numeric values for the parameters in the ParametricMCP object.
+	z: Vector{Float64}
+		Vector of numeric values for the decision variables in the ParametricMCP object, about which we linearize the system.
+	to: TimerOutput (default: new TimerOutput())
+		TimerOutput object for performance profiling.
+	verbose: Bool (default: false)
+		Whether to print verbose output.
+
+	Returns
+	-------
+	z_sol: Vector{Float64}
+		Solution vector for all variables.
+	F: Vector{Float64}
+		Evaluated function vector at the solution.
+	linsolve_status: Symbol
+		Status of the linear solve. (:solved or :failed).
+	"""
 
 	@timeit to "[Linear Solve] ParametricMCP Setup" begin
 		∇F = mcp_obj.jacobian_z!.result_buffer
@@ -60,6 +87,37 @@ end
 # TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
 						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false)
+	"""
+	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
+
+	Parameters
+	----------
+	H (Int) : The number of planning stages (e.g., 1 for open-loop, T for more).
+	graph (SimpleDiGraph) : The information structure of the game at each stage, defined as a directed graph.
+	primal_dimension_per_player (Vector{Int}) : The dimension of each player's decision variable.
+	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions 
+							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
+	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
+						  	player's decision variable.
+	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
+										   If not provided, defaults to a zero vector.
+	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
+	max_iters (Int, optional) : Maximum number of iterations for the solver (default: 30).
+	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
+	verbose (Bool, optional) : Whether to print verbose output (default: false).
+
+	Returns
+	-------
+	z_sol (Vector{Float64}) : The approximate solution vector containing all players' decision variables.
+	status (Symbol) : The status of the solver (:solved, :max_iters_reached, or :failed).
+	info (Dict) : A dictionary containing information about the solver's performance, including
+				  the number of iterations and final convergence criterion.
+	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
+	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
+						(zs, λs, μs, θ).
+	"""
+
+
 	N = nv(graph) # number of players
 	reverse_topological_order = reverse(topological_sort(graph))
 
@@ -169,7 +227,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			end
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
-				dz_sol, F, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals, z_est; to)
+				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals, z_est; to)
 			end
 
 			if linsolve_status != :solved
@@ -249,6 +307,16 @@ x0 = [
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
 function nplayer_hierarchy_navigation(x0; verbose = false)
+	"""
+	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
+		with objectives to reach certain sets of game states.
+
+	Parameters
+	----------
+	x0 (Vector{Vector{Float64}}) : A vector of initial conditions for each player, where each initial condition is a vector [px, py].
+	verbose (Bool, optional) : Whether to print verbose output (default: false).
+	"""
+
 	# Number of players in the game
 	N = 3
 

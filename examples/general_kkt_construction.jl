@@ -165,6 +165,32 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 	Intended for use in a nonlinear solver that can take advantage of precomputed M and N matrices evaluated at z_est.
 	This sets up an augmented symbolic system where each Mi and Ni depend only on symbolic versions of the M and N 
 	matrices of its followers.
+
+	Parameters
+	----------
+	G (SimpleDiGraph) : The information structure of the game, defined as a directed graph
+	Js (Dict{Int, Any}) : A dictionary mapping player indices to their objective functions.
+	zs (Vector{Vector{Num}}) : A vector of each player's decision variable symbols.
+	λs (Vector{Vector{Num}}) : A vector of each player's Lagrange multiplier symbols for their constraints.
+	μs (Dict{Tuple{Int, Int}, Vector{Num}}) : A dictionary of Lagrange multiplier symbols for each leader-follower pair.
+	gs (Vector{Function}) : A function returning vector of equality constraint functions for each player.
+	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
+	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
+	θ (Num) : The parameter symbol.
+	all_variables (Vector{Num}}) : A vector of all symbolic variables in the game.
+	backend : The symbolic backend to use for constructing symbolic variables and functions.
+	to (TimerOutput) : A TimerOutput object for performance profiling (default: TimerOutput()).
+	verbose (Bool) : Whether to print verbose output (default: false).
+
+	Returns
+	-------
+	out_all_augmented_variables (Vector{Num}) : A vector of all symbolic variables in the game, including symbolic K matrices.
+	out (NamedTuple) : A named tuple containing:
+		πs (Dict{Int, Any}) : A dictionary containing the KKT conditions for each player.
+		K_syms (Dict{Int, Any}) : A dictionary of symbolic K matrices for each agent with a leader.
+		M_fns (Dict{Int, Any}) : A dictionary of functions for evaluating M matrices for each agent with a leader.
+		N_fns (Dict{Int, Any}) : A dictionary of functions for evaluating N matrices for each agent with a leader.
+		π_sizes (Dict{Int, Any}) : A dictionary of sizes of KKT conditions for each player.
 	"""
 	N = nv(G) # number of players
 	H = 1 # open-loop for now
