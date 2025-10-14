@@ -85,6 +85,29 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 end
 
 function compute_K_evals(z_est, problem_vars, setup_info)
+	"""
+	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
+
+	Parameters
+	----------
+	z_est (Vector{Float64}) : The current estimate of all decision variables.
+	problem_vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
+								At minimum, should contain ws and ys.
+	setup_info (NamedTuple) : A named tuple containing (at minimum):
+								graph (SimpleDiGraph) : The information structure of the game.
+								M_fns (Dict{Int, Any}) : A dictionary of functions for evaluating M matrices for each agent.
+								N_fns (Dict{Int, Any}) : A dictionary of functions for evaluating N matrices for each agent.
+								π_sizes (Dict{Int, Int}) : A dictionary mapping each player to the size of their KKT condition vector.
+
+	Returns
+	-------
+	all_K_evals_vec (Vector{Float64}) : A vector of all numeric evaluations of K matrices for each player, concatenated.
+	info (NamedTuple) : A named tuple containing:
+		M_evals (Dict{Int, Any}) : A dictionary of numeric evaluations of M matrices for each agent.
+		N_evals (Dict{Int, Any}) : A dictionary of numeric evaluations of N matrices for each agent.
+		K_evals (Dict{Int, Any}) : A dictionary of numeric evaluations of K matrices for each agent.
+	"""
+
 	ws = problem_vars.ws
 	ys = problem_vars.ys
 	M_fns = setup_info.M_fns
