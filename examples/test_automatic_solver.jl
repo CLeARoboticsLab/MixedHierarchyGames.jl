@@ -115,6 +115,9 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
 	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
 						(zs, λs, μs, θ).
+	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them) 
+									used in the linearized approximation for each player.
+									(out_all_augment_variables, out_all_augmented_z_est).
 	"""
 
 
@@ -146,6 +149,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 		all_vectorized_Ks = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
 		π_sizes = setup_info.π_sizes
+
+		out_all_augmented_z_est = nothing
 	end
 
 	@timeit to "Linear Solver Initialization" begin
@@ -176,7 +181,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	z_est = @something(z0_guess, zeros(length(all_variables)))
 	πs_est = nothing
 
+	# Set up variables for convergence checking.
 	convergence_criterion = Inf
+
+	# Run this loop until convergence or max iterations reached.
 	while convergence_criterion > tol && iters <= max_iters
 		@timeit to "Iterative Loop" begin
 			iters += 1
@@ -228,12 +236,11 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
 				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals, z_est; to)
-			end
-
-			if linsolve_status != :solved
-				status = :failed
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
-				break
+				if linsolve_status != :solved
+					status = :failed
+					@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+					break
+				end
 			end
 
 			# Update the estimate.
@@ -242,7 +249,6 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			next_z_est = z_est .+ α * dz_sol
 
 			# Update the convergence criterion.
-			# TODO: Switch to gradient norm.
 			convergence_criterion = norm(F)
 			println("Convergence: ", convergence_criterion)
 			if convergence_criterion < tol
@@ -252,6 +258,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			# Update the current estimate.
 			z_est = next_z_est
 			πs_est = πs
+
+			# Compile all numerical values that we used into one large vector (for this iteration only).
+			# TODO: Compile for multiple iterations later.
+			out_all_augmented_z_est = vcat(z_est, vcat(map(ii -> reshape(K_evals[ii], :), 1:N))...)
 		end
 	end
 
@@ -262,15 +272,15 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	# TODO: Redo to add more general output.
 	info = Dict("iterations" => iters, "final convergence_criterion" => convergence_criterion)
 	πs = πs_est
-	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ)
+	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ), (;out_all_augment_variables, out_all_augmented_z_est)
 end
 
 
 # TODO: Add a new function that only runs the non-lq solver.
 function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
-	# Run the PATH solver through the run_solver call.
-	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ) = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	# Run our solver through the run_lq_solver call.
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	
 	println("Non-LQ solver status after $(info_nonlq["iterations"]) iterations: $(status_nonlq)")
 
@@ -293,7 +303,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	# @show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
 	# @show status_lq
 
-	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ)
+	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars
 end
 
 
@@ -411,9 +421,10 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
 	parameter_value = 1e-5
-	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	z_sol = z_sol_nonlq
 	(; πs, zs, λs, μs, θ) = vars
+	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
 	z₁ = zs[1]
 	z₂ = zs[2]
@@ -425,6 +436,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
+	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose = verbose)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	# Reconstruct trajectories from solutions
