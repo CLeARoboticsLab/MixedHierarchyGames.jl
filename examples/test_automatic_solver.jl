@@ -21,68 +21,6 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-"""
-∇F(z; ϵ) δz = -F(z; ϵ).
-"""
-# TODO: Rewrite so that it takes conditions and solves directly instead of iteratively.
-# TODO: Do initialization to create mcp_obj ahead of time and then add an argument here.
-function unoptimized_solve_with_linsolve(πs, variables, vectorized_Ks, K_evals_vec; linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), to=TimerOutput(), verbose = false)
-	symbolic_type = eltype(variables)
-
-	@timeit to "[Linear Solve] Setup ParametricMCP Inputs" begin
-		# Final MCP vector: leader stationarity + leader constraints + follower KKT
-		F = Vector{symbolic_type}([
-			vcat(collect(values(πs))...)..., # KKT conditions of all players
-		])
-
-		z̲ = fill(-Inf, length(F));
-		z̅ = fill(Inf, length(F))
-
-		# Form mcp via ParametricMCP initialization.
-		mcp_obj = ParametricMCPs.ParametricMCP(F, variables, vectorized_Ks, z̲, z̅; compute_sensitivities = false)
-	end
-	@timeit to "[Linear Solve] ParametricMCP Setup" begin
-		∇F = mcp_obj.jacobian_z!.result_buffer
-		F = zeros(length(F))
-		δz = zeros(length(F))
-	end
-
-	@timeit to "[Linear Solve] Solver Setup" begin
-		# TODO: Move outside so we do it once.
-		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
-	end
-
-	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
-
-		#TODO: Add line search for non-LQ case
-		status = :solved
-
-		mcp_obj.f!(F, δz, K_evals_vec) # TODO: z instead of δz
-		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
-		linsolve.A = ∇F
-		linsolve.b = -F
-	end
-
-	@timeit to "[Linear Solve] Call to Solver" begin
-		solution = solve!(linsolve)
-	end
-
-	if !SciMLBase.successful_retcode(solution) &&
-	   (solution.retcode !== SciMLBase.ReturnCode.Default)
-		verbose &&
-			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
-		status = :failed
-		# break
-	else
-		z_sol = solution.u
-	end
-
-	# end for
-
-	return z_sol, status
-end
-
-
 function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(), verbose = false)
 
 	@timeit to "[Linear Solve] ParametricMCP Setup" begin
@@ -132,7 +70,7 @@ end
 
 # TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
-						  parameter_value = 1e-5, max_iters = 0, tol = 1e-6, verbose = false)
+						  parameter_value = 1e-5, max_iters = 4, tol = 1e-6, verbose = false)
 	N = nv(graph) # number of players
 	reverse_topological_order = reverse(topological_sort(graph))
 
@@ -372,7 +310,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 4) + 0.05*sum(sum(u .^ 2) for u in us²)
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
