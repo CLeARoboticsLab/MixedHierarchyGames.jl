@@ -186,6 +186,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 	-------
 	out_all_augmented_variables (Vector{Num}) : A vector of all symbolic variables in the game, including symbolic K matrices.
 	out (NamedTuple) : A named tuple containing:
+		graph (SimpleDiGraph) : The information structure of the game, included for convenience.
 		πs (Dict{Int, Any}) : A dictionary containing the KKT conditions for each player.
 		K_syms (Dict{Int, Any}) : A dictionary of symbolic K matrices for each agent with a leader.
 		M_fns (Dict{Int, Any}) : A dictionary of functions for evaluating M matrices for each agent with a leader.
@@ -280,5 +281,5 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 	# Identify all augmented variables.
 	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
 
-	return out_all_augmented_variables, (; πs = πs, K_syms = K_syms, M_fns = M_fns, N_fns = N_fns, π_sizes = π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
 end

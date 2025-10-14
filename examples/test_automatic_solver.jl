@@ -21,7 +21,7 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-function approximate_solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to=TimerOutput(), verbose = false)
+function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z; to=TimerOutput(), verbose = false)
 	"""
 	Solves the linear system (approximately about point z) defined by the ParametricMCP object using the provided LinearSolve linsolver.
 
@@ -31,7 +31,7 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to
 		ParametricMCP object defining the system to solve.
 	linsolver: LinearSolve.LinearProblem
 		LinearSolve object initialized with a linear solve algorithm.
-	K_evals_vec: Vector{Float64}
+	all_K_evals_vec: Vector{Float64}
 		Vector of numeric values for the parameters in the ParametricMCP object.
 	z: Vector{Float64}
 		Vector of numeric values for the decision variables in the ParametricMCP object, about which we linearize the system.
@@ -61,9 +61,9 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to
 	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
 		linsolve_status = :solved
 
-		# Use K_evals_vec in place of parameter θ
-		mcp_obj.f!(F, z, K_evals_vec)
-		mcp_obj.jacobian_z!(∇F, z, K_evals_vec)
+		# Use all_K_evals_vec in place of parameter θ
+		mcp_obj.f!(F, z, all_K_evals_vec)
+		mcp_obj.jacobian_z!(∇F, z, all_K_evals_vec)
 		linsolver.A = ∇F
 		linsolver.b = -F
 	end
@@ -82,6 +82,46 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to
 	end
 
 	return z_sol, F, linsolve_status
+end
+
+function compute_K_evals(z_est, problem_vars, setup_info)
+	ws = problem_vars.ws
+	ys = problem_vars.ys
+	M_fns = setup_info.M_fns
+	N_fns = setup_info.N_fns
+	π_sizes = setup_info.π_sizes
+	graph = setup_info.graph
+
+	M_evals = Dict{Int, Any}()
+	N_evals = Dict{Int, Any}()
+	K_evals = Dict{Int, Any}()
+
+	for ii in reverse(topological_sort(graph))
+		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
+		# Get the list of symbols we need values for.
+		# augmented_variables = all_augmented_variables[ii]
+
+		if has_leader(graph, ii)
+			# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
+			augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
+			augmented_z_est = vcat(z_est, augmented_z_est...)
+
+			# Produce linearized versions of the current M and N values which can be used.
+			M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
+			N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
+
+			K_evals[ii] = M_evals[ii] \ N_evals[ii]
+		else
+			M_evals[ii] = nothing
+			N_evals[ii] = nothing
+			K_evals[ii] = nothing
+		end
+	end
+
+	# Make a vector of all K_evals for use in ParametricMCP.
+	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
+	# augmented_z_est = vcat(z_est, all_K_evals_vec)
+	return all_K_evals_vec, (; M_evals, N_evals, K_evals)
 end
 
 # TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
@@ -137,7 +177,14 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 	# Construct symbols for each player's decision variables.
 	@timeit to "Variable Setup" begin
-		(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend, verbose)
+		problem_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend, verbose)
+		all_variables = problem_vars.all_variables
+		zs = problem_vars.zs
+		λs = problem_vars.λs
+		μs = problem_vars.μs
+		θ = problem_vars.θ
+		ws = problem_vars.ws
+		ys = problem_vars.ys
 	end
 
 	@timeit to "Precomputation of KKT Jacobians" begin
@@ -147,7 +194,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
 
-		all_vectorized_Ks = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
 		π_sizes = setup_info.π_sizes
 
 		out_all_augmented_z_est = nothing
@@ -174,7 +221,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 		# Form mcp via ParametricMCP initialization.
 		println(length(all_variables), " variables, ", length(F), " conditions")
-		mcp_obj = ParametricMCPs.ParametricMCP(F, all_variables, all_vectorized_Ks, z̲, z̅; compute_sensitivities = false)
+		mcp_obj = ParametricMCPs.ParametricMCP(F, all_variables, all_K_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
 
 	# Initial guess for primal and dual variables.
@@ -190,54 +237,16 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			iters += 1
 
 			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
-				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate M]" begin
-
-					M_evals = Dict{Int, Any}()
-
-					N_evals = Dict{Int, Any}()
-					K_evals = Dict{Int, Any}()
-					for ii in reverse_topological_order
-						# TODO: Can be made more efficient if needed.
-						# πⁱ has size num constraints + num primal variables of i AND its followers.
-						# π_sizes[ii] = length(gs[ii](zs[ii]))
-						# for jj in BFSIterator(G, ii) # loop includes ii itself.
-						# 	π_sizes[ii] += length(zs[jj])
-						# end
-
-						# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
-						# Get the list of symbols we need values for.
-						# augmented_variables = all_augmented_variables[ii]
-
-						if has_leader(graph, ii)
-							# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
-							augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
-							augmented_z_est = vcat(z_est, augmented_z_est...)
-							
-							# Produce linearized versions of the current M and N values which can be used.
-							M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
-							N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
-
-							K_evals[ii] = M_evals[ii] \ N_evals[ii]
-						else
-							M_evals[ii] = nothing
-							N_evals[ii] = nothing
-							K_evals[ii] = nothing
-						end
-					end
+				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate K Numerically]" begin
+					# Compute the numeric K_evals for each player based on current z_est.
+					all_K_evals_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
 				end
-
-
-				# Compute the numeric vectors (of type Float64, generally).
-				for ii in 1:N
-					K_evals[ii] = @something(K_evals[ii], Float64[])
-				end
-				all_vectorized_Kevals = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:N)...)
 			end
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
-				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals, z_est; to)
+				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
 				if linsolve_status != :solved
-					status = :failed
+					status = :linear_solver_failed
 					@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
 					break
 				end
@@ -250,7 +259,6 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			# Update the convergence criterion.
 			convergence_criterion = norm(F)
-			println("Convergence: ", convergence_criterion)
 			if convergence_criterion < tol
 				nonlq_solver_status = :solved
 			end
@@ -261,7 +269,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 			# Compile all numerical values that we used into one large vector (for this iteration only).
 			# TODO: Compile for multiple iterations later.
-			out_all_augmented_z_est = vcat(z_est, vcat(map(ii -> reshape(K_evals[ii], :), 1:N))...)
+			out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
 		end
 	end
 
