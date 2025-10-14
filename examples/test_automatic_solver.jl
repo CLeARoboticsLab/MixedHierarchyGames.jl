@@ -21,7 +21,7 @@ include("general_kkt_construction.jl")
 include("automatic_solver.jl")
 
 
-function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(), verbose = false)
+function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec, z; to=TimerOutput(), verbose = false)
 
 	@timeit to "[Linear Solve] ParametricMCP Setup" begin
 		∇F = mcp_obj.jacobian_z!.result_buffer
@@ -31,20 +31,12 @@ function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(),
 		δz = zeros(F_size)
 	end
 
-	# @timeit to "[Linear Solve] Solver Setup" begin
-		# TODO: Move outside so we do it once.
-		# linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
-	# end
-
 	@timeit to "[Linear Solve] Jacobian Eval + Problem Definition" begin
-
-		#TODO: Add line search for non-LQ case
 		linsolve_status = :solved
 
-		# Main.@infiltrate
-		# Main.@infiltrate
-		mcp_obj.f!(F, δz, K_evals_vec) # K_evals_vec in place of parameters \theta		
-		mcp_obj.jacobian_z!(∇F, δz, K_evals_vec)
+		# Use K_evals_vec in place of parameter θ
+		mcp_obj.f!(F, z, K_evals_vec)
+		mcp_obj.jacobian_z!(∇F, z, K_evals_vec)
 		linsolver.A = ∇F
 		linsolver.b = -F
 	end
@@ -58,25 +50,22 @@ function solve_with_linsolve!(mcp_obj, linsolver, K_evals_vec; to=TimerOutput(),
 		verbose &&
 			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
 		linsolve_status = :failed
-		# break
 	else
 		z_sol = solution.u
 	end
 
-	# end for
-
-	return z_sol, ∇F, linsolve_status
+	return z_sol, F, linsolve_status
 end
 
 # TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
-						  parameter_value = 1e-5, max_iters = 4, tol = 1e-6, verbose = false)
+						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false)
 	N = nv(graph) # number of players
 	reverse_topological_order = reverse(topological_sort(graph))
 
 	#TODO: Add line search for non-LQ case
 	# Main Solver loop
-	nonlq_solver_status = :solved
+	nonlq_solver_status = :max_iters_reached
 	iters = 0
 
 	# Create a TimerOutput object
@@ -115,6 +104,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			vcat(collect(values(πs))...)..., # KKT conditions of all players
 		])
 
+		# TODO: Set up F and Lagrangian L as a call function of z and K.
+
 		z̲ = fill(-Inf, length(F));
 		z̅ = fill(Inf, length(F))
 
@@ -130,13 +121,9 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	convergence_criterion = Inf
 	while convergence_criterion > tol && iters <= max_iters
 		@timeit to "Iterative Loop" begin
-			# println("Iteration $iters $(z_est[1:5])")
 			iters += 1
 
 			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
-				# πs, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
-				# πs, _, _ = get_lq_kkt_conditions_optimized(graph, Js, zs, λs, μs, gs, ws, ys, θ; all_variables, z_est, to)
-				# est_πs, _, _, info = solver_fn(z_est)
 				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate M]" begin
 
 					M_evals = Dict{Int, Any}()
@@ -182,24 +169,27 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			end
 
 			@timeit to "Iterative Loop[Linear Solve]" begin
-				# dz_sol, linsolve_status = unoptimized_solve_with_linsolve(est_πs, all_variables, [θ], parameter_value; to)
-				dz_sol, ∇F, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals; to)
+				dz_sol, F, linsolve_status = solve_with_linsolve!(mcp_obj, linsolver, all_vectorized_Kevals, z_est; to)
 			end
 
 			if linsolve_status != :solved
+				status = :failed
 				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
 				break
 			end
 
 			# Update the estimate.
-			# TODO: Using a constant step size for now. Add line search here if we see oscillation.
+			# TODO: Using a constant step size. Add a line search here since we see oscillation.
 			α = 1.
 			next_z_est = z_est .+ α * dz_sol
 
 			# Update the convergence criterion.
 			# TODO: Switch to gradient norm.
-			convergence_criterion = norm(∇F, Inf)
-			# convergence_criterion = norm(next_z_est - z_est, Inf)
+			convergence_criterion = norm(F)
+			println("Convergence: ", convergence_criterion)
+			if convergence_criterion < tol
+				nonlq_solver_status = :solved
+			end
 
 			# Update the current estimate.
 			z_est = next_z_est
@@ -218,16 +208,12 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 end
 
 
+# TODO: Add a new function that only runs the non-lq solver.
 function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
 	# Run the PATH solver through the run_solver call.
 	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ) = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	
-	# TODOS:
-	# 1. Plot the results and see the difference in solutions.
-	# 2. Clean up and land the refactoring.
-	# 3. Clean up solver code for nonlinear solver.
-	# 4. Implement more time optimization (warm start, etc.)
 	println("Non-LQ solver status after $(info_nonlq["iterations"]) iterations: $(status_nonlq)")
 
 	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
@@ -239,13 +225,15 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	lq_ws = lq_vars.ws
 	lq_ys = lq_vars.ys
 
-	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
-	z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
-	# z_sol_custom = z_sol_path
+	# lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+	# z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
+	z_sol_lq = nothing
+	status_lq = :not_implemented
 
+	# TODO: Ensure that the solutions are the same for an LQ example.
 	# @assert isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
-	@show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
-	@show status_lq
+	# @show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
+	# @show status_lq
 
 	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ)
 end
@@ -310,7 +298,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 4) + 0.05*sum(sum(u .^ 2) for u in us²)
+		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
