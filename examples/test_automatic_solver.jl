@@ -143,6 +143,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 										   If not provided, defaults to a zero vector.
 	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
 	max_iters (Int, optional) : Maximum number of iterations for the solver (default: 30).
+								If max_iters = 0, then we only evaluate the KKT conditions at the initial guess and
+								the resulting status is set to either :max_iters_reached or :solver_not_run_but_z0_optimal.
+								If the status :BUG_unspecified is returned, it indicates that the solver is escaping through
+								an unspecified route, which should not happen.
 	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
 
@@ -160,14 +164,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 									(out_all_augment_variables, out_all_augmented_z_est).
 	"""
 
-
 	N = nv(graph) # number of players
 	reverse_topological_order = reverse(topological_sort(graph))
-
-	#TODO: Add line search for non-LQ case
-	# Main Solver loop
-	nonlq_solver_status = :max_iters_reached
-	iters = 0
 
 	# Create a TimerOutput object
 	to = TimerOutput()
@@ -214,8 +212,6 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			vcat(collect(values(πs))...)..., # KKT conditions of all players
 		])
 
-		# TODO: Set up F and Lagrangian L as a call function of z and K.
-
 		z̲ = fill(-Inf, length(F));
 		z̅ = fill(Inf, length(F))
 
@@ -226,46 +222,68 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 	# Initial guess for primal and dual variables.
 	z_est = @something(z0_guess, zeros(length(all_variables)))
-	πs_est = nothing
 
-	# Set up variables for convergence checking.
+	# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
+	num_iterations = 0
+
+	# These (nonsensical) values should never be returned or it indicates a bug.
 	convergence_criterion = Inf
+	nonlq_solver_status = :BUG_unspecified
+	F_eval = similar(F, Float64)
 
-	# Run this loop until convergence or max iterations reached.
-	while convergence_criterion > tol && iters <= max_iters
-		@timeit to "Iterative Loop" begin
-			iters += 1
+	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
+	# 1. The solution has converged.
+	# 2. The max number of iterations is reached.
+	# The algorithm always at least checks if the provided guess is a solution.
+	while true
+		@timeit to "[Non-LQ Solver][Iterative Loop]" begin
 
-			@timeit to "Iterative Loop[KKT Conditions with z0]" begin
-				@timeit to "[KKT Conditions][Non-Leaf][Numeric][Evaluate K Numerically]" begin
-					# Compute the numeric K_evals for each player based on current z_est.
-					all_K_evals_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
-				end
+			# Compute the numeric K_evals for each player based on the current guess for z.
+			@timeit to "[Non-LQ Solver][Iterative Loop][Evaluate K Numerically]" begin
+				all_K_evals_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
 			end
 
-			@timeit to "Iterative Loop[Linear Solve]" begin
-				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
-				if linsolve_status != :solved
-					status = :linear_solver_failed
-					@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+			# Check termination condition 1: convergence before starting the next iteration.
+			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
+				mcp_obj.f!(F_eval, z_est, all_K_evals_vec)
+				convergence_criterion = norm(F_eval)
+				verbose && println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
+				if convergence_criterion < tol
+					# Handle the case where max_iters is set to 0 by checking whether the guess is optimal and then returning.
+					nonlq_solver_status = (num_iterations > 0) ? :solved : :solver_not_run_but_z0_optimal
 					break
 				end
 			end
 
+			# Check termination condition 2: max number of iterations reached.
+			if num_iterations >= max_iters
+				nonlq_solver_status = :max_iters_reached
+				break
+			end
+
+			# Update the number of iterations after we check for convergence of the previous iteration.
+			num_iterations += 1
+
+			@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
+				dz_sol, F, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
+			end
+
+			# If there is a linear solver failure, then exit the loop and return a failure status.
+			if linsolve_status != :solved
+				nonlq_solver_status = :linear_solver_error
+				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+				break
+			end
+
 			# Update the estimate.
 			# TODO: Using a constant step size. Add a line search here since we see oscillation.
-			α = 1.
-			next_z_est = z_est .+ α * dz_sol
-
-			# Update the convergence criterion.
-			convergence_criterion = norm(F)
-			if convergence_criterion < tol
-				nonlq_solver_status = :solved
+			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
+				α = 1.
+				next_z_est = z_est .+ α * dz_sol
 			end
 
 			# Update the current estimate.
 			z_est = next_z_est
-			πs_est = πs
 
 			# Compile all numerical values that we used into one large vector (for this iteration only).
 			# TODO: Compile for multiple iterations later.
@@ -278,8 +296,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	end
 
 	# TODO: Redo to add more general output.
-	info = Dict("iterations" => iters, "final convergence_criterion" => convergence_criterion)
-	πs = πs_est
+	info = (;num_iterations, final_convergence_criterion=convergence_criterion)
 	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ), (;out_all_augment_variables, out_all_augmented_z_est)
 end
 
@@ -290,7 +307,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	# Run our solver through the run_lq_solver call.
 	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	
-	println("Non-LQ solver status after $(info_nonlq["iterations"]) iterations: $(status_nonlq)")
+	println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
 
 	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 	all_lq_variables = lq_vars.all_variables
