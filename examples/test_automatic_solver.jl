@@ -84,7 +84,7 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	return z_sol, F, linsolve_status
 end
 
-function compute_K_evals(z_est, problem_vars, setup_info)
+function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	"""
 	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
 
@@ -123,17 +123,25 @@ function compute_K_evals(z_est, problem_vars, setup_info)
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
 		# augmented_variables = all_augmented_variables[ii]
-
 		if has_leader(graph, ii)
-			# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
-			augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
-			augmented_z_est = vcat(z_est, augmented_z_est...)
+			@timeit to "[Compute K Evals] Player $ii" begin
+				@timeit to "[Make Augmented z]" begin
+					# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
+					augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
+					augmented_z_est = vcat(z_est, augmented_z_est...)
+					# augmented_z_est = [z_est; K_evals[jj] for jj in collect(BFSIterator(graph, ii))[2:end]]
+				end
+				# Produce linearized versions of the current M and N values which can be used.
+				@timeit to "[Get Numeric M, N]" begin
+					Main.@infiltrate
+					M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
+					N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
+				end
 
-			# Produce linearized versions of the current M and N values which can be used.
-			M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
-			N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
-
-			K_evals[ii] = M_evals[ii] \ N_evals[ii]
+				@timeit to "[Solve for K]" begin
+					K_evals[ii] = M_evals[ii] \ N_evals[ii]
+				end
+			end
 		else
 			M_evals[ii] = nothing
 			N_evals[ii] = nothing
@@ -141,13 +149,16 @@ function compute_K_evals(z_est, problem_vars, setup_info)
 		end
 	end
 
+	# Uncomment for timing.
+	# show(to)
+
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
 	# augmented_z_est = vcat(z_est, all_K_evals_vec)
-	return all_K_evals_vec, (; M_evals, N_evals, K_evals)
+	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 end
 
-function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; α_init=1.0, β=0.5, c₁=1e-4, max_ls_iters=10)
+function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to=TimerOutput(), α_init=1.0, β=0.5, c₁=1e-4, max_ls_iters=5)
 	"""
 	Performs an Armijo backtracking line search to find an appropriate step size for updating the estimate of decision variables.
 
@@ -187,34 +198,45 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	F_size = size(∇F, 1)
 	F = zeros(F_size)
 
-	# Compute the right hand side of the Armijo condition.
-	K_vec0, _ = compute_Ks_with_z(zk)
-	mcp_obj.f!(F, zk, K_vec0)
-	mcp_obj.jacobian_z!(∇F, zk, K_vec0)
+	@timeit to "[Line Search][Iteration Setup]" begin
+		# Compute the right hand side of the Armijo condition.
+		@timeit to "[Line Search][Iteration Setup][Eval K]" begin
+			K_vec0, _ = compute_Ks_with_z(zk)
+			all_Ks_vec_kp1 = K_vec0
+		end
+		@timeit to "[Line Search][Iteration Setup][Eval F]" begin
+			mcp_obj.f!(F, zk, K_vec0)
+		end
+		@timeit to "[Line Search][Iteration Setup][Eval F grad]" begin
+			mcp_obj.jacobian_z!(∇F, zk, K_vec0)
+		end
 
-	armijo_F0_norm = norm(F)^2
-	armijo_∇F0_term = c₁ * (∇F' * F)' * p
-
-
+		armijo_F0_norm = norm(F)^2
+		armijo_∇F0_term = 2 * c₁ * (∇F' * F)' * p
+	end
 	success = false
 
 	for kk in 1:max_ls_iters
-		zkp1 = zk .+ α * dz_sol
-		all_Ks_vec_kp1 = compute_Ks_with_z(zkp1)
-		mcp_obj.f!(F, zkp1, all_Ks_vec_kp1) # No parameters
+		@timeit to "[Line Search][Iteration Loop]" begin
+			# Evaluate merit function at new point.
+			zkp1 = zk .+ α * dz_sol
+			@timeit to "[Line Search][Iteration Setup][Eval K]" begin
+				all_Ks_vec_kp1 = compute_Ks_with_z(zkp1)
+			end
+			@timeit to "[Line Search][Iteration Setup][Eval F]" begin
+				mcp_obj.f!(F, zkp1, all_Ks_vec_kp1) # No parameters
+			end
 
-		# This term uses the chain rule to compute the derivative of the merit function ϕ(z + α p) wrt to α.
-		DF_kp1 = ∇F' * F
-		if norm(F)^2 <= armijo_F0_norm + α * armijo_∇F0_term
-			success = true
-			break
-		else
-			α *= β
+			# This term uses the chain rule to compute the derivative of the merit function ϕ(z + α p) wrt to α.
+			DF_kp1 = ∇F' * F
+			if norm(F)^2 <= armijo_F0_norm + α * armijo_∇F0_term
+				success = true
+				break
+			else
+				α *= β
+			end
 		end
 	end
-
-	println("Final step size: $α")
-	println("Line search successful: $success")
 
 	return α, success
 end
@@ -297,7 +319,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 		# Set up a function to evaluate the K matrices using only z.
 		function compute_Ks_with_z(z)
-			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+			all_K_evals_vec, (; to) = compute_K_evals(z, problem_vars, setup_info; to)
 			return all_K_evals_vec
 		end
 
@@ -353,7 +375,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
 				mcp_obj.f!(F_eval, z_est, all_K_evals_vec)
 				convergence_criterion = norm(F_eval)
-				println("Convergence criterion non-lq iters=$num_iterations: $convergence_criterion")
+				println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				verbose && println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				if convergence_criterion < tol
 					# Handle the case where max_iters is set to 0 by checking whether the guess is optimal and then returning.
@@ -386,8 +408,23 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			# Update the estimate.
 			# TODO: Using a constant step size. Add a line search here since we see oscillation.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
-				# α = 1.
-				α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; α_init=ls_α_init, β=ls_β, c₁=ls_c₁, max_ls_iters=max_ls_iters)
+				α = 1.
+				for ii in 1:10
+					next_z_est = z_est .+ α * dz_sol
+
+					# This line recomputes K at each step size, which is correct but inefficient. Uncomment if we want it.
+					# all_Ks_vec_kp1 = compute_Ks_with_z(next_z_est)
+
+					# Check if the merit function decreases; currently, we use an outdated version of K.
+					mcp_obj.f!(F_eval, next_z_est, all_K_evals_vec)
+					if norm(F_eval) < norm(F_eval_linsolve)
+						break
+					else
+						α *= 0.5
+					end
+				end
+				# α = 1. / (num_iterations+1) # Diminishing step size
+				# α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to, α_init=ls_α_init, β=ls_β, c₁=ls_c₁, max_ls_iters=max_ls_iters)
 				next_z_est = z_est .+ α * dz_sol
 			end
 
@@ -404,6 +441,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		show(to)
 	end
 
+	show(to)
+
 	# TODO: Redo to add more general output.
 	info = (;num_iterations, final_convergence_criterion=convergence_criterion)
 	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ), (;out_all_augment_variables, out_all_augmented_z_est)
@@ -414,7 +453,7 @@ end
 function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
 
 	# Run our solver through the run_lq_solver call.
-	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; tol=1e-3, parameter_value, verbose)
 	
 	println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
 
@@ -427,10 +466,16 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	lq_ws = lq_vars.ws
 	lq_ys = lq_vars.ys
 
-	# lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
-	# z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
-	z_sol_lq = nothing
-	status_lq = :not_implemented
+	# to1 = TimerOutput()
+	# @timeit to1 "LQ KKT Condition Gen" begin
+	# 	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+	# end
+	# @timeit to1 "LQ KKT Condition Solve" begin
+	# 	z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
+		z_sol_lq = nothing
+		status_lq = :not_implemented
+	# end
+	# show(to1)
 
 	# TODO: Ensure that the solutions are the same for an LQ example.
 	# @assert isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
@@ -465,9 +510,10 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	N = 3
 
 	# Set up the information structure.
-	# This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
+	# This defines a stackelberg chain with three players, where P2 is the leader of P1 and P3, which
+	# are Nash with each other.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P1 -> P2
+	add_edge!(G, 2, 1); # P2 -> P1
 	add_edge!(G, 2, 3); # P2 -> P3
 
 
@@ -478,7 +524,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	flatten(vs) = collect(Iterators.flatten(vs))
 
 	# Initial sizing of various dimensions.
-	T = 3 # time horizon
+	T = 10 # time horizon
 	state_dimension = 2 # player 1,2,3's state dimension
 	control_dimension = 2 # player 1,2,3's control dimension
 
