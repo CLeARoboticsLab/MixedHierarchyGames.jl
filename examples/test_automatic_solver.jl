@@ -122,7 +122,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	for ii in reverse(topological_sort(graph))
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
-		# augmented_variables = all_augmented_variables[ii]
 		if has_leader(graph, ii)
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
@@ -131,6 +130,8 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 					augmented_z_est = vcat(z_est, augmented_z_est...)
 					# augmented_z_est = [z_est; K_evals[jj] for jj in collect(BFSIterator(graph, ii))[2:end]]
 				end
+
+				# TODO: Can we only generate certain rows of M and N because others are 0?
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
 					M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
@@ -153,7 +154,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
-	# augmented_z_est = vcat(z_est, all_K_evals_vec)
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 end
 
@@ -240,7 +240,7 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	return α, success
 end
 
-# TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
+# TODO: Write helpers that setup the variables ahead of time and once so it's not repeated between calls.
 function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
 						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false,
 						  ls_α_init=1.0, ls_β=0.5, ls_c₁=1e-4, max_ls_iters=10)
@@ -404,8 +404,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 				break
 			end
 
-			# Update the estimate.
-			# TODO: Using a constant step size. Add a line search here since we see oscillation.
+			# Update the estimate using a linesearch and/or other step sizes.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
 				α = 1.
 				for ii in 1:10
@@ -657,19 +656,21 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
 	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
-	# TODO: Update this to work with the new formulation.
+
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
 	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose = verbose)
-	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
+
 
 	# Reconstruct trajectories from solutions
 	xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 
+
 	# Plot the trajectories.
 	plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
+
 
 	###################OUTPUT: next state, current control ######################
 	next_state = Vector{Vector{Float64}}()
@@ -677,20 +678,26 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 1
 	push!(curr_control, us[1]) # current control of player 1
-	println("P1 (x,u) solution : ($xs, $us)")
-	println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P1 (x,u) solution : ($xs, $us)")
+		println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 	(; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 2
 	push!(curr_control, us[1]) # current control of player 2
-	println("P2 (x,u) solution : ($xs, $us)")
-	println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P2 (x,u) solution : ($xs, $us)")
+		println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 3
 	push!(curr_control, us[1]) # current control of player 3
-	println("P3 (x,u) solution : ($xs, $us)")
-	println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P3 (x,u) solution : ($xs, $us)")
+		println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 
-	return next_state, curr_control
+	return next_state, curr_control;
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
