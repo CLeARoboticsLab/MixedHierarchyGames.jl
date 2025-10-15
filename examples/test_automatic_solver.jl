@@ -133,7 +133,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
-					Main.@infiltrate
 					M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
 					N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
 				end
@@ -253,7 +252,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	H (Int) : The number of planning stages (e.g., 1 for open-loop, T for more).
 	graph (SimpleDiGraph) : The information structure of the game at each stage, defined as a directed graph.
 	primal_dimension_per_player (Vector{Int}) : The dimension of each player's decision variable.
-	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions 
+	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
@@ -281,7 +280,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
 	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
 						(zs, λs, μs, θ).
-	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them) 
+	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them)
 									used in the linearized approximation for each player.
 									(out_all_augment_variables, out_all_augmented_z_est).
 	"""
@@ -450,7 +449,51 @@ end
 
 
 # TODO: Add a new function that only runs the non-lq solver.
+function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs; z0_guess=nothing, parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false)
+	"""
+	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
+
+	Parameters
+	----------
+	H (Int) : The number of planning stages (e.g., 1 for open-loop, T for more).
+	graph (SimpleDiGraph) : The information structure of the game at each stage, defined as a directed graph.
+	primal_dimension_per_player (Vector{Int}) : The dimension of each player's decision variable.
+	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions 
+							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
+	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
+						  	player's decision variable.
+	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
+										   If not provided, defaults to a zero vector.
+	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
+	max_iters (Int, optional) : Maximum number of iterations for the solver (default: 30).
+								If max_iters = 0, then we only evaluate the KKT conditions at the initial guess and
+								the resulting status is set to either :max_iters_reached or :solver_not_run_but_z0_optimal.
+								If the status :BUG_unspecified is returned, it indicates that the solver is escaping through
+								an unspecified route, which should not happen.
+	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
+	verbose (Bool, optional) : Whether to print verbose output (default: false).
+
+	Returns
+	-------
+	z_sol (Vector{Float64}) : The approximate solution vector containing all players' decision variables.
+	status (Symbol) : The status of the solver (:solved, :max_iters_reached, or :failed).
+	info (Dict) : A dictionary containing information about the solver's performance, including
+				  the number of iterations and final convergence criterion.
+	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
+	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
+						(zs, λs, μs, θ).
+	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them) 
+									used in the linearized approximation for each player.
+									(out_all_augment_variables, out_all_augmented_z_est).
+	"""
+	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; parameter_value, max_iters, tol, verbose)
+	return z_sol, status, info, all_variables, vars, augmented_vars
+end
+
 function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+	"""
+	We can only run this comparison on an LQ game, or it will error.
+	"""
 
 	# Run our solver through the run_lq_solver call.
 	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; tol=1e-3, parameter_value, verbose)
@@ -466,21 +509,21 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	lq_ws = lq_vars.ws
 	lq_ys = lq_vars.ys
 
-	# to1 = TimerOutput()
-	# @timeit to1 "LQ KKT Condition Gen" begin
-	# 	lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
-	# end
-	# @timeit to1 "LQ KKT Condition Solve" begin
-	# 	z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
+	to1 = TimerOutput()
+	@timeit to1 "LQ KKT Condition Gen" begin
+		lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+	end
+	@timeit to1 "LQ KKT Condition Solve" begin
+		z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
 		z_sol_lq = nothing
 		status_lq = :not_implemented
-	# end
-	# show(to1)
+	end
+	show(to1)
 
 	# TODO: Ensure that the solutions are the same for an LQ example.
-	# @assert isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
-	# @show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
-	# @show status_lq
+	@assert isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
+	@show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
+	@show status_lq
 
 	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars
 end
@@ -601,7 +644,8 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
 	parameter_value = 1e-5
-	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	# z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	z_sol = z_sol_nonlq
 	(; πs, zs, λs, μs, θ) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
