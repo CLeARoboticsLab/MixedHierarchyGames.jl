@@ -564,7 +564,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 	"""
 	to = TimerOutput()
 	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; verbose)
-	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol, verbose, to)
+	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol=1e-3, verbose, to)
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
 
@@ -646,6 +646,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	T = 10 # time horizon
+	Δt = 0.5 # time step
 	state_dimension = 2 # player 1,2,3's state dimension
 	control_dimension = 2 # player 1,2,3's control dimension
 
@@ -656,6 +657,14 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	aggre_control_dimension = u_dim * N
 	total_dimension = aggre_state_dimension + aggre_control_dimension
 	primal_dimension_per_player = x_dim + u_dim
+
+	# Print dimension information.
+	println("Number of players: $N")
+	println("Number of Stages: $H (OL = 1; FB > 1)")
+	println("Time Horizon (# steps): $T")
+	println("Step period: Δt = $(Δt)s")
+	println("Dimension per player: $(primal_dimension_per_player)")
+	println("Total primal dimension: $total_dimension")
 
 
 	#### Player Objectives ####
@@ -697,7 +706,6 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 
 	#### player individual dynamics ####
-	Δt = 0.5 # time step
 
 	# Dynamics are the only constraints (for now).
 	function dynamics(z, t)
@@ -755,18 +763,24 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 1
 	push!(curr_control, us[1]) # current control of player 1
-	println("P1 (x,u) solution : ($xs, $us)")
-	println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P1 (x,u) solution : ($xs, $us)")
+		println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 	(; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 2
 	push!(curr_control, us[1]) # current control of player 2
-	println("P2 (x,u) solution : ($xs, $us)")
-	println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P2 (x,u) solution : ($xs, $us)")
+		println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 3
 	push!(curr_control, us[1]) # current control of player 3
-	println("P3 (x,u) solution : ($xs, $us)")
-	println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	if verbose
+		println("P3 (x,u) solution : ($xs, $us)")
+		println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	end
 
 	return next_state, curr_control
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
