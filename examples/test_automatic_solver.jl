@@ -240,12 +240,9 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	return α, success
 end
 
-# TODO: Write helpers that setup the variables ahead of time and once so it's not repeated.
-function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
-						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false,
-						  ls_α_init=1.0, ls_β=0.5, ls_c₁=1e-4, max_ls_iters=10)
+function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; backend=SymbolicTracingUtils.SymbolicsBackend(), to=TimerOutput(), verbose=false)
 	"""
-	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
+	Precomputes and sets up the necessary components for solving a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
 	Parameters
 	----------
@@ -256,43 +253,25 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
-	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
-										   If not provided, defaults to a zero vector.
-	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
-	max_iters (Int, optional) : Maximum number of iterations for the solver (default: 30).
-								If max_iters = 0, then we only evaluate the KKT conditions at the initial guess and
-								the resulting status is set to either :max_iters_reached or :solver_not_run_but_z0_optimal.
-								If the status :BUG_unspecified is returned, it indicates that the solver is escaping through
-								an unspecified route, which should not happen.
-	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
+	backend (SymbolicTracingUtils.SymbolicsBackend, optional) : The symbolic backend to use for variable creation (default: SymbolicTracingUtils.SymbolicsBackend()).
+	to (TimerOutput, optional) : TimerOutput object for profiling (default: new TimerOutput()).
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
-	ls_α_init (Float64, optional) : Initial step size for line search (default: 1.0).
-	ls_β (Float64, optional) : Step size reduction factor for line search (default: 0.5).
-	ls_c₁ (Float64, optional) : Armijo condition parameter for line search (default: 1e-4).
-	max_ls_iters (Int, optional) : Maximum number of line search iterations (default: 10).
 
 	Returns
 	-------
-	z_sol (Vector{Float64}) : The approximate solution vector containing all players' decision variables.
-	status (Symbol) : The status of the solver (:solved, :max_iters_reached, or :failed).
-	info (Dict) : A dictionary containing information about the solver's performance, including
-				  the number of iterations and final convergence criterion.
-	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
-	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
-						(zs, λs, μs, θ).
-	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them)
-									used in the linearized approximation for each player.
-									(out_all_augment_variables, out_all_augmented_z_est).
+	preoptimization_info (NamedTuple) : A named tuple containing:
+		- problem_vars: NamedTuple of problem variables (zs, λs, μs, θ, ws, ys).
+		- setup_info: NamedTuple of setup information (graph, M_fns, N_fns, π_sizes).
+		- mcp_obj: ParametricMCP object.
+		- linsolver: LinearSolve object.
+		- compute_Ks_with_z: Function to compute K matrices given z.
+		- F_sym: Symbolic representation of the MCP function vector.
+		- all_variables: A vector of all symbolic variables used in the problem.
+		- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+		- to: TimerOutput object used for profiling.
+		- backend: The symbolic backend used for preoptimization.
 	"""
-
 	N = nv(graph) # number of players
-	reverse_topological_order = reverse(topological_sort(graph))
-
-	# Create a TimerOutput object
-	to = TimerOutput()
-
-	# Construct symbolic backend for each player's decision variables.
-	backend = SymbolicTracingUtils.SymbolicsBackend()
 
 	# Construct symbols for each player's decision variables.
 	@timeit to "Variable Setup" begin
@@ -321,8 +300,6 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			all_K_evals_vec, (; to) = compute_K_evals(z, problem_vars, setup_info; to)
 			return all_K_evals_vec
 		end
-
-		out_all_augmented_z_est = nothing
 	end
 
 	@timeit to "Linear Solver Initialization" begin
@@ -335,17 +312,116 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 	@timeit to "[Linear Solve] Setup ParametricMCP" begin
 		# Final MCP vector: leader stationarity + leader constraints + follower KKT
-		F = Vector{symbolic_type}([
+		F_sym = Vector{symbolic_type}([
 			vcat(collect(values(πs))...)..., # KKT conditions of all players
 		])
 
-		z̲ = fill(-Inf, length(F));
-		z̅ = fill(Inf, length(F))
+		z̲ = fill(-Inf, length(F_sym));
+		z̅ = fill(Inf, length(F_sym))
 
 		# Form mcp via ParametricMCP initialization.
-		println(length(all_variables), " variables, ", length(F), " conditions")
-		mcp_obj = ParametricMCPs.ParametricMCP(F, all_variables, all_K_syms_vec, z̲, z̅; compute_sensitivities = false)
+		println(length(all_variables), " variables, ", length(F_sym), " conditions")
+		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, all_K_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
+
+	return (;problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, to, backend)
+end
+
+
+function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
+						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false,
+						  ls_α_init=1.0, ls_β=0.5, ls_c₁=1e-4, max_ls_iters=10,
+						  to = TimerOutput(), backend=SymbolicTracingUtils.SymbolicsBackend(),
+						  preoptimization_info=nothing)
+	"""
+	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
+
+	Parameters
+	----------
+	H (Int) : The number of planning stages (e.g., 1 for open-loop, T for more).
+	graph (SimpleDiGraph) : The information structure of the game at each stage, defined as a directed graph.
+	primal_dimension_per_player (Vector{Int}) : The dimension of each player's decision variable.
+	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions
+							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
+	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
+						  	player's decision variable.
+	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
+										   If not provided, defaults to a zero vector.
+	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
+	max_iters (Int, optional) : Maximum number of iterations for the solver (default: 30).
+								If max_iters = 0, then we only evaluate the KKT conditions at the initial guess and
+								the resulting status is set to either :max_iters_reached or :solver_not_run_but_z0_optimal.
+								If the status :BUG_unspecified is returned, it indicates that the solver is escaping through
+								an unspecified route, which should not happen.
+	tol (Float64, optional) : Tolerance for convergence (default: 1e-6).
+	verbose (Bool, optional) : Whether to print verbose output (default: false).
+	ls_α_init (Float64, optional) : Initial step size for line search (default: 1.0).
+	ls_β (Float64, optional) : Step size reduction factor for line search (default: 0.5).
+	ls_c₁ (Float64, optional) : Armijo condition parameter for line search (default: 1e-4).
+	max_ls_iters (Int, optional) : Maximum number of line search iterations (default: 10).
+	preoptimization_info (NamedTuple, optional) : If provided, uses this precomputed information to skip the preoptimization step.
+											    Should contain at least:
+											    - problem_vars: NamedTuple of problem variables (zs, λs, μs, θ, ws, ys).
+											    - setup_info: NamedTuple of setup information (graph, M_fns, N_fns, π_sizes).
+											    - mcp_obj: ParametricMCP object.
+											    - linsolver: LinearSolve object.
+											    - compute_Ks_with_z: Function to compute K matrices given z.
+												- F_sym: Symbolic representation of the MCP function vector.
+												- all_variables: A vector of all symbolic variables used in the problem.
+												- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+												- to: TimerOutput object used for profiling.
+												- backend: The symbolic backend used for preoptimization.
+
+	Returns
+	-------
+	z_sol (Vector{Float64}) : The approximate solution vector containing all players' decision variables.
+	status (Symbol) : The status of the solver (:solved, :max_iters_reached, or :failed).
+	info (Dict) : A dictionary containing information about the solver's performance, including
+				  the number of iterations and final convergence criterion.
+	all_variables (Vector{Num}) : A vector of all symbolic variables used in the problem.
+	vars (NamedTuple) : A named tuple containing the symbolic variables for each player and the parameter θ.
+						(zs, λs, μs, θ).
+	augmented_vars (NamedTuple) : A named tuple containing additional symbolic variables (and numeric evaluations of them)
+									used in the linearized approximation for each player.
+									(out_all_augment_variables, out_all_augmented_z_est).
+	"""
+
+	N = nv(graph) # number of players
+	reverse_topological_order = reverse(topological_sort(graph))
+
+	out_all_augmented_z_est = nothing
+
+	if isnothing(preoptimization_info)
+		# If we don't have preoptimization info, then run the preoptimization step now.
+		preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; backend, to, verbose)
+	end
+
+	# Unpack preoptimization info - variables.
+	problem_vars = preoptimization_info.problem_vars
+	all_variables = preoptimization_info.all_variables
+	zs = problem_vars.zs
+	λs = problem_vars.λs
+	μs = problem_vars.μs
+	θ = problem_vars.θ
+	ws = problem_vars.ws
+	ys = problem_vars.ys
+
+	# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
+	setup_info = preoptimization_info.setup_info
+	πs = setup_info.πs
+	K_syms = setup_info.K_syms
+	M_fns = setup_info.M_fns
+	N_fns = setup_info.N_fns
+
+	# Set up solver objects and functions.
+	mcp_obj = preoptimization_info.mcp_obj
+	F = preoptimization_info.F_sym
+	linsolver = preoptimization_info.linsolver
+	compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
+
+	# Set up variables for augmented in/output.
+	out_all_augment_variables = preoptimization_info.out_all_augment_variables
+	out_all_augmented_z_est = nothing
 
 	# Initial guess for primal and dual variables.
 	z_est = @something(z0_guess, zeros(length(all_variables)))
@@ -486,7 +562,9 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 									used in the linearized approximation for each player.
 									(out_all_augment_variables, out_all_augmented_z_est).
 	"""
-	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; parameter_value, max_iters, tol, verbose)
+	to = TimerOutput()
+	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; verbose)
+	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol, verbose, to)
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
 
