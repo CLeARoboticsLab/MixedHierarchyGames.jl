@@ -304,7 +304,6 @@ function main(verbose = false)
 
 
 	# Evaluate the KKT residuals at the solution to check solution quality.
-
 	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)

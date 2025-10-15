@@ -3,8 +3,6 @@ using SymbolicTracingUtils
 using LinearAlgebra: norm
 
 """
-	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose=false)
-
 Evaluates the symbolic KKT conditions `πs` at the numerical solution `z_sol`.
 
 This function substitutes the numerical values from `z_sol` and `parameter_value`
@@ -18,26 +16,38 @@ valid solution.
 - `z_sol::Vector`: The numerical solution vector corresponding to `all_variables`.
 - `θ::SymbolicUtils.Symbolic`: The symbolic parameter.
 - `parameter_value::Number`: The numerical value for the parameter `θ`.
+- `tol::Float64`: Tolerance for checking if KKT conditions are satisfied.
 - `verbose::Bool`: If true, prints the first few elements of each residual vector.
+- `should_enforce::Bool`: If true, asserts that the KKT conditions are satisfied.
 
 # Returns
 - `Dict{Int, Float64}`: A dictionary mapping each player's index to the norm of their KKT residual.
 """
-function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = false)
-	"""
-	Evaluate the KKT conditions
-	"""
+function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; tol=1e-6, verbose = false, should_enforce = false)
+	# Create list of symbolic output expressions.
 	all_πs = Vector{Symbolics.Num}(vcat(collect(values(πs))...))
-	# TODO: Run with inplace true to do the opposite of chun chun hee.
-	π_fns = SymbolicTracingUtils.build_function(all_πs, all_variables; in_place = false)
-	π_eval = π_fns(z_sol)
 
-	println("\n" * "="^20 * " KKT Residuals " * "="^20)
-	println("Are all KKT conditions satisfied? ", all(π_eval .< 1e-6))
-	if norm(π_eval) < 1e-6
-		println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
+	# Build the in-place version of the function.
+	π_fns! = SymbolicTracingUtils.build_function(all_πs, all_variables; in_place = true)
+
+	# Allocate output storage (same size as all_πs).
+	π_eval = similar(all_πs, Float64)
+
+	# Evaluate in place
+	π_fns!(π_eval, z_sol)
+
+	if verbose
+		println("\n" * "="^20 * " KKT Residuals " * "="^20)
+		println("Are all KKT conditions satisfied? ", all(π_eval .< tol))
+		if norm(π_eval) < tol
+			println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
+		end
+		println("="^55)
 	end
-	println("="^55)
+
+	if should_enforce
+		@assert norm(π_eval) < tol "KKT conditions not satisfied within tolerance. Norm: $(norm(π_eval)) > $tol"
+	end
 
 	return π_eval
 end
