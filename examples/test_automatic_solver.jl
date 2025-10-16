@@ -271,12 +271,12 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; 
 		push!(π_eval, only(π_fns[end](z_sol)))
 	end
 
-	println("\n" * "="^20 * " KKT Residuals " * "="^20)
-	println("Are all KKT conditions satisfied? ", all(π_eval .< 1e-6))
-	if norm(π_eval) < 1e-6
-		println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
-	end
-	println("="^55)
+	# println("\n" * "="^20 * " KKT Residuals " * "="^20)
+	# println("Are all KKT conditions satisfied? ", all(π_eval .< 1e-6))
+	# if norm(π_eval) < 1e-6
+	# 	println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
+	# end
+	# println("="^55)
 
 	return π_eval
 end
@@ -386,7 +386,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 
 	# Initial sizing of various dimensions.
 	N = 3 # number of players
-	T = 10 # time horizon
+	T = 3 # time horizon
 	state_dimension = 2 # player 1,2,3 state dimension
 	control_dimension = 2 # player 1,2,3 control dimension
 	x_dim = state_dimension * (T+1)
@@ -488,18 +488,18 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 1
 	push!(curr_control, us[1]) # current control of player 1
-	println("P1 (x,u) solution : ($xs, $us)")
-	println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+	# println("P1 (x,u) solution : ($xs, $us)")
+	# println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
 	(; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 2
 	push!(curr_control, us[1]) # current control of player 2
-	println("P2 (x,u) solution : ($xs, $us)")
-	println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+	# println("P2 (x,u) solution : ($xs, $us)")
+	# println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
 	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 3
 	push!(curr_control, us[1]) # current control of player 3
-	println("P3 (x,u) solution : ($xs, $us)")
-	println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	# println("P3 (x,u) solution : ($xs, $us)")
+	# println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
 
 	return next_state, curr_control
     # next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
