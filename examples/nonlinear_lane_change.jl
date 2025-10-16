@@ -1,4 +1,4 @@
-# include("TestAutomaticSolver.jl")
+# include("examples/TestAutomaticSolver.jl") once before running this file
 
 ######### INPUT: Initial conditions ##########################
 x0 = [
