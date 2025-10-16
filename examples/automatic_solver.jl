@@ -1,9 +1,9 @@
-
 using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using Graphs
 using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
+using Logging
 using Plots
 using SciMLBase: SciMLBase
 using Symbolics
@@ -97,10 +97,8 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 		end
 
 		if verbose
-			println("ws for P$i ($(length(ws[i]))):\n", ws[i])
-			println()
-			println("ys for P$i ($(length(ys[i]))):\n", ys[i])
-			println()
+			@debug "ws for P$i" ws=ws[i] len=length(ws[i])
+			@debug "ys for P$i" ys=ys[i] len=length(ys[i])
 		end
 	end
 	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
@@ -283,8 +281,8 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; param
 	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs, all_variables, θ, parameter_value; verbose)
 
 	@assert isapprox(z_sol_path, z_sol_linsolve, atol = 1e-4)
-	verbose && @show "PATH status: $path_status"
-	verbose && @show "LinSolve status: $linsolve_status"
+	verbose && @info "PATH status: $path_status"
+	verbose && @info "LinSolve status: $linsolve_status"
 
 	z_sol_path, path_status, z_sol_linsolve, linsolve_status, info, all_variables, (; πs, zs, λs, μs, θ)
 end
@@ -300,12 +298,13 @@ function main(verbose = false)
 	control_dimension = problem_dims.control_dimension
 
 	# Print dimension information.
-	println("Number of players: $N")
-	println("Number of Stages: $H (OL = 1; FB > 1)")
-	println("Time Horizon (# steps): $T")
-	println("Step period: Δt = $(Δt)s")
-	println("Dimension per player: $(primal_dimension_per_player)")
-	println("Total primal dimension: $(problem_dims.total_dimension)")
+	@info "Problem dimensions:\n" *
+		"  Number of players: $N\n" *
+		"  Number of Stages: $H (OL = 1; FB > 1)\n" *
+		"  Time Horizon (# steps): $T\n" *
+		"  Step period: Δt = $(Δt)s\n" *
+		"  Dimension per player: $(primal_dimension_per_player)\n" *
+		"  Total primal dimension: $(problem_dims.total_dimension)"
 
 	### Solve the LQ game using the automatic solver. ###
 	parameter_value = 1e-5
@@ -376,14 +375,14 @@ function print_solution_info(z_sols, Js, problem_dims)
 	Prints the solution information for each player, including their trajectories and objective values.
 	"""
 	(; xs, us) = unflatten_trajectory(z_sols[1], state_dimension, control_dimension)
-	println("P1 (x,u) solution : ($xs, $us)")
-	println("P1 Objective: $(Js[1](z_sols[1], z_sols[2], z_sols[3], 0))")
+	@info "P1 (x,u) solution" xs=xs us=us
+	@info "P1 Objective" value=Js[1](z_sols[1], z_sols[2], z_sols[3], 0)
 
 	(; xs, us) = unflatten_trajectory(z_sols[2], state_dimension, control_dimension)
-	println("P2 (x,u) solution : ($xs, $us)")
-	println("P2 Objective: $(Js[2](z_sols[1], z_sols[2], z_sols[3], 0))")
+	@info "P2 (x,u) solution" xs=xs us=us
+	@info "P2 Objective" value=Js[2](z_sols[1], z_sols[2], z_sols[3], 0)
 
 	(; xs, us) = unflatten_trajectory(z_sols[3], state_dimension, control_dimension)
-	println("P3 (x,u) solution : ($xs, $us)")
-	println("P3 Objective: $(Js[3](z_sols[1], z_sols[2], z_sols[3], 0))")
+	@info "P3 (x,u) solution" xs=xs us=us
+	@info "P3 Objective" value=Js[3](z_sols[1], z_sols[2], z_sols[3], 0)
 end

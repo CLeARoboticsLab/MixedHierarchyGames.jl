@@ -320,7 +320,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs;
 		z̅ = fill(Inf, length(F_sym))
 
 		# Form mcp via ParametricMCP initialization.
-		println("\n", length(all_variables), " variables, ", length(F_sym), " conditions")
+		@info "$(length(all_variables)) variables, $(length(F_sym)) conditions"
 		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, all_K_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
 
@@ -448,8 +448,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
 				mcp_obj.f!(F_eval, z_est, all_K_evals_vec)
 				convergence_criterion = norm(F_eval)
-				println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
-				verbose && println("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
+				@info("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				if convergence_criterion < tol
 					# Handle the case where max_iters is set to 0 by checking whether the guess is optimal and then returning.
 					nonlq_solver_status = (num_iterations > 0) ? :solved : :solver_not_run_but_z0_optimal
@@ -510,20 +509,14 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 		end
 	end
 
-	if verbose
-		show(to)
-	end
-
-	show(to)
-
 	# TODO: Redo to add more general output.
-	info = (;num_iterations, final_convergence_criterion=convergence_criterion)
+	info = (;num_iterations, final_convergence_criterion=convergence_criterion, to)
 	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ), (;out_all_augment_variables, out_all_augmented_z_est)
 end
 
 
 # TODO: Add a new function that only runs the non-lq solver.
-function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs; z0_guess=nothing, parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false)
+function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs; z0_guess=nothing, parameter_value = 1e-5, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -560,9 +553,18 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 									used in the linearized approximation for each player.
 									(out_all_augment_variables, out_all_augmented_z_est).
 	"""
+	# Initialize timing output so we always measure the entire time, but not with all granularity.
 	to = TimerOutput()
-	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; verbose)
+
+	# Get preoptimized info.
+	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; verbose, to)
+
+	# If specified, use the preoptimization timing information. Else, make a new one.
+	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
+
+	# Run the non-LQ solver.
 	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol=1e-3, verbose, to)
+
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
 
@@ -574,7 +576,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	# Run our solver through the run_lq_solver call.
 	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; tol=1e-3, parameter_value, verbose)
 	
-	verbose && println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
+	verbose && @info("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
 
 	lq_vars = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 	all_lq_variables = lq_vars.all_variables
@@ -600,8 +602,8 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	# Ensure that the solutions are the same for the LQ solver and the non-LQ solver on an LQ example.
 	@assert isapprox(z_sol_nonlq, z_sol_lq, atol=1e-4)
 	if verbose
-		@show "Are they the same? > $(isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4))"
-		@show status_lq
+		is_same_solution = isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
+		@info "LQ status: $status_lq \nDo the LQ and non-LQ solver produce the same solution? > $is_same_solution)"
 	end
 
 	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars
@@ -617,7 +619,7 @@ x0 = [
 ###############################################################
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_timing_info=false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -663,12 +665,13 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false)
 	end
 
 	# Print dimension information.
-	println("Number of players: $N")
-	println("Number of Stages: $H (OL = 1; FB > 1)")
-	println("Time Horizon (# steps): $T")
-	println("Step period: Δt = $(Δt)s")
-	println("Dimension per player: $(primal_dimension_per_player)")
-	println("Total primal dimension: $(problem_dims.total_dimension)")
+	@info "Problem dimensions:\n" *
+		"  Number of players: $N\n" *
+		"  Number of Stages: $H (OL = 1; FB > 1)\n" *
+		"  Time Horizon (# steps): $T\n" *
+		"  Step period: Δt = $(Δt)s\n" *
+		"  Dimension per player: $(primal_dimension_per_player)\n" *
+		"  Total primal dimension: $(problem_dims.total_dimension)"
 
 	# Solve the game using our non-LQ solver.
 	parameter_value = 1e-5
@@ -676,6 +679,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false)
 		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
 	else
 		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+		if show_timing_info
+			show(info_nonlq.to)
+		end
 	end
 	z_sol = z_sol_nonlq
 	(; πs, zs, λs, μs, θ) = vars

@@ -52,7 +52,6 @@ function solve_with_path(πs, variables, θ, parameter_value)
         use_basics = true,
         use_start = true,
     )
-    @show status
     return z_sol, status, info
 end
 
