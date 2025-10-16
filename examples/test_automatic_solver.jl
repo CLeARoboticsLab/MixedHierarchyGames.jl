@@ -627,6 +627,15 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
 	"""
 
+	# Normalize x0 to Vector{Vector{Float64}} to support inputs from Python (which often pass a Matrix)
+	x0_vecs = if x0 isa AbstractMatrix
+		[collect(@view x0[i, :]) for i in 1:size(x0, 1)]
+	elseif x0 isa AbstractVector{<:AbstractVector}
+		x0
+	else
+		error("x0 must be a Matrix or a Vector of Vectors")
+	end
+
 	# Number of players in the game
 	N = 3
 
@@ -722,7 +731,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
 		x1 = xs[1]
-		return x1 - x0[i]
+		return x1 - x0_vecs[i]
 	end
 
 	# In this game, each player has the same dynamics constraint.
@@ -754,8 +763,8 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 
-	# Plot the trajectories.
-	plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
+	# # Plot the trajectories.
+	# plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
 
 	###################OUTPUT: next state, current control ######################
 	next_state = Vector{Vector{Float64}}()
