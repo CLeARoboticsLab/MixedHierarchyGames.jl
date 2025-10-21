@@ -51,6 +51,7 @@ def main():
     pre = Main.HardwareFunctions.build_lq_preoptimization(3, 0.5, silence_logs=True)
 
     # Multiple initial states (3 players, 2D each)
+    # TODO: Generate the x0_list programmatically using the results of each call in the loop.
     x0_list = [
         [[0.0, 2.0], [2.0, 4.0], [6.0, 8.0]],
         [[0.2, 1.8], [1.9, 3.9], [5.8, 7.7]],
@@ -75,9 +76,16 @@ def main():
         except Exception:
             steps = 3
 
+        # optional warm-start guess for internal solver variables
+        z_guess = None
+
         for step in range(steps):
             try:
-                result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, silence_logs=True)
+                # pass previous z_sol as z0_guess to warm-start the solver
+                if z_guess is None:
+                    result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, silence_logs=True)
+                else:
+                    result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, z_guess, silence_logs=True)
             except Exception as e:
                 print("Julia call failed during step loop:\n", e)
                 raise
@@ -91,6 +99,12 @@ def main():
 
             x_next = _get_field(result, "x_next")
             u_curr = _get_field(result, "u_curr")
+            # capture z_sol to use as z0_guess on next iteration
+            try:
+                # TODO: Adjust z_sol to use x0 as the primal guess.
+                z_guess = _get_field(result, "z_sol")
+            except Exception:
+                z_guess = None
 
             # normalize to python lists
             def _normalize(x):
