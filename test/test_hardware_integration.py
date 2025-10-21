@@ -56,77 +56,76 @@ def main():
         [[0.2, 1.8], [1.9, 3.9], [5.8, 7.7]],
         [[-0.5, 0.5], [1.0, 2.0], [3.0, 4.0]],
     ]
-
+    # For each initial state, run a receding-horizon loop in Python calling the
+    # single-step hardware function once per timestep and updating x0.
     for idx, x0 in enumerate(x0_list):
         print(f"\n=== RH call {idx} ===")
-        try:
-            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x0, silence_logs=True)
-        except Exception as e:
-            print("Julia call failed. If error mentions `steps`, the function may need a `steps` argument with a default (e.g., pre.T).\n", e)
-            raise
 
-        # PyCall can return a Julia NamedTuple wrapped as a PyCall object which
-        # is not subscriptable from Python. Try both styles to extract fields.
-        def _get_field(obj, name):
+        # histories per player
+        Nplayers = len(x0)
+        states_hist = [[] for _ in range(Nplayers)]
+        controls_hist = [[] for _ in range(Nplayers)]
+
+        # initial state
+        x_current = x0
+
+        # determine number of steps from pre (pre.T) if available, else default to 3
+        try:
+            steps = int(Main.getproperty(pre, "T"))
+        except Exception:
+            steps = 3
+
+        for step in range(steps):
             try:
-                return obj[name]
-            except Exception:
+                result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, silence_logs=True)
+            except Exception as e:
+                print("Julia call failed during step loop:\n", e)
+                raise
+
+            # extract fields (result is a PyCall wrapper for a NamedTuple)
+            def _get_field(obj, name):
                 try:
-                    return getattr(obj, name)
+                    return obj[name]
                 except Exception:
-                    raise RuntimeError(f"Unable to access field '{name}' on Julia result: {type(obj)}")
+                    return getattr(obj, name)
 
-        states = _get_field(result, "states")
-        controls = _get_field(result, "controls")
+            x_next = _get_field(result, "x_next")
+            u_curr = _get_field(result, "u_curr")
 
-        # Normalize result contents: PyCall may wrap Julia arrays as numpy arrays
-        # or other wrappers; convert recursively to plain Python lists/floats.
-        def _normalize(x):
-            # If object has a tolist() (numpy arrays), use it
-            try:
-                tl = x.tolist()
-            except Exception:
-                tl = None
+            # normalize to python lists
+            def _normalize(x):
+                try:
+                    tl = x.tolist()
+                except Exception:
+                    tl = None
+                if tl is not None:
+                    return _normalize(tl)
+                if isinstance(x, (list, tuple)):
+                    return [_normalize(xx) for xx in x]
+                try:
+                    return float(x)
+                except Exception:
+                    return x
 
-            if tl is not None:
-                return _normalize(tl)
+            x_next = _normalize(x_next)
+            u_curr = _normalize(u_curr)
 
-            if isinstance(x, (list, tuple)):
-                return [_normalize(xx) for xx in x]
+            # append histories
+            for i in range(Nplayers):
+                states_hist[i].append(x_current[i])
+                controls_hist[i].append(u_curr[i])
 
-            # Try to cast to float for numeric scalars
-            try:
-                return float(x)
-            except Exception:
-                return x
+            # advance state
+            x_current = x_next
 
-        states = _normalize(states)
-        controls = _normalize(controls)
+        # Final checks
+        assert all(len(states_hist[i]) >= 1 for i in range(Nplayers)), "Too few states"
+        assert all(len(controls_hist[i]) >= 1 for i in range(Nplayers)), "Too few controls"
+        assert finite_nested(states_hist), "Non-finite values in states"
+        assert finite_nested(controls_hist), "Non-finite values in controls"
 
-        # Debug: print types and sample contents to diagnose non-finite values
-        print("DEBUG: result types ->", type(states), type(controls))
-        try:
-            print("DEBUG: states repr:", repr(states))
-        except Exception:
-            print("DEBUG: could not repr states; type:", type(states))
-        try:
-            print("DEBUG: controls repr:", repr(controls))
-        except Exception:
-            print("DEBUG: could not repr controls; type:", type(controls))
-
-        # Shape checks
-        assert isinstance(states, list) and isinstance(controls, list), "Unexpected result format"
-        assert len(states) == 3 and len(controls) == 3, "Expected 3 players"
-        for i in range(3):
-            assert len(states[i]) >= 2, f"Player {i+1} has too few states"
-            assert len(controls[i]) >= 1, f"Player {i+1} has too few controls"
-
-        # Finite checks
-        assert finite_nested(states), "Non-finite values in states"
-        assert finite_nested(controls), "Non-finite values in controls"
-
-        print(f"states len: {[len(s) for s in states]}")
-        print(f"controls len: {[len(u) for u in controls]}")
+        print(f"states len: {[len(s) for s in states_hist]}")
+        print(f"controls len: {[len(u) for u in controls_hist]}")
 
     print("\nAll integration calls completed successfully.")
 
