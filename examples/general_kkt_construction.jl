@@ -254,6 +254,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
 		πs[ii] = πᵢ
 
+		ii == 3 && Main.@infiltrate
 
 		# Finally, we compute symbolic versions of M and N that only depend on the symbolic versions of lower-level algorithms.
 		# This allows us to evaluate M and N at any z_est without needing to recompute the entire symbolic gradient.

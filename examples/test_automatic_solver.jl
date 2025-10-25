@@ -80,7 +80,6 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	else
 		z_sol = solution.u
 	end
-
 	return z_sol, F, linsolve_status
 end
 
@@ -801,7 +800,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
 
-function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
+function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters = 50, verbose = false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled with bicycle dynamics in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -839,7 +838,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
 	flatten(vs) = collect(Iterators.flatten(vs))
 
 	# Initial sizing of various dimensions.
-	T = 10 # time horizon
+	T = 10 # time horizon, 10
 	Δt = 0.5 # time step
 	state_dimension = 4 # player 1,2,3's state dimension (x = [px, py, ψ, v])
 	control_dimension = 2 # player 1,2,3's control dimension (u = [a, δ])
@@ -871,7 +870,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
 		0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
 	end
 
-	# Player 2's objective function: P2 wants P1 and P3 to get to the origin
+	# Player 2's objective function: P2 wants P1 and P3 to get to the goal
 	function J₂(z₁, z₂, z₃, θ)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
@@ -879,16 +878,19 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+		# sum((0.5*((xs¹[end] .- x_goal) .+ (xs³[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
+		sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 	end
 
-	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
+	# Player 3's objective function
 	function J₃(z₁, z₂, z₃, θ)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+		# stay in circular track of radius R around origin for the first half
+		Main.@infiltrate
+		0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 100*sum(sum(x³[1:2] .^ 2) - R^2 for x³ in xs³[2:T])
 	end
 
 	Js = Dict{Int, Any}(
@@ -952,34 +954,53 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
 		return x1 - x0_vecs[i]
 	end
 
+	# Additional constraint for player 3 to stay in circular track of radius R around origin
+	function track_constraint(zᵢ)
+		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
+		mapreduce(vcat, 1) do t # only first half of trajectory: 1:div(T, 2)
+			xₜ = xs[t]
+			xₜ[1]^2 + xₜ[2]^2 - R^2
+		end
+	end
+
 	# In this game, each player has the same dynamics constraint.
 	dynamics_constraint(zᵢ) =
 		mapreduce(vcat, 1:T) do t
 			bicycle_dynamics(zᵢ, t)
 			# dynamics_double_integrator_2D(zᵢ, t)
 		end
-	gs = [function (zᵢ)
-		vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
-	end for i in 1:N]
+	gs = Vector{Function}(undef, N)
+	for i in 1:(N-1) # players 1 and 2 have only dynamics + IC constraints
+		gs[i] = function (zᵢ)
+			vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
+		end
+	end
+	gs[N] = function (zᵢ)
+		vcat(dynamics_constraint(zᵢ), make_ic_constraint(N)(zᵢ))# track_constraint(zᵢ))
+	end
+
+	# gs = [function (zᵢ)
+	# 	vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
+	# end for i in 1:N]
+
 
 	parameter_value = 1e-5
 	# z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol = z_sol_nonlq
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, max_iters, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
 	z₁ = zs[1]
 	z₂ = zs[2]
 	z₃ = zs[3]
-	z₁_sol = z_sol[1:length(z₁)]
-	z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
-	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
+	z₁_sol = z_sol_nonlq[1:length(z₁)]
+	z₂_sol = z_sol_nonlq[(length(z₁)+1):(length(z₁)+length(z₂))]
+	z₃_sol = z_sol_nonlq[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose = verbose)
+	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	# Reconstruct trajectories from solutions
@@ -1018,4 +1039,16 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0; verbose = false)
 	return next_state, curr_control
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
+
+
+	# For integration with python code:
+	# 1. get strategy 
+	# 2. turn into dictionary because you can't send lists 
+	# 3. write(sock, JSON3.write(controller_dict) * "\n"), flush(sock) # write to python
+	# 4. msg = readline(sock) # Read msg from python
+	# 5. data = JSON3.read(String(msg)) 
+
+
+
+
 end
