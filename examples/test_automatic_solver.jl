@@ -890,7 +890,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 		xs², us² = xs, us
 		# stay in circular track of radius R around origin for the first half
 		Main.@infiltrate
-		0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 100*sum(sum(x³[1:2] .^ 2) - R^2 for x³ in xs³[2:T])
+		0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + sum(sum(x³[1:2] .^ 2) - R^2 for x³ in xs³[2:div(T,2)]).^2 + 10*xs³[end][3]
 	end
 
 	Js = Dict{Int, Any}(
