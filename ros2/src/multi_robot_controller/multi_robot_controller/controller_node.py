@@ -16,10 +16,11 @@ def julia_init():
     print("Initializing Julia...")
 
     jl.eval('using Pkg')
-    jl.eval('Pkg.activate("/home/tq877/Tianyu/Robot_Experiments/StackelbergHierarchyGames.jl")')
+    jl.eval('Pkg.activate("/home/tianyu/projects/StackelbergHierarchyGames.jl")')
     jl.eval('Pkg.instantiate()')
     # jl.eval('Main.include("/home/tq877/Tianyu/Robot Experiments/MCP_Isaac_sim_ros2/examples/TrajectoryExamples.jl")')
-    Main.include("/home/tq877/Tianyu/Robot_Experiments/StackelbergHierarchyGames.jl/examples/test_automatic_solver.jl")
+    # Main.include("/home/tq877/Tianyu/Robot_Experiments/StackelbergHierarchyGames.jl/examples/test_automatic_solver.jl")
+    Main.include("/home/tianyu/projects/StackelbergHierarchyGames.jl/examples/test_automatic_solver.jl")
     print("Julia initialized.")
     print("Solver Warming up...")
     # _ = Main.nplayer_navigation()
