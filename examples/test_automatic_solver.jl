@@ -424,6 +424,13 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 
 	# Initial guess for primal and dual variables.
 	z_est = @something(z0_guess, zeros(length(all_variables)))
+	if !isnothing(z0_guess)
+		println("Using provided initial guess of length $(length(z0_guess)).")
+		if length(z0_guess) < length(all_variables)
+			@warn "Provided initial guess is shorter than required length $(length(all_variables)). Padding with zeros."
+			z_est = vcat(z0_guess, zeros(length(all_variables) - length(z0_guess)))
+		end
+	end
 
 	# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
 	num_iterations = 0
@@ -487,10 +494,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 					next_z_est = z_est .+ α * dz_sol
 
 					# This line recomputes K at each step size, which is correct but inefficient. Uncomment if we want it.
-					# all_Ks_vec_kp1 = compute_Ks_with_z(next_z_est)
+					all_Ks_vec_kp1 = compute_Ks_with_z(next_z_est)
 
 					# Check if the merit function decreases; currently, we use an outdated version of K.
-					mcp_obj.f!(F_eval, next_z_est, all_K_evals_vec)
+					mcp_obj.f!(F_eval, next_z_est, all_Ks_vec_kp1)
 					if norm(F_eval) < norm(F_eval_linsolve)
 						break
 					else
@@ -498,7 +505,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 					end
 				end
 				# α = 1. / (num_iterations+1) # Diminishing step size
-				# α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to, α_init=ls_α_init, β=ls_β, c₁=ls_c₁, max_ls_iters=max_ls_iters)
+				# α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to, α_init = ls_α_init, β = ls_β, c₁ = ls_c₁, max_ls_iters = max_ls_iters)
 				next_z_est = z_est .+ α * dz_sol
 			end
 
@@ -789,7 +796,6 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	end
 	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 3
-	push!(curr_control, us[1]) # current control of player 3
 	if verbose
 		println("P3 (x,u) solution : ($xs, $us)")
 		println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
@@ -800,7 +806,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
 
-function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters = 50, verbose = false)
+function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; max_iters = 50, verbose = false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled with bicycle dynamics in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -840,8 +846,8 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 	# Initial sizing of various dimensions.
 	T = 10 # time horizon, 10
 	Δt = 0.5 # time step
-	state_dimension = 4 # player 1,2,3's state dimension (x = [px, py, ψ, v])
-	control_dimension = 2 # player 1,2,3's control dimension (u = [a, δ])
+	state_dimension = 4 # player 1,2,3's state dimension (x = [px, py, ψ, v]) unicycle
+	control_dimension = 2 # player 1,2,3's control dimension (u = [a, ω])
 
 	# Additional dimension computations.
 	x_dim = state_dimension * (T+1)
@@ -889,8 +895,8 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
 		# stay in circular track of radius R around origin for the first half
-		Main.@infiltrate
-		0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + sum(sum(x³[1:2] .^ 2) - R^2 for x³ in xs³[2:div(T,2)]).^2 + 10*xs³[end][3]
+		# Main.@infiltrate
+		0.05*sum(sum(u³ .^ 2) for u³ in us³) + 10sum((sum((x³[1:2] - ones(2)) .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) 
 	end
 
 	Js = Dict{Int, Any}(
@@ -926,6 +932,34 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 
 		return x_tp1 - x_pred
 	end
+
+	function unicycle_dynamics(z, t; Δt = Δt)
+		# Kinematic unicycle dynamics (nonlinear)
+		# State:   x = [x, y, ψ, v]
+		# Control: u = [a, ω]      (longitudinal acceleration, yaw rate)
+		# Euler forward discretization:
+		#   x_{t+1} = x_t + Δt * [ v*cosψ, v*sinψ, ω, a ]
+
+		(; xs, us) = unflatten_trajectory(z, state_dimension, control_dimension)
+		x_t = xs[t]        # = [x, y, ψ, v]
+		u_t = us[t]        # = [a, ω]
+		x_tp1 = xs[t+1]
+
+		x, y, ψ, v = x_t
+		a, ω       = u_t
+
+		# One-step prediction under unicycle model
+		xdot   = v * cos(ψ)
+		ydot   = v * sin(ψ)
+		psidot = ω
+		vdot   = a
+
+		x_pred = x_t .+ Δt .* [xdot, ydot, psidot, vdot]
+
+		return x_tp1 - x_pred
+	end
+
+
 
 	# 2-D double integrator: state = [x, y, vx, vy], control = [ax, ay]
 	function dynamics_double_integrator_2D(z, t; Δt = Δt)
@@ -966,7 +1000,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 	# In this game, each player has the same dynamics constraint.
 	dynamics_constraint(zᵢ) =
 		mapreduce(vcat, 1:T) do t
-			bicycle_dynamics(zᵢ, t)
+		bicycle_dynamics(zᵢ, t)
 			# dynamics_double_integrator_2D(zᵢ, t)
 		end
 	gs = Vector{Function}(undef, N)
@@ -976,17 +1010,18 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, R; max_iters 
 		end
 	end
 	gs[N] = function (zᵢ)
-		vcat(dynamics_constraint(zᵢ), make_ic_constraint(N)(zᵢ))# track_constraint(zᵢ))
+		vcat(dynamics_constraint(zᵢ), make_ic_constraint(N)(zᵢ))
 	end
 
 	# gs = [function (zᵢ)
 	# 	vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
 	# end for i in 1:N]
 
+	
 
 	parameter_value = 1e-5
 	# z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, max_iters, verbose)
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; z0_guess, parameter_value, max_iters, verbose)
 	(; πs, zs, λs, μs, θ) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
