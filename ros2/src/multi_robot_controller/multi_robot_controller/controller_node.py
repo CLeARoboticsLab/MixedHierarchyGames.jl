@@ -78,6 +78,7 @@ class MultiRobotController(Node):
         self.timer = self.create_timer(0.1, self.run_planner_step)
 
         self.pre = pre
+        self.z_guess = None  # optional warm-start guess for internal solver variables
 
         self.get_logger().info("MultiRobotController node started.")
 
@@ -146,14 +147,17 @@ class MultiRobotController(Node):
             # sol = Main.nplayer_navigation(initial_state, guess)
 
             # result = Main.nplayer_hierarchy_navigation(initial_state)
-            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state)
+            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state, self.z_guess, silence_logs=True)
             
             # guess should be updated
 
             # result is (next_state, curr_control)
             # next_state: [[x1_next], [x2_next], [x3_next]]  
             # curr_control: [[u1_curr], [u2_curr], [u3_curr]] where ui_curr = [vx, vy]
-            next_states, curr_controls = result
+            next_states, curr_controls, z_sol = result
+
+            # Update z_guess for warm-starting next iteration.
+            self.z_guess = z_sol
             
             # Debug logging
             self.get_logger().info(f"Robot positions: P1=[{state1[0]:.3f}, {state1[1]:.3f}], P2=[{state2[0]:.3f}, {state2[1]:.3f}], P3=[{state3[0]:.3f}, {state3[1]:.3f}]")
