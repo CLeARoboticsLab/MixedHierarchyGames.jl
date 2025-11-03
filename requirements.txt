@@ -1,0 +1,20 @@
+# Python requirements for Stackelberg Hierarchy Games
+# These packages are installed in the Docker container's /opt/venv
+
+# Julia-Python bridge (for controller_node.py - PyJulia)
+# Using 'julia' package (PyJulia) instead of 'juliacall' to match existing code syntax
+julia>=0.6.0
+
+# Scientific computing
+numpy>=1.20.0
+
+# ROS 2 Python dependencies (required for rclpy)
+# Note: rclpy is installed system-wide via ROS, but we need these dependencies in venv
+PyYAML>=5.1
+lark>=1.0.0
+
+# Note: rclpy and other ROS packages are installed via apt (ros-jazzy-desktop)
+# The venv is created with --system-site-packages to access them
+
+# Additional Python packages can be added here as needed
+

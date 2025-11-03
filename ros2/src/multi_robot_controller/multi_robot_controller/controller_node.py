@@ -16,6 +16,26 @@ def julia_init():
     # Go up to the main project root: ros2/src/multi_robot_controller/multi_robot_controller -> main project
     project_root = str(Path(__file__).resolve().parents[4])
     time_start = time.perf_counter()
+    
+    # Pre-load OpenSSL_jll to use system OpenSSL libraries
+    # Set environment variable first, then load OpenSSL_jll before any other packages
+    Main.eval("""
+        ENV["JULIA_SSL_LIBRARY"] = "system"
+        # Clear any incompatible artifacts that might have been downloaded
+        try
+            import Pkg
+            Pkg.Artifacts.clear_artifacts!()
+        catch e
+            @warn "Artifact clear failed" exception=e
+        end
+        # Load OpenSSL_jll with system libraries
+        try
+            using OpenSSL_jll
+        catch e
+            @warn "OpenSSL_jll preload failed, continuing anyway" exception=e
+        end
+    """)
+    
     Main.eval(
         f"""
         import Pkg
@@ -121,11 +141,11 @@ class MultiRobotController(Node):
     def run_planner_step(self):
         if self.latest_odom_01 is None or self.latest_odom_02 is None:
             # only for placeholder
-            # time_start = time.perf_counter()
-            # result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]])
-            # time_end = time.perf_counter()
-            # print(f"Time taken: {time_end - time_start} seconds")
-            self.get_logger().warn("Waiting for odometry...")
+            time_start = time.perf_counter()
+            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]])
+            time_end = time.perf_counter()
+            self.get_logger().info(f"Time taken: {time_end - time_start} seconds")
+            # self.get_logger().warn("Waiting for odometry...")
             return
 
         try:

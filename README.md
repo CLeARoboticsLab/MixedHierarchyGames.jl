@@ -42,4 +42,9 @@ Note that parameters of the PDIP algorithm, dynamics, costs, and constraints cou
 2. In the current implementation, we assume each player has the same state, control, and constraint dimension. However, it should be relaxed in the future.
 
 
+## Running on Ubuntu 24.04 with ROS 2 Jazzy (Docker)
+
+This repository includes a Docker setup to run an Ubuntu 24.04 + ROS 2 Jazzy environment with Julia. See `docker/README.md` for details and quick-start scripts.
+
+
 
