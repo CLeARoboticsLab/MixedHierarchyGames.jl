@@ -1041,8 +1041,10 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R, 
 	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 
-	# # Plot the trajectories.
-	plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
+    # Plot both trajectories and pairwise distances in a single figure
+	plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
+    # plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
+	# plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose)
 
 	###################OUTPUT: next state, current control ######################
 	next_state = Vector{Vector{Float64}}()

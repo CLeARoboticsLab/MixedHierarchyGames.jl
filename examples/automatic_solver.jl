@@ -333,7 +333,7 @@ function main(verbose = false)
 	return z_sol, status, info, πs, all_variables
 end
 
-function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false)
+function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing,AbstractString} = nothing)
 	# Plot the trajectories of each player.
 	# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
 	state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
@@ -360,5 +360,64 @@ function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false)
 	# Origin
 	scatter!(plt, [0.0], [0.0]; marker = :cross, ms = 8, color = :black, label = "Origin (0,0)")
 
-	display(plt)
+    if show
+        display(plt)
+    end
+    if savepath !== nothing
+        savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
+        savefig(plt, savefile)
+        verbose && println("Saved trajectories plot to: " * savefile)
+    end
+    return plt
+end
+
+function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing,AbstractString} = nothing)
+	to_matrix(xs_vec) = hcat(xs_vec...)
+	X1 = to_matrix(xs1)[1:2, :]
+	X2 = to_matrix(xs2)[1:2, :]
+	X3 = to_matrix(xs3)[1:2, :]
+
+	d12 = [norm(X1[:, t] - X2[:, t]) for t in 1:size(X1, 2)]
+	d13 = [norm(X1[:, t] - X3[:, t]) for t in 1:size(X1, 2)]
+	d23 = [norm(X2[:, t] - X3[:, t]) for t in 1:size(X1, 2)]
+	time = collect(0:T) .* Δt
+
+    plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
+        label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
+        title = "Pairwise player distances", grid = true)
+    plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
+    plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
+
+    if verbose
+        println("Minimum distances: P1-P2=$(minimum(d12)), P1-P3=$(minimum(d13)), P2-P3=$(minimum(d23))")
+    end
+    if show
+        display(plt)
+    end
+    if savepath !== nothing
+        savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
+        savefig(plt, savefile)
+        verbose && println("Saved distances plot to: " * savefile)
+    end
+    return plt
+end
+
+# Convenience: show both player trajectories and pairwise distances side-by-side
+function plot_trajectories_and_distances(
+    xs1, xs2, xs3, T, Δt, verbose = false;
+    layout = (1, 2), size = (1100, 550),
+    savepath_traj::Union{Nothing,AbstractString} = "player_trajectories",
+    savepath_dist::Union{Nothing,AbstractString} = "pairwise_distances",
+    savepath_combined::Union{Nothing,AbstractString} = "combined_plots",
+)
+    plt1 = plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_traj)
+    plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_dist)
+    combined = plot(plt1, plt2; layout = layout, size = size)
+    display(combined)
+    if savepath_combined !== nothing
+        savefile = endswith(lowercase(String(savepath_combined)), ".pdf") ? String(savepath_combined) : String(savepath_combined) * ".pdf"
+        savefig(combined, savefile)
+        verbose && println("Saved combined plot to: " * savefile)
+    end
+    return plt1, plt2, combined
 end
