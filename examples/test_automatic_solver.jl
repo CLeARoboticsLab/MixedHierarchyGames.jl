@@ -806,7 +806,7 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
 
-function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; max_iters = 50, verbose = false)
+function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 50, verbose = false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled with bicycle dynamics in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -844,8 +844,8 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; 
 	flatten(vs) = collect(Iterators.flatten(vs))
 
 	# Initial sizing of various dimensions.
-	T = 10 # time horizon, 10
-	Δt = 0.5 # time step
+	# T = 10 # time horizon, 10
+	# Δt = 0.1 # time step
 	state_dimension = 4 # player 1,2,3's state dimension (x = [px, py, ψ, v]) unicycle
 	control_dimension = 2 # player 1,2,3's control dimension (u = [a, ω])
 
@@ -894,9 +894,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; 
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		# stay in circular track of radius R around origin for the first half
-		# Main.@infiltrate
-		0.05*sum(sum(u³ .^ 2) for u³ in us³) + 10sum((sum((x³[1:2] - ones(2)) .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) 
+		0.05*sum(sum(u³ .^ 2) for u³ in us³) + 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) 
 	end
 
 	Js = Dict{Int, Any}(
@@ -1000,7 +998,7 @@ function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; 
 	# In this game, each player has the same dynamics constraint.
 	dynamics_constraint(zᵢ) =
 		mapreduce(vcat, 1:T) do t
-		bicycle_dynamics(zᵢ, t)
+		unicycle_dynamics(zᵢ, t)
 			# dynamics_double_integrator_2D(zᵢ, t)
 		end
 	gs = Vector{Function}(undef, N)
