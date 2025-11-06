@@ -806,9 +806,9 @@ function nplayer_hierarchy_navigation(x0; verbose = false)
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
 end
 
-function nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 50, verbose = false)
+function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 50, verbose = false)
 	"""
-	Navigation function for a multi-player hierarchy game. Players are modeled with bicycle dynamics in 2D space, 
+	Navigation function for a multi-player hierarchy game. Players are modeled with nonlinear (unicycle, bicycle) dynamics in 2D space, 
 		with objectives to reach certain sets of game states.
 
 	Parameters

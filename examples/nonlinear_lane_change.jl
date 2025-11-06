@@ -19,8 +19,8 @@ x0 = [
 ]
 
 R = 6.0  # turning radius
-T = 10 # 10
-Δt = 0.5 # 0.5
+T = 15 # 10
+Δt = 0.4 # 0.5
 
 function make_unicycle_traj(
     T::Integer,
@@ -115,37 +115,6 @@ function make_unicycle_traj(
 end
 
 
-x0_3 = [
-	[-6.000000, 0.000000, 1.5707963268, 1.523600],  # t=0
-	[-6.000000, 0.761800, 1.2566370614, 2.940800],  # t=1
-	[-5.545600, 2.160300, 0.9424777961, 4.070200],  # t=2
-	[-4.349400, 3.806800, 0.6283185307, 4.801200],  # t=3
-	[-2.407200, 5.217800, 0.3141592653, 5.062200],  # t=4
-	[0.000000, 6.000000, 0.0000000000, 3.600000],  # t=5  (end of arc)
-	[1.800000, 6.000000, 0.0000000000, 3.600000],  # t=6
-	[3.600000, 6.000000, 0.0000000000, 3.600000],  # t=7
-	[5.400000, 6.000000, 0.0000000000, 3.600000],  # t=8
-	[7.200000, 6.000000, 0.0000000000, 3.600000],  # t=9
-	[9.000000, 6.000000, 0.0000000000, 3.600000],  # t=10 (final)
-]
-
-# Controls: u_t = [a, ω], t = 1..10 (length 10)
-# First 5 steps: ω = -π/5, accelerations = 4× previous (to double speeds with Δt=0.5)
-# Next 5 steps: ω = 0, a = 0 (constant v = 3.6)
-u0_3 = [
-	[+2.8344, -0.6283185307],
-	[+2.2588, -0.6283185307],
-	[+1.4620, -0.6283185307],
-	[+0.5220, -0.6283185307],
-	[-2.9244, -0.6283185307],
-	[0.0000, 0.0000000000],
-	[0.0000, 0.0000000000],
-	[0.0000, 0.0000000000],
-	[0.0000, 0.0000000000],
-	[0.0000, 0.0000000000],
-	[0.0000, 0.0000000000],
-]
-
 # Initial guess for all players
 z0_guess_1_2 = zeros(6*(T+1) * 2) # for players 1 and 2
 x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split=0.5, x0 = x0[3])
@@ -156,4 +125,4 @@ Main.@infiltrate
 
 ###############################################################
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
-TestAutomaticSolver.nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 5000)
+TestAutomaticSolver.nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 5000)
