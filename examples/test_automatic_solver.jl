@@ -867,13 +867,18 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 	#### Player Objectives ####
 	# Player 1's objective function: P1 wants to get close to P2's final position 
-	# considering only its own control effort.
 	function J₁(z₁, z₂, z₃, θ)
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		tracking = 0.5*sum((xs¹[end] .- xs²[end]) .^ 2)
+		control = 0.05*sum(sum(u .^ 2) for u in us¹)
+		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+
+		tracking + control + collision
 	end
 
 	# Player 2's objective function: P2 wants P1 and P3 to get to the goal
@@ -884,17 +889,29 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		# sum((0.5*((xs¹[end] .- x_goal) .+ (xs³[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
-		sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
+
+		ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
+		control = 0.05*sum(sum(u .^ 2) for u in us²)
+		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
+
+		ordering + control + collision
 	end
 
-	# Player 3's objective function
+	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
 	function J₃(z₁, z₂, z₃, θ)
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.05*sum(sum(u³ .^ 2) for u³ in us³) + 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) 
+
+		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2)
+		control = 0.05*sum(sum(u³ .^ 2) for u³ in us³)
+		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+
+		tracking + control + collision
 	end
 
 	Js = Dict{Int, Any}(
@@ -998,7 +1015,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# In this game, each player has the same dynamics constraint.
 	dynamics_constraint(zᵢ) =
 		mapreduce(vcat, 1:T) do t
-		unicycle_dynamics(zᵢ, t)
+			unicycle_dynamics(zᵢ, t)
 			# dynamics_double_integrator_2D(zᵢ, t)
 		end
 	gs = Vector{Function}(undef, N)
@@ -1015,7 +1032,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# 	vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
 	# end for i in 1:N]
 
-	
+
 
 	parameter_value = 1e-5
 	# z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
@@ -1041,9 +1058,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 
-    # Plot both trajectories and pairwise distances in a single figure
+	# Plot both trajectories and pairwise distances in a single figure
 	plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
-    # plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
+	# plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
 	# plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose)
 
 	###################OUTPUT: next state, current control ######################
@@ -1086,4 +1103,26 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 
 
+end
+
+
+# smooth pairwise penalty for two trajectories
+function smooth_collision(xsA, xsB; d_safe = 3.0, α = 20.0, w = 1.0)
+	T = length(xsA)
+	cost = zero(xsA[1][1])  # symbolic-friendly zero
+	d_safe_sq = d_safe^2
+	for k in 1:T
+		Δp = xsA[k][1:2] .- xsB[k][1:2]
+		d_sq = sum(Δp .^ 2)                    # ||pA - pB||^2
+		r = d_safe_sq - d_sq                   # positive if too close
+		h = (1/α) * log(1 + exp(α * r))        # softplus(r)
+		cost += w * h^2
+	end
+	return cost
+end
+
+function smooth_collision_all(xs1, xs2, xs3; d_safe = 2.0, α = 20.0, w = 1.0)
+	return 0.1smooth_collision(xs1, xs2; d_safe, α, w) +
+		   0.1smooth_collision(xs1, xs3; d_safe, α, w) +
+		   0.1smooth_collision(xs2, xs3; d_safe, α, w)
 end
