@@ -19,8 +19,8 @@ x0 = [
 ]
 
 R = 6.0  # turning radius
-T = 10 # 10
-Δt = 0.5 # 0.5
+T = 10 # 10, 15
+Δt = 0.5 # 0.5, 0.4
 
 function make_unicycle_traj(
     T::Integer,

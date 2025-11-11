@@ -876,9 +876,10 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		xs³, us³ = xs, us
 		tracking = 0.5*sum((xs¹[end] .- xs²[end]) .^ 2)
 		control = 0.05*sum(sum(u .^ 2) for u in us¹)
-		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
+		velocity = sum((x¹[4] - 2.0)^2 for x¹ in xs¹) # penalize high speeds
 
-		tracking + control + collision
+		tracking + control + collision + velocity
 	end
 
 	# Player 2's objective function: P2 wants P1 and P3 to get to the goal
@@ -892,10 +893,12 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
 		control = 0.05*sum(sum(u .^ 2) for u in us²)
-		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
+		velocity = sum((x²[4] - 2.0)^2 for x² in xs²) # penalize high speeds
+
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		ordering + control + collision
+		ordering + control + collision + velocity
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
@@ -909,7 +912,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2)
 		control = 0.05*sum(sum(u³ .^ 2) for u³ in us³)
-		collision = smooth_collision_all(xs¹[1:T-2], xs²[1:T-2], xs³[1:T-2])
+		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
 
 		tracking + control + collision
 	end
@@ -1003,14 +1006,6 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		return x1 - x0_vecs[i]
 	end
 
-	# Additional constraint for player 3 to stay in circular track of radius R around origin
-	function track_constraint(zᵢ)
-		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
-		mapreduce(vcat, 1) do t # only first half of trajectory: 1:div(T, 2)
-			xₜ = xs[t]
-			xₜ[1]^2 + xₜ[2]^2 - R^2
-		end
-	end
 
 	# In this game, each player has the same dynamics constraint.
 	dynamics_constraint(zᵢ) =
@@ -1018,19 +1013,10 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 			unicycle_dynamics(zᵢ, t)
 			# dynamics_double_integrator_2D(zᵢ, t)
 		end
-	gs = Vector{Function}(undef, N)
-	for i in 1:(N-1) # players 1 and 2 have only dynamics + IC constraints
-		gs[i] = function (zᵢ)
-			vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
-		end
-	end
-	gs[N] = function (zᵢ)
-		vcat(dynamics_constraint(zᵢ), make_ic_constraint(N)(zᵢ))
-	end
 
-	# gs = [function (zᵢ)
-	# 	vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
-	# end for i in 1:N]
+	gs = [function (zᵢ)
+		vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
+	end for i in 1:N]
 
 
 
@@ -1107,7 +1093,7 @@ end
 
 
 # smooth pairwise penalty for two trajectories
-function smooth_collision(xsA, xsB; d_safe = 3.0, α = 20.0, w = 1.0)
+function smooth_collision(xsA, xsB; d_safe = 2.0, α = 20.0, w = 1.0)
 	T = length(xsA)
 	cost = zero(xsA[1][1])  # symbolic-friendly zero
 	d_safe_sq = d_safe^2
