@@ -162,14 +162,14 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 end
 
 
-function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
+function get_three_player_openloop_lq_problem(T=10, Δt=0.5, x0=[ [0.0; 2.0], [2.0; 4.0], [6.0; 8.0] ]; verbose = false)
 	# Number of players in the game
 	N = 3
 
 	# Set up the information structure.
 	# This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P1 -> P2
+	# add_edge!(G, 2, 1); # P1 -> P2
 	add_edge!(G, 2, 3); # P2 -> P3
 
 	H = 1
@@ -252,9 +252,10 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
 	end
 
 	# Set up the equality constraints for each player.
-	ics = [[0.0; 2.0],
-	       [2.0; 4.0],
-		   [6.0; 8.0]] # initial conditions for each player
+	ics = x0
+	# [[0.0; 2.0],
+	#        [2.0; 4.0],
+	# 	   [6.0; 8.0]] # initial conditions for each player
 
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
@@ -353,15 +354,15 @@ function plot_player_trajectories(z_sols, T, Δt, problem_dims)
 	plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
 		legend = :bottomright, aspect_ratio = :equal, grid = true)
 
-	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 3, label = "P1")
-	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2")
-	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3")
+	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 2, label = "P1")
+	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 2, label = "P2")
+	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 2, label = "P3")
 
 	# Mark start (t=0) and end (t=T) points
 	scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
-		markershape = :star5, ms = 8, label = "start (t=0)")
+		markershape = :star5, ms = 3, label = "start (t=0)")
 	scatter!(plt, [X1[1, end], X2[1, end], X3[1, end]], [X1[2, end], X2[2, end], X3[2, end]];
-		markershape = :hexagon, ms = 8, label = "end (t=$T)")
+		markershape = :hexagon, ms = 3, label = "end (t=$T)")
 
 
 	# Origin

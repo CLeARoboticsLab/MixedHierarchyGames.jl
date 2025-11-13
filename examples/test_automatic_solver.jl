@@ -71,11 +71,12 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	@timeit to "[Linear Solve] Call to Solver" begin
 		solution = solve!(linsolver)
 	end
+	# Main.@infiltrate
 
 	if !SciMLBase.successful_retcode(solution) &&
 	   (solution.retcode !== SciMLBase.ReturnCode.Default)
-		verbose &&
-			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		# verbose &&
+		@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
 		linsolve_status = :failed
 	else
 		z_sol = solution.u
@@ -563,6 +564,8 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
 
 	# Run the non-LQ solver.
+	# duals_guess = zeros(length(preoptimization_info.all_variables) - sum(primal_dimension_per_player))
+	# z0_guess = vcat(rand(sum(primal_dimension_per_player)), duals_guess)
 	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol=1e-3, verbose, to)
 
 	return z_sol, status, info, all_variables, vars, augmented_vars
@@ -612,9 +615,9 @@ end
 
 ######### INPUT: Initial conditions ##########################
 x0 = [
-	[0.0; 2.0], # [px, py]
-	[2.0; 4.0],
-	[6.0; 8.0],
+	[-5.0; 1.0],
+	[-2.; -2.5], # [px, py]
+	[2.0; -4.0],
 ]
 ###############################################################
 
@@ -641,9 +644,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	end
 
 	# Set up the problem.
-	T = 3
+	T = 10
 	Δt = 0.5
-	N, G, H, problem_dims, Js, gs = get_three_player_openloop_lq_problem(T, Δt; verbose)
+	N, G, H, problem_dims, Js, gs = get_three_player_openloop_lq_problem(T, Δt, x0; verbose)
 
 	primal_dimension_per_player = problem_dims.primal_dimension_per_player
 	state_dimension = problem_dims.state_dimension
@@ -663,6 +666,57 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 		end
 		Js[2] = J₂_quartic
 	end
+
+	# maintain distance between x and y of r
+	stay_close_incentive(x, y; r=1) = norm(x - y)
+	go_to_goal(x; g) = norm(x - g)^2
+
+	# Pursuer
+	Js[1] = (z₁, z₂, z₃, θ) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+
+		# sum(sum((xs³ - xs¹)).^2) 
+		# Main.@infiltrate
+		2sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) - sum(sum((xs²[t] - xs¹[t]).^2 for t in 1:T)) + 1.25*sum(sum(u .^ 2) for u in us¹)
+		# sum(stay_close_incentive(xs³[t], xs¹[t]) for t in 1:T) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	end
+
+	# Protector
+	Js[2] = (z₁, z₂, z₃, θ) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		# Main.@infiltrate
+		0.5sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) 
+		-sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) + 0.25*sum(sum(u .^ 2) for u in us²) 
+		#  + repulse_incentive.(xs³, xs¹)      # repulse from pursuer
+			# + 0.05*sum(sum(u .^ 2) for u in us²) # control cost
+	end
+
+	# VIP
+	x_goal = [0.0; 0.0]
+	Js[3] = (z₁, z₂, z₃, θ) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		out = sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) 
+		out += sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
+			# + sum(stay_close_incentive.(xs³, xs²)) # stay close to protector
+			# + 0.05*sum(sum(u .^ 2) for u in us³)   # control cost
+	end
+
+
 
 	# Print dimension information.
 	@info "Problem dimensions:\n" *
