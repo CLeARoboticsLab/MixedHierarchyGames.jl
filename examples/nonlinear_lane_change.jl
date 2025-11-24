@@ -27,7 +27,7 @@ function make_unicycle_traj(
     Δt::Real;
     R::Real = 6.0,
     split::Real = 0.5,
-    x0::AbstractVector{<:Real} = [-R; 0.0; π/2; 1.523],  # default to your x0_3
+    x0::AbstractVector{<:Real} = [-R; 0.0; π/2; 1.523],  
 )
     @assert Δt > 0 "Δt must be positive"
     @assert T ≥ 2 "Horizon T must be at least 2"
@@ -120,8 +120,6 @@ z0_guess_1_2 = zeros(6*(T+1) * 2) # for players 1 and 2
 x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split=0.5, x0 = x0[3])
 z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T]...)
 z0_guess = vcat(z0_guess_1_2, z0_guess_3)
-
-Main.@infiltrate
 
 ###############################################################
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)

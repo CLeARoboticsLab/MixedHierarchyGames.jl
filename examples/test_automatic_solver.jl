@@ -874,15 +874,17 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
-		tracking = 0.5*sum((xs¹[end] .- xs²[end]) .^ 2)
-		control = 0.05*sum(sum(u .^ 2) for u in us¹)
-		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
+		tracking = 0.5*sum((xs¹[end][1:2] .- xs²[end][1:2]) .^ 2) # track only the final position of the leader
+		control = sum(sum(u .^ 2) for u in us¹)
+		collision = smooth_collision_all(xs¹, xs², xs³)
 		velocity = sum((x¹[4] - 2.0)^2 for x¹ in xs¹) # penalize high speeds
+		y_deviation = sum((x¹[2]-R)^2 for x¹ in xs¹) # penalize y deviation from R
+		zero_heading = sum((x¹[3])^2 for x¹ in xs¹) # penalize heading away from 0
 
-		tracking + control + collision + velocity
+		tracking + control + collision + velocity + y_deviation + zero_heading
 	end
 
-	# Player 2's objective function: P2 wants P1 and P3 to get to the goal
+	# Player 2's objective function: 
 	function J₂(z₁, z₂, z₃, θ)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
@@ -891,14 +893,23 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 
-		ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
-		control = 0.05*sum(sum(u .^ 2) for u in us²)
-		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
+		# ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
+		control = sum(sum(u .^ 2) for u in us²)
+		collision = smooth_collision_all(xs¹, xs², xs³)
 		velocity = sum((x²[4] - 2.0)^2 for x² in xs²) # penalize high speeds
+		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
+		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
+
+		# Commands to the followers (Solver doesn't like this approach)
+		y_deviation_P1 = sum((x¹[2]-R)^2 for x¹ in xs¹) # directs the follower P1 to go straight
+		zero_heading_P1 = sum((x¹[3])^2 for x¹ in xs¹)
+		y_deviation_P3 = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T]) # directs the follower P3 to go straight
+		zero_heading_P3 = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
+
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		ordering + control + collision + velocity
+		control + collision + y_deviation + zero_heading
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
@@ -910,11 +921,14 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
 
-		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2)
-		control = 0.05*sum(sum(u³ .^ 2) for u³ in us³)
-		collision = smooth_collision_all(xs¹[1:(T-2)], xs²[1:(T-2)], xs³[1:(T-2)])
+		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) # track only the final position of the leader
+		control = sum(sum(u³ .^ 2) for u³ in us³)
+		collision = smooth_collision_all(xs¹, xs², xs³)
+		velocity = sum((x³[4] - 2.0)^2 for x³ in xs³) # penalize high speeds
+		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T]) 
+		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		tracking + control + collision
+		tracking + control + collision + velocity + y_deviation + zero_heading
 	end
 
 	Js = Dict{Int, Any}(
@@ -1045,7 +1059,12 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 
 	# Plot both trajectories and pairwise distances in a single figure
-	plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
+	#Offset player 1's y-position for better visualization
+	# for k in 1:T
+	# 	xs1[k][2] += 2.0
+	# end
+	# xs1[end][2] += 2.0 
+	plot_trajectories_and_distances(xs1, xs2, xs3, R, T, Δt, verbose)
 	# plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
 	# plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose)
 

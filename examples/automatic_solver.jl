@@ -28,7 +28,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 	graph (SimpleDiGraph) : The information structure of the game at each stage, defined as a directed graph.
 	primal_dimension_per_player (Vector{Int}) : The dimension of each player's decision variable.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
-						    player's decision variable zᵢ.
+							player's decision variable zᵢ.
 	backend (SymbolicTracingUtils.Backend) : The symbolic backend to use (default: SymbolicsBackend()).
 	verbose (Bool) : Whether to print verbose output (default: false).
 
@@ -131,7 +131,7 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 	Js (Dict{Int, Function}) : A dictionary mapping player indices to their objective functions 
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
-						    player's decision variable zᵢ.
+							player's decision variable zᵢ.
 	parameter_value (Float64) : The value to assign to the parameter θ in the problem (default: 1e-5).
 	verbose (Bool) : Whether to print verbose output (default: false).
 
@@ -267,8 +267,8 @@ function main(verbose = false)
 
 	# Set up the equality constraints for each player.
 	ics = [[0.0; 2.0],
-	       [2.0; 4.0],
-		   [6.0; 8.0]] # initial conditions for each player
+		[2.0; 4.0],
+		[6.0; 8.0]] # initial conditions for each player
 
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
@@ -276,10 +276,15 @@ function main(verbose = false)
 		return x1 - ics[i]
 	end
 
-	dynamics_constraint(zᵢ) = mapreduce(vcat, 1:T) do t dynamics(zᵢ, t) end
+	dynamics_constraint(zᵢ) =
+		mapreduce(vcat, 1:T) do t
+			dynamics(zᵢ, t)
+		end
 
 	# each player has the same dynamics constraint
-	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
+	gs = [function (zᵢ)
+		vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ))
+	end for i in 1:N]
 
 
 	### Solve the LQ game using the automatic solver. ###
@@ -333,8 +338,9 @@ function main(verbose = false)
 	return z_sol, status, info, πs, all_variables
 end
 
-function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing,AbstractString} = nothing)
-	# Plot the trajectories of each player.
+function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
+	show::Bool = false,
+	savepath::Union{Nothing, AbstractString} = nothing)
 	# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
 	state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
 
@@ -342,36 +348,86 @@ function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false; show::
 	X2 = state_matrix(xs2)
 	X3 = state_matrix(xs3)
 
-	# Plot 2D paths
-	plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
+	# Base plot
+	plt = plot(; xlabel = "x₁", ylabel = "x₂",
+		title = "Player Trajectories (T=$(T), Δt=$(Δt))",
 		legend = :bottomright, aspect_ratio = :equal, grid = true)
 
-	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 3, label = "P1")
-	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2")
-	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3")
+	# ------------------------------------------------------------------
+	# Quarter circular track: from (-R, 0) to (0, R), upper-left quadrant
+	# Parameterization: center at (0,0), radius R, θ from π → π/2
+	θ = range(π, π/2; length = 300)
 
-	# Mark start (t=0) and end (t=T) points
-	scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
-		markershape = :star5, ms = 8, label = "start (t=0)")
-	scatter!(plt, [X1[1, end], X2[1, end], X3[1, end]], [X1[2, end], X2[2, end], X3[2, end]];
-		markershape = :hexagon, ms = 8, label = "end (t=$T)")
+	r_main  = R
+	r_inner = R - 0.5   # padded inward (starts at (-R + 0.5, 0))
+	r_outer = R + 0.5   # padded outward (starts at (-R - 0.5, 0))
+
+	x_main = r_main .* cos.(θ)
+	y_main = r_main .* sin.(θ)
+
+	x_inner = r_inner .* cos.(θ)
+	y_inner = r_inner .* sin.(θ)
+
+	x_outer = r_outer .* cos.(θ)
+	y_outer = r_outer .* sin.(θ)
+
+	# Dotted central quarter-circle: (-R, 0) → (0, R)
+	plot!(plt, x_main, y_main;
+		lw = 1.0, linestyle = :dot, label = "", color = :black)
+
+	# Two padded quarter curves
+	plot!(plt, x_inner, y_inner; lw = 1.0, linestyle = :solid, label = "", color = :black)
+	plot!(plt, x_outer, y_outer; lw = 1.0, linestyle = :solid, label = "", color = :black)
+
+	# Horizontal highway track: y = R ± 0.5, from x = -12 to x = 4
+	hline_upper = R + 0.5
+	hline_lower = R - 0.5
+	plot!(plt, [-12, 4], [hline_upper, hline_upper]; lw = 1.0, linestyle = :solid, label = "", color = :black)
+	plot!(plt, [-12, 4], [hline_lower, hline_lower]; lw = 1.0, linestyle = :solid, label = "", color = :black)
+	# ------------------------------------------------------------------
+
+	# Player trajectories
+	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 4, label = "P1", color = :red)
+	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2", color = :green)
+	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3", color = :blue)
+
+	# Start and end points
+	scatter!(plt,
+		[X1[1, 1]], [X1[2, 1]];
+		markershape = :star5, ms = 8, label = "P1 start", color = :red)
+
+	scatter!(plt,
+		[X2[1, 1]], [X2[2, 1]];
+		markershape = :star5, ms = 8, label = "P2 start", color = :green)
+
+	scatter!(plt,
+		[X3[1, 1]], [X3[2, 1]];
+		markershape = :star5, ms = 8, label = "P3 start", color = :blue)
+
+	scatter!(plt,
+		[X1[1, end]], [X1[2, end]];
+		markershape = :hexagon, ms = 8, label = "P1 end", color = :red)
+
+	scatter!(plt,
+		[X2[1, end]], [X2[2, end]];
+		markershape = :hexagon, ms = 8, label = "P2 end", color = :green)
+	scatter!(plt,
+		[X3[1, end]], [X3[2, end]];
+		markershape = :hexagon, ms = 8, label = "P3 end", color = :blue)
 
 
-	# Origin
-	scatter!(plt, [0.0], [0.0]; marker = :cross, ms = 8, color = :black, label = "Origin (0,0)")
-
-    if show
-        display(plt)
-    end
-    if savepath !== nothing
-        savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
-        savefig(plt, savefile)
-        verbose && println("Saved trajectories plot to: " * savefile)
-    end
-    return plt
+	if show
+		display(plt)
+	end
+	if savepath !== nothing
+		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
+		savefig(plt, savefile)
+		verbose && println("Saved trajectories plot to: " * savefile)
+	end
+	return plt
 end
 
-function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing,AbstractString} = nothing)
+function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing, AbstractString} = nothing)
 	to_matrix(xs_vec) = hcat(xs_vec...)
 	X1 = to_matrix(xs1)[1:2, :]
 	X2 = to_matrix(xs2)[1:2, :]
@@ -382,42 +438,42 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; 
 	d23 = [norm(X2[:, t] - X3[:, t]) for t in 1:size(X1, 2)]
 	time = collect(0:T) .* Δt
 
-    plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
-        label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
-        title = "Pairwise player distances", grid = true)
-    plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
-    plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
+	plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
+		label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
+		title = "Pairwise player distances", grid = true)
+	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
+	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
 
-    if verbose
-        println("Minimum distances: P1-P2=$(minimum(d12)), P1-P3=$(minimum(d13)), P2-P3=$(minimum(d23))")
-    end
-    if show
-        display(plt)
-    end
-    if savepath !== nothing
-        savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
-        savefig(plt, savefile)
-        verbose && println("Saved distances plot to: " * savefile)
-    end
-    return plt
+	if verbose
+		println("Minimum distances: P1-P2=$(minimum(d12)), P1-P3=$(minimum(d13)), P2-P3=$(minimum(d23))")
+	end
+	if show
+		display(plt)
+	end
+	if savepath !== nothing
+		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
+		savefig(plt, savefile)
+		verbose && println("Saved distances plot to: " * savefile)
+	end
+	return plt
 end
 
 # Convenience: show both player trajectories and pairwise distances side-by-side
 function plot_trajectories_and_distances(
-    xs1, xs2, xs3, T, Δt, verbose = false;
-    layout = (1, 2), size = (1100, 550),
-    savepath_traj::Union{Nothing,AbstractString} = "player_trajectories",
-    savepath_dist::Union{Nothing,AbstractString} = "pairwise_distances",
-    savepath_combined::Union{Nothing,AbstractString} = "combined_plots",
+	xs1, xs2, xs3, R, T, Δt, verbose = false;
+	layout = (1, 2), size = (1100, 550),
+	savepath_traj::Union{Nothing, AbstractString} = "player_trajectories",
+	savepath_dist::Union{Nothing, AbstractString} = "pairwise_distances",
+	savepath_combined::Union{Nothing, AbstractString} = "combined_plots",
 )
-    plt1 = plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_traj)
-    plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_dist)
-    combined = plot(plt1, plt2; layout = layout, size = size)
-    display(combined)
-    if savepath_combined !== nothing
-        savefile = endswith(lowercase(String(savepath_combined)), ".pdf") ? String(savepath_combined) : String(savepath_combined) * ".pdf"
-        savefig(combined, savefile)
-        verbose && println("Saved combined plot to: " * savefile)
-    end
-    return plt1, plt2, combined
+	plt1 = plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose; show = false, savepath = savepath_traj)
+	plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_dist)
+	combined = plot(plt1, plt2; layout = layout, size = size)
+	display(combined)
+	if savepath_combined !== nothing
+		savefile = endswith(lowercase(String(savepath_combined)), ".pdf") ? String(savepath_combined) : String(savepath_combined) * ".pdf"
+		savefig(combined, savefile)
+		verbose && println("Saved combined plot to: " * savefile)
+	end
+	return plt1, plt2, combined
 end
