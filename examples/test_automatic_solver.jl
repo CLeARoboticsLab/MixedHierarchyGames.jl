@@ -122,6 +122,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
 		# augmented_variables = all_augmented_variables[ii]
+		Main.@infiltrate
 		if has_leader(graph, ii)
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
@@ -132,6 +133,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
+					Main.@infiltrate
 					M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
 					N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
 				end
@@ -827,14 +829,15 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	end
 
 	# Number of players in the game
-	N = 3
+	N = 4
 
 	# Set up the information structure.
 	# This defines a stackelberg chain with three players, where P2 is the leader of P1 and P3, which
 	# are Nash with each other.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P2 -> P1
-	add_edge!(G, 2, 3); # P2 -> P3
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
+	add_edge!(G, 1, 3); # P1 -> P3
 
 
 	H = 1
@@ -866,67 +869,98 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	println("Total primal dimension: $total_dimension")
 
 	#### Player Objectives ####
-	# Player 1's objective function: P1 wants to get close to P2's final position 
-	function J₁(z₁, z₂, z₃, θ)
+	# Player 1's objective function: 
+	function J₁(z₁, z₂, z₃, z₄, θ)
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
-		tracking = 0.5*sum((xs¹[end][1:2] .- xs²[end][1:2]) .^ 2) # track only the final position of the leader
+		(; xs, us) = unflatten_trajectory(z₄, state_dimension, control_dimension)
+		xs⁴, us⁴ = xs, us
+
+		# ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
 		control = sum(sum(u .^ 2) for u in us¹)
-		collision = smooth_collision_all(xs¹, xs², xs³)
+		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x¹[4] - 2.0)^2 for x¹ in xs¹) # penalize high speeds
 		y_deviation = sum((x¹[2]-R)^2 for x¹ in xs¹) # penalize y deviation from R
 		zero_heading = sum((x¹[3])^2 for x¹ in xs¹) # penalize heading away from 0
 
-		tracking + control + collision + velocity + y_deviation + zero_heading
-	end
-
-	# Player 2's objective function: 
-	function J₂(z₁, z₂, z₃, θ)
-		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-		xs³, us³ = xs, us
-		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
-		xs², us² = xs, us
-		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
-		xs¹, us¹ = xs, us
-
-		# ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
-		control = sum(sum(u .^ 2) for u in us²)
-		collision = smooth_collision_all(xs¹, xs², xs³)
-		velocity = sum((x²[4] - 2.0)^2 for x² in xs²) # penalize high speeds
-		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
-		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
-
 		# Commands to the followers (Solver doesn't like this approach)
-		y_deviation_P1 = sum((x¹[2]-R)^2 for x¹ in xs¹) # directs the follower P1 to go straight
-		zero_heading_P1 = sum((x¹[3])^2 for x¹ in xs¹)
+		y_deviation_P2 = sum((x²[2]-R)^2 for x² in xs²) # directs the follower P1 to go straight
+		zero_heading_P2 = sum((x²[3])^2 for x² in xs²)
 		y_deviation_P3 = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T]) # directs the follower P3 to go straight
 		zero_heading_P3 = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
+		y_deviation_P4 = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # directs the follower P4 to go straight
+		zero_heading_P4 = sum((x⁴[3])^2 for x⁴ in xs⁴)
 
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + y_deviation + zero_heading
+		control + collision + y_deviation + zero_heading + velocity +
+		y_deviation_P2 + zero_heading_P2 + y_deviation_P3 + zero_heading_P3 + y_deviation_P4 + zero_heading_P4
+	end
+
+	# Player 2's objective function: 
+	function J₂(z₁, z₂, z₃, z₄, θ)
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		(; xs, us) = unflatten_trajectory(z₄, state_dimension, control_dimension)
+		xs⁴, us⁴ = xs, us
+
+		tracking = 0.5*sum((xs¹[end][1:2] .- xs²[end][1:2]) .^ 2) # track only the final position of the leader
+		control = sum(sum(u .^ 2) for u in us²)
+		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+		velocity = sum((x²[4] - 2.0)^2 for x² in xs²) # penalize high speeds
+		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
+		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
+
+		tracking + control + collision + velocity + y_deviation + zero_heading
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
-	function J₃(z₁, z₂, z₃, θ)
+	function J₃(z₁, z₂, z₃, z₄, θ)
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		(; xs, us) = unflatten_trajectory(z₄, state_dimension, control_dimension)
+		xs⁴, us⁴ = xs, us
 
-		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs²[end][1:2]) .^ 2) # track only the final position of the leader
+		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
 		control = sum(sum(u³ .^ 2) for u³ in us³)
-		collision = smooth_collision_all(xs¹, xs², xs³)
+		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x³[4] - 2.0)^2 for x³ in xs³) # penalize high speeds
-		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T]) 
+		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
+
+		tracking + control + collision + velocity + y_deviation + zero_heading
+	end
+
+	# Player 4's objective function: 
+	function J₄(z₁, z₂, z₃, z₄, θ)
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		(; xs, us) = unflatten_trajectory(z₄, state_dimension, control_dimension)
+		xs⁴, us⁴ = xs, us
+
+		tracking = 0.5*sum((xs⁴[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
+		control = sum(sum(u .^ 2) for u in us⁴)
+		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+		velocity = sum((x⁴[4] - 2.0)^2 for x⁴ in xs⁴) # penalize high speeds
+		y_deviation = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # penalize y deviation from R
+		zero_heading = sum((x⁴[3])^2 for x⁴ in xs⁴) # penalize heading away from 0
 
 		tracking + control + collision + velocity + y_deviation + zero_heading
 	end
@@ -935,6 +969,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		1 => J₁,
 		2 => J₂,
 		3 => J₃,
+		4 => J₄,
 	)
 
 
@@ -1043,13 +1078,15 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	z₁ = zs[1]
 	z₂ = zs[2]
 	z₃ = zs[3]
+	z₄ = zs[4]
 	z₁_sol = z_sol_nonlq[1:length(z₁)]
 	z₂_sol = z_sol_nonlq[(length(z₁)+1):(length(z₁)+length(z₂))]
 	z₃_sol = z_sol_nonlq[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
+	z₄_sol = z_sol_nonlq[(length(z₁)+length(z₂)+length(z₃)+1):(length(z₁)+length(z₂)+length(z₃)+length(z₄))]
 
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
-	z_sols = [z₁_sol, z₂_sol, z₃_sol]
+	z_sols = [z₁_sol, z₂_sol, z₃_sol, z₄_sol]
 	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
@@ -1057,6 +1094,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
 	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
+	xs4, _ = unflatten_trajectory(z₄_sol, state_dimension, control_dimension)
 
 	# Plot both trajectories and pairwise distances in a single figure
 	#Offset player 1's y-position for better visualization
@@ -1064,7 +1102,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# 	xs1[k][2] += 2.0
 	# end
 	# xs1[end][2] += 2.0 
-	plot_trajectories_and_distances(xs1, xs2, xs3, R, T, Δt, verbose)
+	plot_trajectories_and_distances(xs1, xs2, xs3, xs4, R, T, Δt, verbose)
 	# plot_trajectories_and_distances(xs1, xs2, xs3, T, Δt, verbose)
 	# plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose)
 
@@ -1076,22 +1114,29 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	push!(curr_control, us[1]) # current control of player 1
 	if verbose
 		println("P1 (x,u) solution : ($xs, $us)")
-		println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
+		println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, z₄_sol, 0))")
 	end
 	(; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 2
 	push!(curr_control, us[1]) # current control of player 2
 	if verbose
 		println("P2 (x,u) solution : ($xs, $us)")
-		println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
+		println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, z₄_sol, 0))")
 	end
 	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
 	push!(next_state, xs[2]) # next state of player 3
 	push!(curr_control, us[1]) # current control of player 3
 	if verbose
 		println("P3 (x,u) solution : ($xs, $us)")
-		println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+		println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, z₄_sol, 0))")
 	end
+	(; xs, us) = unflatten_trajectory(z₄_sol, state_dimension, control_dimension)
+	push!(next_state, xs[2]) # next state of player 4
+	push!(curr_control, us[1]) # current control of player 4
+	if verbose
+		println("P4 (x,u) solution : ($xs, $us)")
+		println("P4 Objective: $(Js[4](z₁_sol, z₂_sol, z₃_sol, z₄_sol, 0))")
+	end	
 
 	return next_state, curr_control
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
@@ -1126,8 +1171,19 @@ function smooth_collision(xsA, xsB; d_safe = 2.0, α = 20.0, w = 1.0)
 	return cost
 end
 
-function smooth_collision_all(xs1, xs2, xs3; d_safe = 2.0, α = 20.0, w = 1.0)
-	return 0.1smooth_collision(xs1, xs2; d_safe, α, w) +
-		   0.1smooth_collision(xs1, xs3; d_safe, α, w) +
-		   0.1smooth_collision(xs2, xs3; d_safe, α, w)
+function smooth_collision_all(xs_all...; d_safe = 2.0, α = 20.0, w = 1.0)
+	N = length(xs_all)
+	@assert N >= 2 "smooth_collision_all needs at least two players."
+
+	total = 0.0
+
+	# Sum over all unordered pairs (i < j)
+	for i in 1:(N-1)
+		for j in (i+1):N
+			# accumulate cost
+			total += 0.1smooth_collision(xs_all[i], xs_all[j]; d_safe, α, w)
+		end
+	end
+
+	return total
 end

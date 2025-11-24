@@ -338,7 +338,7 @@ function main(verbose = false)
 	return z_sol, status, info, πs, all_variables
 end
 
-function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
+function plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose = false;
 	show::Bool = false,
 	savepath::Union{Nothing, AbstractString} = nothing)
 	# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
@@ -347,6 +347,7 @@ function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
 	X1 = state_matrix(xs1)  # 2 × (T+1)
 	X2 = state_matrix(xs2)
 	X3 = state_matrix(xs3)
+	X4 = state_matrix(xs4)
 
 	# Base plot
 	plt = plot(; xlabel = "x₁", ylabel = "x₂",
@@ -390,6 +391,7 @@ function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
 	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 4, label = "P1", color = :red)
 	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2", color = :green)
 	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3", color = :blue)
+	plot!(plt, X4[1, :], X4[2, :]; lw = 2, marker = :star, ms = 4, label = "P4", color = :orange)
 
 	# Start and end points
 	scatter!(plt,
@@ -405,6 +407,10 @@ function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
 		markershape = :star5, ms = 8, label = "P3 start", color = :blue)
 
 	scatter!(plt,
+		[X4[1, 1]], [X4[2, 1]];
+		markershape = :star5, ms = 8, label = "P4 start", color = :orange)
+
+	scatter!(plt,
 		[X1[1, end]], [X1[2, end]];
 		markershape = :hexagon, ms = 8, label = "P1 end", color = :red)
 
@@ -414,6 +420,10 @@ function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
 	scatter!(plt,
 		[X3[1, end]], [X3[2, end]];
 		markershape = :hexagon, ms = 8, label = "P3 end", color = :blue)
+
+	scatter!(plt,
+		[X4[1, end]], [X4[2, end]];
+		markershape = :hexagon, ms = 8, label = "P4 end", color = :orange)
 
 
 	if show
@@ -427,15 +437,19 @@ function plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose = false;
 	return plt
 end
 
-function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing, AbstractString} = nothing)
+function plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose = false; show::Bool = true, savepath::Union{Nothing, AbstractString} = nothing)
 	to_matrix(xs_vec) = hcat(xs_vec...)
 	X1 = to_matrix(xs1)[1:2, :]
 	X2 = to_matrix(xs2)[1:2, :]
 	X3 = to_matrix(xs3)[1:2, :]
+	X4 = to_matrix(xs4)[1:2, :]
 
 	d12 = [norm(X1[:, t] - X2[:, t]) for t in 1:size(X1, 2)]
 	d13 = [norm(X1[:, t] - X3[:, t]) for t in 1:size(X1, 2)]
 	d23 = [norm(X2[:, t] - X3[:, t]) for t in 1:size(X1, 2)]
+	d14 = [norm(X1[:, t] - X4[:, t]) for t in 1:size(X1, 2)]
+	d24 = [norm(X2[:, t] - X4[:, t]) for t in 1:size(X1, 2)]
+	d34 = [norm(X3[:, t] - X4[:, t]) for t in 1:size(X1, 2)]
 	time = collect(0:T) .* Δt
 
 	plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
@@ -443,13 +457,10 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose = false; 
 		title = "Pairwise player distances", grid = true)
 	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
 	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
+	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "‖P1 - P4‖₂")
+	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "‖P2 - P4‖₂")
+	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "‖P3 - P4‖₂")
 
-	if verbose
-		println("Minimum distances: P1-P2=$(minimum(d12)), P1-P3=$(minimum(d13)), P2-P3=$(minimum(d23))")
-	end
-	if show
-		display(plt)
-	end
 	if savepath !== nothing
 		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
 		savefig(plt, savefile)
@@ -460,14 +471,14 @@ end
 
 # Convenience: show both player trajectories and pairwise distances side-by-side
 function plot_trajectories_and_distances(
-	xs1, xs2, xs3, R, T, Δt, verbose = false;
+	xs1, xs2, xs3, xs4, R, T, Δt, verbose = false;
 	layout = (1, 2), size = (1100, 550),
 	savepath_traj::Union{Nothing, AbstractString} = "player_trajectories",
 	savepath_dist::Union{Nothing, AbstractString} = "pairwise_distances",
 	savepath_combined::Union{Nothing, AbstractString} = "combined_plots",
 )
-	plt1 = plot_player_trajectories(xs1, xs2, xs3, R, T, Δt, verbose; show = false, savepath = savepath_traj)
-	plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, T, Δt, verbose; show = false, savepath = savepath_dist)
+	plt1 = plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose; show = false, savepath = savepath_traj)
+	plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose; show = false, savepath = savepath_dist)
 	combined = plot(plt1, plt2; layout = layout, size = size)
 	display(combined)
 	if savepath_combined !== nothing

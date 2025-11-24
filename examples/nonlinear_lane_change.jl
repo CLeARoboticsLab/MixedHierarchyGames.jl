@@ -13,13 +13,14 @@ R = 6.0  # turning radius
 # unicycle model initial conditions
 x_goal = [1.5R; R; 0.0; 0.0]  # target position
 x0 = [
-	[-2.0R; R; 0.0; 2.0], #[px, py, ψ, v]
-	[-1.5R; R; 0.0; 2.0],
-	[-R; 0.0; pi/2; 1.523],
+	[-1.5R; R; 0.0; 2.0], # P1 (LEADER)
+	[-2.0R; R; 0.0; 2.0], # P2 (FOLLOWER)
+	[-R; 0.0; pi/2; 1.523], # P3 (LANE MERGER)
+    [-2.5R; R; 0.0; 2.0], # P4 (EXTRA PLAYER BEHIND P2)
 ]
 
 R = 6.0  # turning radius
-T = 10 # 10, 15
+T = 4 # 10, 15
 Δt = 0.5 # 0.5, 0.4
 
 function make_unicycle_traj(
@@ -119,7 +120,8 @@ end
 z0_guess_1_2 = zeros(6*(T+1) * 2) # for players 1 and 2
 x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split=0.5, x0 = x0[3])
 z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T]...)
-z0_guess = vcat(z0_guess_1_2, z0_guess_3)
+z0_guess_4 = zeros(6*(T+1)) # for player 4
+z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
 
 ###############################################################
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
