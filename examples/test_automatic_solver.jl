@@ -122,7 +122,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
 		# augmented_variables = all_augmented_variables[ii]
-		Main.@infiltrate
+		# Main.@infiltrate
 		if has_leader(graph, ii)
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
@@ -133,7 +133,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
-					Main.@infiltrate
+					# Main.@infiltrate
 					M_evals[ii] = reshape(M_fns[ii](augmented_z_est), π_sizes[ii], length(ws[ii]))
 					N_evals[ii] = reshape(N_fns[ii](augmented_z_est), π_sizes[ii], length(ys[ii]))
 				end
@@ -835,6 +835,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# This defines a stackelberg chain with three players, where P2 is the leader of P1 and P3, which
 	# are Nash with each other.
 	G = SimpleDiGraph(N);
+	
+	# Comment below for all-Nash baseline
 	add_edge!(G, 1, 2); # P1 -> P2
 	add_edge!(G, 2, 4); # P2 -> P4
 	add_edge!(G, 1, 3); # P1 -> P3
@@ -887,7 +889,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x¹[2]-R)^2 for x¹ in xs¹) # penalize y deviation from R
 		zero_heading = sum((x¹[3])^2 for x¹ in xs¹) # penalize heading away from 0
 
-		# Commands to the followers (Solver doesn't like this approach)
+		# Commands to the followers 
 		y_deviation_P2 = sum((x²[2]-R)^2 for x² in xs²) # directs the follower P1 to go straight
 		zero_heading_P2 = sum((x²[3])^2 for x² in xs²)
 		y_deviation_P3 = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T]) # directs the follower P3 to go straight
@@ -898,7 +900,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + y_deviation + zero_heading + velocity +
+		control + 2collision + y_deviation + zero_heading + velocity +
 		y_deviation_P2 + zero_heading_P2 + y_deviation_P3 + zero_heading_P3 + y_deviation_P4 + zero_heading_P4
 	end
 
@@ -920,7 +922,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
 		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
 
-		tracking + control + collision + velocity + y_deviation + zero_heading
+		tracking + control + 2collision + velocity + y_deviation + zero_heading
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
@@ -941,7 +943,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		tracking + control + collision + velocity + y_deviation + zero_heading
+		tracking + control + 2collision + velocity + y_deviation + zero_heading
 	end
 
 	# Player 4's objective function: 
@@ -962,7 +964,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # penalize y deviation from R
 		zero_heading = sum((x⁴[3])^2 for x⁴ in xs⁴) # penalize heading away from 0
 
-		tracking + control + collision + velocity + y_deviation + zero_heading
+		tracking + control + 2collision + velocity + y_deviation + zero_heading
 	end
 
 	Js = Dict{Int, Any}(

@@ -144,13 +144,16 @@ function construct_augmented_variables(ii, all_variables, K_syms, G)
 		return all_variables
 	end
 
+	# ii == 2 && Main.@infiltrate
+
 	# If ii is not a leaf, we need to include the symbolic M and N matrices.
 	augmented_variables = copy(all_variables)
 	
 	for jj in BFSIterator(G, ii)
-		if has_leader(G, jj)
+		if ii == jj continue end
+		if has_leader(G, jj) # TODO: Is this even necessary? Can we remove this check? HK thinks yes.
 			# Vectorize them for storage.
-			vcat(augmented_variables, reshape(K_syms[jj], :))
+			augmented_variables = vcat(augmented_variables, reshape(K_syms[jj], :))
 		end
 	end
 
@@ -254,7 +257,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
 		πs[ii] = πᵢ
 
-		ii == 4 && Main.@infiltrate
+		# ii == 2 && Main.@infiltrate
 
 		# Finally, we compute symbolic versions of M and N that only depend on the symbolic versions of lower-level algorithms.
 		# This allows us to evaluate M and N at any z_est without needing to recompute the entire symbolic gradient.
@@ -269,7 +272,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 			end
 
 			@timeit to "[KKT Precompute] Compute M, N functions for player $ii" begin
-				ii == 4 && Main.@infiltrate
+				# ii == 2 && Main.@infiltrate
 				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, G)
 				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
 				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
@@ -282,8 +285,6 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 
 	# Identify all augmented variables.
 	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
-
-	Main.@infiltrate
 
 	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
 end
