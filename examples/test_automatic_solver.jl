@@ -837,9 +837,10 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	G = SimpleDiGraph(N);
 	
 	# Comment below for all-Nash baseline
-	add_edge!(G, 1, 2); # P1 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
-	add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 1, 2); # P1 -> P2
+	# # add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 1, 4); # P1 -> P4
 
 
 	H = 1
