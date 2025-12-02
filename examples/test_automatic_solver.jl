@@ -645,7 +645,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 
 	# Set up the problem.
 	T = 10
-	Δt = 0.5
+	Δt = 0.1
 	N, G, H, problem_dims, Js, gs = get_three_player_openloop_lq_problem(T, Δt, x0; verbose)
 
 	primal_dimension_per_player = problem_dims.primal_dimension_per_player
@@ -710,7 +710,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
-		out = sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) 
+		out = 10*sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) 
 		out += sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
 			# + sum(stay_close_incentive.(xs³, xs²)) # stay close to protector
 			# + 0.05*sum(sum(u .^ 2) for u in us³)   # control cost

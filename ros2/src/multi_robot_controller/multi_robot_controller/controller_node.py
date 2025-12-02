@@ -37,7 +37,7 @@ def julia_init():
 
     # Build preoptimization once
     time_middle = time.perf_counter()
-    pre = Main.HardwareFunctions.build_lq_preoptimization(10, 0.5, silence_logs=True)
+    pre = Main.HardwareFunctions.build_lq_preoptimization(10, 0.1, silence_logs=True)
     time_end = time.perf_counter()
     print(f"Time taken: {time_end - time_middle} seconds")
     print(f"Preoptimization built successfully")
@@ -49,7 +49,8 @@ def goal_reached(posittion, goal_position, threshold=0.3):
     Check if the robot has reached the goal position within a threshold.
     """
     distance = math.sqrt((posittion[0] - goal_position[0]) ** 2 + (posittion[1] - goal_position[1]) ** 2)
-    return distance < threshold
+    # return distance < threshold
+    return False
 
 
 class MultiRobotController(Node):
@@ -75,7 +76,7 @@ class MultiRobotController(Node):
         self.latest_odom_03 = None  # Placeholder for third robot if needed
 
         # Timer to run planner at 10 Hz
-        self.timer = self.create_timer(0.1, self.run_planner_step)
+        self.timer = self.create_timer(0.1, self.run_planner_step) # 0.5
 
         self.pre = pre
         self.z_guess = None  # optional warm-start guess for internal solver variables
@@ -123,7 +124,6 @@ class MultiRobotController(Node):
         if self.latest_odom_01 is None or self.latest_odom_02 is None:
             # only for placeholder
             # time_start = time.perf_counter()
-            # result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]])
             # time_end = time.perf_counter()
             # print(f"Time taken: {time_end - time_start} seconds")
             self.get_logger().warn("Waiting for odometry...")
@@ -143,18 +143,27 @@ class MultiRobotController(Node):
             julia_state2 = Main.eval(f"[{state2[0]}; {state2[1]}]") 
             julia_state3 = Main.eval(f"[{state3[0]}; {state3[1]}]")
             initial_state = [julia_state1, julia_state2, julia_state3]
+            
+            print("initial_state:", initial_state)
+            input("Press Enter to continue...")
 
             # sol = Main.nplayer_navigation(initial_state, guess)
 
             # result = Main.nplayer_hierarchy_navigation(initial_state)
-            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state, self.z_guess, silence_logs=True)
             
-            # guess should be updated
+            self.get_logger().warn("Running hardware_nplayer_hierarchy_navigation...")
+            # print("self.z_guess:", self.z_guess)
+            # print("self.pre:", self.pre)
+            input("Press Enter to continue...")
+            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state, self.z_guess, silence_logs=False)
 
-            # result is (next_state, curr_control)
-            # next_state: [[x1_next], [x2_next], [x3_next]]  
-            # curr_control: [[u1_curr], [u2_curr], [u3_curr]] where ui_curr = [vx, vy]
-            next_states, curr_controls, z_sol = result
+            print("result:", result)
+            input("Press Enter to continue...")
+
+            # Guess should be updated
+            next_states = result.x_next
+            curr_controls = result.u_curr
+            z_sol = result.z_sol
 
             # Update z_guess for warm-starting next iteration.
             self.z_guess = z_sol
@@ -170,14 +179,17 @@ class MultiRobotController(Node):
             u3 = curr_controls[2]  # [vx3, vy3]
             
             # Convert [vx, vy] to linear velocity and angular velocity
+            # def convert_to_cmd_vel(self, vx, vy, pose, target_pose, current_theta)
             v1, omega1 = self.convert_to_cmd_vel(u1[0], u1[1], [state1[0], state1[1]], next_states[0], state1[2])
             v2, omega2 = self.convert_to_cmd_vel(u2[0], u2[1], [state2[0], state2[1]], next_states[1], state2[2])
             v3, omega3 = self.convert_to_cmd_vel(u3[0], u3[1], [state3[0], state3[1]], next_states[2], state3[2])
 
             # Clip angular velocities for safety
-            omega1 = np.clip(omega1, -0.5, 0.5)
-            omega2 = np.clip(omega2, -0.5, 0.5)
-            omega3 = np.clip(omega3, -0.5, 0.5)
+            omega1 = np.clip(omega1, -0.3, 0.3)
+            omega2 = np.clip(omega2, -0.3, 0.3)
+            omega3 = np.clip(omega3, -0.3, 0.3)
+            
+            self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 
             twist1 = Twist()
             twist1.linear.x = v1
