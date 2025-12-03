@@ -835,13 +835,27 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# This defines a stackelberg chain with three players, where P2 is the leader of P1 and P3, which
 	# are Nash with each other.
 	G = SimpleDiGraph(N);
-	
-	# Comment below for all-Nash baseline
+
+	# 1. Comment all below for all-Nash baseline
+
+	# 2. Shallow-tree
 	# add_edge!(G, 1, 2); # P1 -> P2
-	# # add_edge!(G, 2, 4); # P2 -> P4
 	# add_edge!(G, 1, 3); # P1 -> P3
 	# add_edge!(G, 1, 4); # P1 -> P4
 
+	# 3. mixed A
+	# add_edge!(G, 1, 2); # P1 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+
+	# 4. Stackelberg chain
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 3, 2); # P3 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
+
+	# 5. mixed B
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
 
 	H = 1
 	Hp1 = H+1 # number of planning stages is 1 for OL game.
@@ -901,8 +915,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + y_deviation + zero_heading + velocity + 
-		y_deviation_P2 + zero_heading_P2 + y_deviation_P3 + zero_heading_P3 + y_deviation_P4 + zero_heading_P4
+		control + collision + y_deviation + zero_heading + velocity  
+		# y_deviation_P2 + zero_heading_P2 + y_deviation_P3 + zero_heading_P3 + y_deviation_P4 + zero_heading_P4
 	end
 
 	# Player 2's objective function: 
@@ -1139,7 +1153,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	if verbose
 		println("P4 (x,u) solution : ($xs, $us)")
 		println("P4 Objective: $(Js[4](z₁_sol, z₂_sol, z₃_sol, z₄_sol, 0))")
-	end	
+	end
 
 	return next_state, curr_control
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]

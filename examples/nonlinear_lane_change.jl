@@ -125,4 +125,4 @@ z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
 
 ###############################################################
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
-TestAutomaticSolver.nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 5000)
+TestAutomaticSolver.nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 2000)
