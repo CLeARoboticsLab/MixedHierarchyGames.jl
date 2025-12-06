@@ -849,13 +849,13 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 1, 3); # P1 -> P3
 
 	# 4. Stackelberg chain
-	add_edge!(G, 1, 3); # P1 -> P3
-	add_edge!(G, 3, 2); # P3 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 3, 2); # P3 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
 
 	# 5. mixed B
-	# add_edge!(G, 1, 2); # P1 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
 
 	H = 1
 	Hp1 = H+1 # number of planning stages is 1 for OL game.
@@ -898,9 +898,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		xs⁴, us⁴ = xs, us
 
 		# ordering = sum(0.5*((xs¹[end] .- x_goal) .^ 2 .+ (xs³[end] .- x_goal) .^ 2))
-		control = sum(sum(u .^ 2) for u in us¹)
+		control = 10sum(sum(u .^ 2) for u in us¹)
 		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
-		velocity = sum((x¹[4] - 2.0)^2 for x¹ in xs¹) # penalize high speeds
+		# velocity = sum((x¹[4] - 2.0)^2 for x¹ in xs¹) # penalize high speeds
 		y_deviation = sum((x¹[2]-R)^2 for x¹ in xs¹) # penalize y deviation from R
 		zero_heading = sum((x¹[3])^2 for x¹ in xs¹) # penalize heading away from 0
 
@@ -915,8 +915,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + y_deviation + zero_heading + velocity +
-		y_deviation_P3 + zero_heading_P3
+		control + collision + y_deviation + zero_heading +
+		y_deviation_P2 + zero_heading_P2
 	end
 
 	# Player 2's objective function: 
@@ -937,10 +937,12 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		control = sum(sum(u .^ 2) for u in us²)
 		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x²[4] - 2.0)^2 for x² in xs²) # penalize high speeds
+		# velocity = sum((xs²[t][4] - xs¹[t][4])^2 for t in 1:T) # penalize high speeds relative to leader
 		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
 		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
 
-		tracking + control + collision + velocity + y_deviation + zero_heading + y_deviation_P4 + zero_heading_P4
+		control + collision + y_deviation + zero_heading + velocity +
+		y_deviation_P4 + zero_heading_P4
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
@@ -957,14 +959,14 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation_P2 = sum((x²[2]-R)^2 for x² in xs²) # directs the follower P1 to go straight
 		zero_heading_P2 = sum((x²[3])^2 for x² in xs²)
 
-		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) + 0.5*sum((xs³[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
+		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) #+ 0.5*sum((xs³[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
 		control = sum(sum(u³ .^ 2) for u³ in us³)
 		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x³[4] - 2.0)^2 for x³ in xs³) # penalize high speeds
 		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		tracking + control + collision + velocity + y_deviation + zero_heading + y_deviation_P2 + zero_heading_P2
+		tracking + control + collision + y_deviation + zero_heading + velocity
 	end
 
 	# Player 4's objective function: 
@@ -982,10 +984,11 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		control = sum(sum(u .^ 2) for u in us⁴)
 		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x⁴[4] - 2.0)^2 for x⁴ in xs⁴) # penalize high speeds
+		# velocity = sum((xs⁴[t][4] - xs¹[t][4])^2 for t in 1:T) # penalize high speeds relative to leader
 		y_deviation = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # penalize y deviation from R
 		zero_heading = sum((x⁴[3])^2 for x⁴ in xs⁴) # penalize heading away from 0
 
-		tracking + control + collision + velocity + y_deviation + zero_heading
+		control + collision + y_deviation + zero_heading + velocity
 	end
 
 	Js = Dict{Int, Any}(

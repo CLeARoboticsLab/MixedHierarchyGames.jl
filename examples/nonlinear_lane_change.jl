@@ -13,7 +13,7 @@ R = 6.0  # turning radius
 # unicycle model initial conditions
 x_goal = [1.5R; R; 0.0; 0.0]  # target position
 x0 = [
-	[-1.5R; R; 0.0; 2.0], # P1 (LEADER)
+	[-0.9R; R; 0.0; 2.0], # P1 (LEADER)
 	[-2.0R; R; 0.0; 2.0], # P2 (FOLLOWER)
 	[-R; 0.0; pi/2; 1.523], # P3 (LANE MERGER)
     [-2.5R; R; 0.0; 2.0], # P4 (EXTRA PLAYER BEHIND P2)
