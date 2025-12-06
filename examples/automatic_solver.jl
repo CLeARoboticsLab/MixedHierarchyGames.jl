@@ -18,7 +18,23 @@ include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
 
-function setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend = SymbolicTracingUtils.SymbolicsBackend(), verbose = false)
+function setup_problem_parameter_variables(backend, num_params_per_player; verbose = false)
+	"""
+	Constructs the symbolic parameter variable θ used in the problem, used for initial states for now.
+
+	num_params_per_player (Int) : The number of parameters for each player.
+	"""
+
+	θs = Dict{Int, Any}()
+	for idx in 1:length(num_params_per_player)
+		verbose && @info "Setting up symbolic parameter variable θ with dimension $num_params_per_player[idx]".
+		var_name = make_symbolic_variable(:θ, idx)
+		θs[idx] = SymbolicTracingUtils.make_variables(backend, var_name, num_params_per_player[idx])
+	end
+	return θs
+end
+
+function setup_problem_variables(H, graph, primal_dimension_per_player, gs, num_params; backend = SymbolicTracingUtils.SymbolicsBackend(), verbose = false)
 	"""
 	Constructs the symbolic variables needed for the problem based on the information structure graph.
 
@@ -38,7 +54,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 	zs (Vector{Vector{Num}}) : A vector of each player's decision variable symbols.
 	λs (Vector{Vector{Num}}) : A vector of each player's Lagrange multiplier symbols for their constraints.
 	μs (Dict{Tuple{Int, Int}, Vector{Num}}) : A dictionary of Lagrange multiplier symbols for each leader-follower pair.
-	θ (Num) : The parameter symbol.
+	θ (Num) : The parameter symbol, used for altering the initial state between calls.
 	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
 	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
 	"""
@@ -101,7 +117,10 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 			@debug "ys for P$i" ys=ys[i] len=length(ys[i])
 		end
 	end
-	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+
+	# TODO: Generalize to be the initial state so it can change on the fly.
+	# TODO: Probably separate by player (i.e. make new variable for each player's initial state).
+	θ = SymbolicTracingUtils.make_variables(backend, :θ, num_params)
 
 	# Construct a list of all variables in order and solve.
 	temp = vcat(collect(values(μs))...)
@@ -114,7 +133,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 end
 
 
-function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; parameter_value = 1e-5, verbose = false)
 	"""
 	Solves a linear-quadratic equality-constrained mathematical programming network problem.
 
@@ -146,7 +165,9 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 	N = nv(graph)
 
 	# Construct symbols for each player's decision variables.
-	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+	# TODO: Compute the number of initial states by player.
+	num_params = num_initial_states
+	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs, num_params; verbose)
 
 	πs, _, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
 
@@ -162,7 +183,9 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 end
 
 
-function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
+# function get_three_player_openloop_lq_problem(T=10, Δt=0.5, x0=[ [0.0; 2.0], [2.0; 4.0], [6.0; 8.0] ]; verbose = false)
+# , x0=[ [0.0; 2.0], [2.0; 4.0], [6.0; 8.0] ]
+function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false, backend=SymbolicTracingUtils.SymbolicsBackend())
 	# Number of players in the game
 	N = 3
 
@@ -189,6 +212,9 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
 	aggre_control_dimension = u_dim * N
 	total_dimension = aggre_state_dimension + aggre_control_dimension
 	primal_dimension_per_player = x_dim + u_dim
+
+	num_params_per_player = repeat([state_dimension], N) # each player's initial state
+	θs = setup_problem_parameter_variables(backend, num_params_per_player)
 
 	problem_dims = (;
 		state_dimension,
@@ -252,9 +278,10 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
 	end
 
 	# Set up the equality constraints for each player.
-	ics = [[0.0; 2.0],
-	       [2.0; 4.0],
-		   [6.0; 8.0]] # initial conditions for each player
+	ics = θs
+	# [[0.0; 2.0],
+	#        [2.0; 4.0],
+	# 	   [6.0; 8.0]] # initial conditions for each player
 
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
@@ -267,7 +294,7 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false)
 	# each player has the same dynamics constraint
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
-	return N, G, H, problem_dims, Js, gs
+	return N, G, H, problem_dims, Js, gs, θs, backend
 end
 
 function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
@@ -291,11 +318,14 @@ end
 function main(verbose = false)
 	T = 3
 	Δt = 0.5
-	N, G, H, problem_dims, Js, gs = get_three_player_openloop_lq_problem(T, Δt; verbose)
+
+	# TODO: Pass symbolic parameters into here for use in defining the equality constraints.
+	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
 	primal_dimension_per_player = problem_dims.primal_dimension_per_player
 	state_dimension = problem_dims.state_dimension
 	control_dimension = problem_dims.control_dimension
+	num_initial_states = N * state_dimension # each player's initial state
 
 	# Print dimension information.
 	@info "Problem dimensions:\n" *
@@ -308,8 +338,9 @@ function main(verbose = false)
 
 	### Solve the LQ game using the automatic solver. ###
 	parameter_value = 1e-5
+	num_initial_states = length(ics)
 	z_sol, status, _, _, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	(; πs, zs, λs, μs, θ) = vars
+	(; πs, zs, λs, μs, _) = vars
 
 	# Extract each player's solution from the full solution vector.
 	z₁ = zs[1]

@@ -14,10 +14,10 @@ function make_symbolic_variable(args...)
 
     num_items = length(args)
 
-    @assert variable_name in [:x, :u, :λ, :ψ, :μ, :z, :M, :N, :Φ, :K]
+    @assert variable_name in [:x, :u, :λ, :ψ, :μ, :z, :M, :N, :Φ, :K, :θ]
     variable_name_str = string(variable_name)
 
-    if variable_name == :x && num_items == 2 # Just :x
+    if variable_name in [:x, :θ] && num_items == 2 # Just :x
         return Symbol(variable_name_str * time_str)
     elseif variable_name in [:u, :λ, :z, :M, :N, :K] && num_items == 3
        return Symbol(variable_name_str * "^" * string(args[2]) * time_str)
