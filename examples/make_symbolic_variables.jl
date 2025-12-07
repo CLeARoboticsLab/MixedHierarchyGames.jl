@@ -17,9 +17,11 @@ function make_symbolic_variable(args...)
     @assert variable_name in [:x, :u, :λ, :ψ, :μ, :z, :M, :N, :Φ, :K, :θ]
     variable_name_str = string(variable_name)
 
-    if variable_name in [:x, :θ] && num_items == 2 # Just :x
+    if variable_name in [:x] && num_items == 2 # Just :x
         return Symbol(variable_name_str * time_str)
-    elseif variable_name in [:u, :λ, :z, :M, :N, :K] && num_items == 3
+    elseif variable_name in [:θ] && num_items == 2 # Just :x
+        return Symbol(variable_name_str * "^" * string(args[2]))
+    elseif variable_name in [:u, :λ, :z, :M, :N, :K, :θ] && num_items == 3
        return Symbol(variable_name_str * "^" * string(args[2]) * time_str)
     elseif variable_name in [:ψ, :μ] && num_items == 4
         return Symbol(variable_name_str * "^(" * string(args[2]) * "-" * string(args[3]) * ")" * time_str)

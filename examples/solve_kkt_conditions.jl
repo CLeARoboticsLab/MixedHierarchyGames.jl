@@ -27,7 +27,7 @@ end
 
 ###### UTILS FOR PATH SOLVER  ######
 # TODO: Fix to make it general based on whatever expressions are needed.
-function solve_with_path(πs, variables, θ, parameter_value)
+function solve_with_path(πs, variables, θs, parameter_values)
     symbolic_type = eltype(variables)
     # Final MCP vector: leader stationarity + leader constraints + follower KKT
     F = Vector{symbolic_type}([
@@ -37,11 +37,15 @@ function solve_with_path(πs, variables, θ, parameter_value)
     z̲ = fill(-Inf, length(F));
     z̅ = fill(Inf, length(F))
 
-    # Solve via PATH
-    parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+    # Solve via PATH (order initial state parameters by sorted player index)
+    num_players = length(πs)
+    order = range(1, num_players)
+    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+    parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, all_θ_vec, z̲, z̅; compute_sensitivities = false)
     z_sol, status, info = ParametricMCPs.solve(
         parametric_mcp,
-        [parameter_value];
+        all_param_vals_vec;
         initial_guess = zeros(length(variables)),
         verbose = false,
         cumulative_iteration_limit = 100000,
@@ -55,7 +59,7 @@ function solve_with_path(πs, variables, θ, parameter_value)
     return z_sol, status, info
 end
 
-function lq_game_linsolve(πs, variables, θ, parameter_value; to=TimerOutput(), linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
+function lq_game_linsolve(πs, variables, θs, parameter_values; to=TimerOutput(), linear_solve_algorithm = LinearSolve.UMFPACKFactorization(), verbose = false)
 	"""
 	Custom linear solver for LQ games using KKT conditions.
 	Given KKT conditions π, the function solves for Newton step ∇F(z; ϵ) δz = -F(z; ϵ).
@@ -66,10 +70,10 @@ function lq_game_linsolve(πs, variables, θ, parameter_value; to=TimerOutput(),
 		Dictionary mapping player indices to their KKT conditions.
 	variables: Vector{Symbolics.Num}
 		Vector of all symbolic variables in the game.
-	θ: Symbolics.Num
-		Symbolic parameter for the game.
-	parameter_value: Float64
-		Numeric value to substitute for the symbolic parameter θ.
+	θs: Vector{Symbolics.Num
+		Symbolic parameters for the game.
+	parameter_values: Float64
+		Numeric values to substitute for the symbolic parameters θs.
 	to: TimerOutput
 		TimerOutput object for profiling (default: new TimerOutput()).
 	linear_solve_algorithm: LinearSolve algorithm (default: UMFPACKFactorization)
@@ -94,9 +98,13 @@ function lq_game_linsolve(πs, variables, θ, parameter_value; to=TimerOutput(),
 	z̲ = fill(-Inf, length(F));
 	z̅ = fill(Inf, length(F))
 
-	# Form mcp via PATH
+	# Form mcp via PATH (order parameters by sorted player index)
+	num_players = length(πs)
+	order = range(1, num_players)
+	all_θ_vec = vcat([θs[k] for k in order]...)
+	all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
 	@timeit to "[LQ Solver][ParametricMCP Setup]" begin
-		parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, [θ], z̲, z̅; compute_sensitivities = false)
+		parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, all_θ_vec, z̲, z̅; compute_sensitivities = false)
 	end
 	∇F = parametric_mcp.jacobian_z!.result_buffer
 	F = zeros(length(F))
@@ -108,8 +116,8 @@ function lq_game_linsolve(πs, variables, θ, parameter_value; to=TimerOutput(),
 	@timeit to "[LQ Solver][LinearSolve.jl Setup]" begin
 		linsolve = init(LinearProblem(∇F, δz), linear_solve_algorithm)
 	end
-	parametric_mcp.f!(F, arbitrary_init_pt, [parameter_value])
-	parametric_mcp.jacobian_z!(∇F, arbitrary_init_pt, [parameter_value])
+	parametric_mcp.f!(F, arbitrary_init_pt, all_param_vals_vec)
+	parametric_mcp.jacobian_z!(∇F, arbitrary_init_pt, all_param_vals_vec)
 	linsolve.A = ∇F
 	linsolve.b = -F
 	solution = solve!(linsolve)
