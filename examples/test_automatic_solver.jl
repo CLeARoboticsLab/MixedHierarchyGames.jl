@@ -110,14 +110,22 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	ws = problem_vars.ws
 	ys = problem_vars.ys
+	πs = setup_info.πs
 	M_fns = setup_info.M_fns
 	N_fns = setup_info.N_fns
 	π_sizes = setup_info.π_sizes
 	graph = setup_info.graph
+	all_variables = problem_vars.all_variables
 
 	M_evals = Dict{Int, Any}()
 	N_evals = Dict{Int, Any}()
 	K_evals = Dict{Int, Any}()
+	# k_evals = Dict{Int, Any}()
+
+	# zs = problem_vars.zs
+	# z_offsets = cumsum([0; length.(zs)])
+	# get_agent_z(ii) = @view z_est[(z_offsets[ii] + 1):z_offsets[ii + 1]]
+
 
 	for ii in reverse(topological_sort(graph))
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
@@ -139,12 +147,25 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 				@timeit to "[Solve for K]" begin
 					K_evals[ii] = M_evals[ii] \ N_evals[ii]
+
+					# # zi = 
+					# vars_in_pi = Symbolics.get_variables(πs[ii])
+					# idx_lookup = Dict(v => j for (j, v) in enumerate(all_variables))
+
+					# vals = Dict(v => z_est[idx_lookup[v]] for v in vars_in_pi if haskey(idx_lookup, v))
+
+					# π_eval = Symbolics.substitute.(πs[ii], Ref(vals))
+					# π_eval_num = Symbolics.value.(π_eval)  # or Float64.(π_eval) if you prefer
+
+					# # println(length(ws[ii]), length(z_est), println(π_fns[ii](augmented_z_est)))
+					# k_evals[ii] = M_evals[ii] \ π_eval #π_fns[ii](augmented_z_est)
 				end
 			end
 		else
 			M_evals[ii] = nothing
 			N_evals[ii] = nothing
 			K_evals[ii] = nothing
+			# k_evals[ii] = nothing
 		end
 	end
 
@@ -153,8 +174,11 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
+	# all_K_evals_vec = vcat(all_K_evals_vec, map(ii -> reshape(@something(k_evals[ii], Float64[]), :), 1:nv(graph))...)
+	#l_K_evals_vec, k_evals[ii])
 	# augmented_z_est = vcat(z_est, all_K_evals_vec)
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
+	# return all_K_evals_vec, (; M_evals, N_evals, K_evals, k_evals, to)
 end
 
 function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to=TimerOutput(), α_init=1.0, β=0.5, c₁=1e-4, max_ls_iters=5)
@@ -697,6 +721,10 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
+
+	# Report objective value for each agent at the solved trajectories.
+	costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], parameter_value) for i in 1:N]
+	@info "Agent costs" costs=costs
 
 	# Evaluate the solution against the KKT conditions (or approximate KKT conditions for non-LQ).
 	if run_lq

@@ -8,6 +8,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	ws::Dict{Int, Any},
 	ys::Dict{Int, Any},
 	θ;
+	# Pass x0 in case we want to evaluate at a specific point (used for evaluating k).
 	verbose = false,
 	to = TimerOutput())
 	"""
@@ -40,8 +41,9 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	Ms = Dict{Int, Any}()
 	Ns = Dict{Int, Any}()
 	Ks = Dict{Int, Any}()
+	ks = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
-	Φs = Dict{Int, Any}()
+	# Φs = Dict{Int, Any}()
 
 	# Compute reverse topological order to construct lagrangians and KKT conditions from leaves to root.
 	order = reverse(topological_sort(G))
@@ -100,7 +102,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
 						# Solve Mw + Ny = 0 using symbolic M and N.
-						Φʲ = - extractor * Ks[jj] * ys[jj]
+						println("$ii - follower $jj's ks[$jj] is $(norm(ks[jj])))")
+						Φʲ = - extractor * (Ks[jj] * ys[jj] + ks[jj])
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
@@ -119,18 +122,25 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
 		πs[ii] = πᵢ
 
-		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0 (if there is a leader), else not needed.
+		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ + πⁱ(0) = 0 (if there is a leader), else not needed.
 		if has_leader(G, ii)
 			@timeit to "[KKT Conditions] Compute M and N for follower $ii" begin
 				Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
 				Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
-
 				Ks[ii] = Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
+
+				# Get the constant terms of the KKT matrix. Since the system is LQ, all points work but we use 0 as the initial guess.
+				vars = vcat(ws[ii], ys[ii]) # TODO: This doesn't make sense bc wrong ordering.
+				zero_subs = Dict(v => 0. for v in vars)
+				π_at_zero = Symbolics.substitute.(πs[ii], Ref(zero_subs))
+				ks[ii] = Ms[ii] \ π_at_zero
+				# ks[ii] = zeros(length(Ms[ii] \ π_at_zero))
+				println("π(0), ks[$ii] computed at zero substitution: ", norm(π_at_zero), " ", norm(ks[ii]))
 			end
 		end
 	end
 
-	return πs, Ms, Ns, (;K_evals = nothing)
+	return πs, Ms, Ns, (;K_evals = nothing, k_evals=nothing)
 end
 
 
@@ -205,6 +215,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 
 	M_fns = Dict{Int, Any}()
 	N_fns = Dict{Int, Any}()
+	π_fns = Dict{Int, Any}()
 
 	augmented_variables = Dict{Int, Any}()
 
@@ -271,6 +282,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, G)
 				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
 				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
+				# π_fns[ii] = SymbolicTracingUtils.build_function(πs[ii], augmented_variables[ii]; in_place = false)
 			end
 		else
 			# TODO: dirty code, clean up
@@ -281,5 +293,5 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 	# Identify all augmented variables.
 	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
 
-	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_fns=π_fns, π_sizes=π_sizes)
 end
