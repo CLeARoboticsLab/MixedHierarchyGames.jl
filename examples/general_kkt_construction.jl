@@ -125,7 +125,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
 				Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
 
-				Ks[ii] = - Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
+				Ks[ii] = Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
 			end
 		end
 	end
