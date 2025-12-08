@@ -40,16 +40,20 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	π_eval = similar(all_πs, Float64)
 
 	# Evaluate in place
-	param_vals_vec = vcat([parameter_values[ii] for ii in order]...)
-	π_fns!(π_eval, z_sol, param_vals_vec)
+	per_player_param_vals = [parameter_values[ii] for ii in order]
+	param_vals_vec = vcat(per_player_param_vals...)
+
+	π_fns!(π_eval, vcat(z_sol, param_vals_vec))
 
 	if verbose
 		println("\n" * "="^20 * " KKT Residuals " * "="^20)
-		println(sum(π_eval.>tol))
-		println("Are all KKT conditions satisfied? ", all(π_eval .< tol))
-		if norm(π_eval) < tol
-			println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))
+		for (idx, val) in enumerate(π_eval)
+			if abs(val) >= tol
+				println("  π[$idx] = $(val)    expr: $(all_πs[idx])")
+			end
 		end
+		println("Are all KKT conditions satisfied? ", all(π_eval .< tol))
+		println("‖π‖₂ = ", norm(π_eval))
 		println("="^55)
 	end
 
