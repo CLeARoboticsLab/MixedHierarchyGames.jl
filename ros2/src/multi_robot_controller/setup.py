@@ -9,7 +9,7 @@ setup(
     data_files=[
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools','juliacall'],
+    install_requires=['setuptools','julia'],
     zip_safe=True,
     maintainer='your_name',
     maintainer_email='your_email@example.com',
