@@ -320,11 +320,17 @@ function main(verbose = false)
 	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
 	# Evaluate the KKT residuals at the solution to check solution quality.
-	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
+	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = true)
 
 	# Print solution information.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
 	verbose && print_solution_info(z_sols, Js, problem_dims)
+
+	# Report objective value for each agent at the solved trajectories.
+	# Note: in this example, there are no parameters in the objectives, so we pass `nothing`.
+	costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
+	@info "\nAgent costs" costs=costs
+
 
 	# Plot the trajectories of each player.
 	plot_player_trajectories(z_sols, T, Δt, problem_dims)
