@@ -443,7 +443,6 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		zs = problem_vars.zs
 		λs = problem_vars.λs
 		μs = problem_vars.μs
-		# θ = problem_vars.θ
 
 		# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
 		setup_info = preoptimization_info.setup_info
@@ -706,7 +705,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	end
 
 	# Set up the problem.
-	T = 20
+	T = 3
 	Δt = 0.5
 	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
