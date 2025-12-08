@@ -84,6 +84,39 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	return z_sol, F, linsolve_status
 end
 
+function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
+	followers = get!(follower_order_cache, ii) do
+		collect(BFSIterator(graph, ii))[2:end]
+	end
+
+	aug_len = length(z_est)
+	for jj in followers
+		kj = K_evals[jj]
+		aug_len += isnothing(kj) ? 0 : length(kj)
+	end
+
+	buf = get!(buffer_cache, ii) do
+		Vector{Float64}(undef, aug_len)
+	end
+	if length(buf) != aug_len
+		resize!(buf, aug_len)
+	end
+
+	copyto!(buf, 1, z_est, 1, length(z_est))
+	offset = length(z_est) + 1
+	for jj in followers
+		kj = K_evals[jj]
+		if isnothing(kj)
+			continue
+		end
+		flat = reshape(kj, :)
+		copyto!(buf, offset, flat, 1, length(flat))
+		offset += length(flat)
+	end
+
+	buf
+end
+
 function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	"""
 	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
@@ -119,6 +152,10 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	N_evals = Dict{Int, Any}()
 	K_evals = Dict{Int, Any}()
 
+	# Cache follower ordering and augmented buffers to reduce allocations.
+	follower_order_cache = Dict{Int, Vector{Int}}()
+	buffer_cache = Dict{Int, Vector{Float64}}()
+
 	for ii in reverse(topological_sort(graph))
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
@@ -126,8 +163,9 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
 					# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
-					augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
-					augmented_z_est = vcat(z_est, augmented_z_est...)
+					# For small numbers of variables, this caching may not help much with runtime.
+					# TODO: Use this only when the number of variables reaches a sufficient size where it will matter.
+					augmented_z_est = _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
@@ -645,7 +683,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	end
 
 	# Set up the problem.
-	T = 3
+	T = 20
 	Δt = 0.5
 	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
