@@ -60,69 +60,73 @@ def main():
     # Build preoptimization once (silence logs by default)
     pre = Main.HardwareFunctions.build_lq_preoptimization(3, 0.5, silence_logs=True)
 
-    # initial state for 3 players (2D each)
-    x0 = [[0.0, 2.0], [2.0, 4.0], [6.0, 8.0]]
+    # initial state for 3 players (2D each) — start with a nominal case
+    x0_nominal = [[0.0, 2.0], [2.0, 4.0], [6.0, 8.0]]
+    # also test an arbitrary different x0 to verify parameter handling
+    x0_alt = [[1.5, -0.5], [3.0, 5.5], [-2.0, 7.0]]
 
     # number of single-step calls to perform
     steps = 5
 
-    x_current = x0
-    z_guess = None
+    for x0 in (x0_nominal, x0_alt):
+        print(f"\n=== Running trajectory with x0 = {x0} ===")
+        x_current = x0
+        z_guess = None
 
-    for step in range(steps):
-        print(f"\n--- Step {step} ---")
-        print("x_current:", x_current)
+        for step in range(steps):
+            print(f"\n--- Step {step} ---")
+            print("x_current:", x_current)
 
-        try:
-            if z_guess is None:
-                result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, silence_logs=True)
-            else:
-                result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, z_guess, silence_logs=True)
-        except Exception as e:
-            print("Julia call failed:")
-            raise
-
-        # helper to access PyCall-wrapped NamedTuple fields
-        def _get_field(obj, name):
             try:
-                return obj[name]
+                if z_guess is None:
+                    result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, silence_logs=True)
+                else:
+                    result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(pre, x_current, z_guess, silence_logs=True)
             except Exception:
-                return getattr(obj, name)
+                print("Julia call failed:")
+                raise
 
-        x_next = _get_field(result, "x_next")
-        u_curr = _get_field(result, "u_curr")
-        try:
-            z_guess = _get_field(result, "z_sol")
-        except Exception:
-            z_guess = None
+            # helper to access PyCall-wrapped NamedTuple fields
+            def _get_field(obj, name):
+                try:
+                    return obj[name]
+                except Exception:
+                    return getattr(obj, name)
 
-        # normalize
-        def _normalize(x):
+            x_next = _get_field(result, "x_next")
+            u_curr = _get_field(result, "u_curr")
             try:
-                tl = x.tolist()
+                z_guess = _get_field(result, "z_sol")
             except Exception:
-                tl = None
-            if tl is not None:
-                return _normalize(tl)
-            if isinstance(x, (list, tuple)):
-                return [_normalize(xx) for xx in x]
-            try:
-                return float(x)
-            except Exception:
-                return x
+                z_guess = None
 
-        x_next = _normalize(x_next)
-        u_curr = _normalize(u_curr)
+            # normalize
+            def _normalize(x):
+                try:
+                    tl = x.tolist()
+                except Exception:
+                    tl = None
+                if tl is not None:
+                    return _normalize(tl)
+                if isinstance(x, (list, tuple)):
+                    return [_normalize(xx) for xx in x]
+                try:
+                    return float(x)
+                except Exception:
+                    return x
 
-        print("u_curr:", u_curr)
-        print("x_next:", x_next)
+            x_next = _normalize(x_next)
+            u_curr = _normalize(u_curr)
 
-        # basic checks
-        assert isinstance(x_next, list) and isinstance(u_curr, list)
-        assert finite_nested(x_next)
-        assert finite_nested(u_curr)
+            print("u_curr:", u_curr)
+            print("x_next:", x_next)
 
-        x_current = x_next
+            # basic checks
+            assert isinstance(x_next, list) and isinstance(u_curr, list)
+            assert finite_nested(x_next)
+            assert finite_nested(u_curr)
+
+            x_current = x_next
 
     print("\nAll hardware_nplayer_hierarchy_navigation calls completed successfully.")
 
