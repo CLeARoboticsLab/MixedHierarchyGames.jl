@@ -24,10 +24,14 @@ valid solution.
 - `Dict{Int, Float64}`: A dictionary mapping each player's index to the norm of their KKT residual.
 """
 function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values; tol=1e-6, verbose = false, should_enforce = false)
-	# Create list of symbolic output expressions.
-	all_πs = Vector{Symbolics.Num}(vcat(collect(values(πs))...))
+	# Order everything consistently by player index.
+	order = sort(collect(keys(πs)))
 
-	all_vars_and_params = vcat(all_variables, vcat(collect(values(θs))...))
+	# Create list of symbolic output expressions.
+	all_πs = Vector{Symbolics.Num}(vcat([πs[ii] for ii in order]...))
+
+	θ_vec = vcat([θs[ii] for ii in order]...)
+	all_vars_and_params = vcat(all_variables, θ_vec)
 
 	# Build the in-place version of the function.
 	π_fns! = SymbolicTracingUtils.build_function(all_πs, all_vars_and_params; in_place = true)
@@ -36,10 +40,12 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	π_eval = similar(all_πs, Float64)
 
 	# Evaluate in place
-	π_fns!(π_eval, z_sol)
+	param_vals_vec = vcat([parameter_values[ii] for ii in order]...)
+	π_fns!(π_eval, z_sol, param_vals_vec)
 
 	if verbose
 		println("\n" * "="^20 * " KKT Residuals " * "="^20)
+		println(sum(π_eval.>tol))
 		println("Are all KKT conditions satisfied? ", all(π_eval .< tol))
 		if norm(π_eval) < tol
 			println("KKT conditions are satisfied within tolerance! Norm: ", norm(π_eval))

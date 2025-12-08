@@ -38,8 +38,7 @@ function solve_with_path(πs, variables, θs, parameter_values)
     z̅ = fill(Inf, length(F))
 
     # Solve via PATH (order initial state parameters by sorted player index)
-    num_players = length(πs)
-    order = range(1, num_players)
+    order = sort(collect(keys(πs)))
     all_θ_vec = vcat([θs[k] for k in order]...)
     all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
     parametric_mcp = ParametricMCPs.ParametricMCP(F, variables, all_θ_vec, z̲, z̅; compute_sensitivities = false)
@@ -99,8 +98,7 @@ function lq_game_linsolve(πs, variables, θs, parameter_values; to=TimerOutput(
 	z̅ = fill(Inf, length(F))
 
 	# Form mcp via PATH (order parameters by sorted player index)
-	num_players = length(πs)
-	order = range(1, num_players)
+	order = sort(collect(keys(πs)))
 	all_θ_vec = vcat([θs[k] for k in order]...)
 	all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
 	@timeit to "[LQ Solver][ParametricMCP Setup]" begin
