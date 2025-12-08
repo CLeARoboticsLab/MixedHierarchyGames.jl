@@ -9,17 +9,17 @@ using SymbolicTracingUtils
 function build_lq_preoptimization(T::Int=3, Δt::Float64=0.5; silence_logs::Bool=true,
                                   backend=SymbolicTracingUtils.SymbolicsBackend())
     # LQ example problem
-    N, G, H, problem_dims, Js, gs = Main.get_three_player_openloop_lq_problem(T, Δt; verbose=false)
+    N, G, H, problem_dims, Js, gs, θs, _ = Main.get_three_player_openloop_lq_problem(T, Δt; verbose=false, backend=backend)
 
     # Silence all logs (including @info inside preoptimization)
     logger = silence_logs ? NullLogger() : current_logger()
-        preopt = with_logger(logger) do
-        Main.preoptimize_nonlq_solver(H, G, problem_dims.primal_dimension_per_player, Js, gs;
-                                 backend, to=TimerOutput(), verbose=false)
+    preopt = with_logger(logger) do
+        Main.preoptimize_nonlq_solver(H, G, problem_dims.primal_dimension_per_player, Js, gs, θs;
+                                      backend, to=TimerOutput(), verbose=false)
     end
 
     # Return a wrapper with everything needed for RH solves
-    return (; preopt, N, G, H, T, Δt, problem_dims, Js, gs)
+    return (; preopt, N, G, H, T, Δt, problem_dims, Js, gs, θs)
 end
 
 # Receding-horizon navigation using precomputed preoptimization info.
@@ -33,14 +33,17 @@ function hardware_nplayer_hierarchy_navigation(pre, x0::Vector{<:AbstractVector}
         control_dimension = pre.problem_dims.control_dimension
         ppp = pre.problem_dims.primal_dimension_per_player
 
+        # Normalize parameter vector to match solver expectation (Vector of Vectors)
+        parameter_values = [Vector{Float64}(x0_i) for x0_i in x0]
+
         # Warm start
         z_guess = isnothing(z0_guess) ? zeros(length(pre.preopt.all_variables)) : z0_guess
 
         # One MPC solve using the precomputed preoptimization info
         z_sol, status, info, all_variables, vars, augmented =
-            Main.run_nonlq_solver(pre.H, pre.G, ppp, pre.Js, pre.gs, z_guess;
-                             preoptimization_info=pre.preopt, parameter_value=1e-5,
-                             max_iters=max_iters, tol=tol, verbose=false, to=TimerOutput())
+            Main.run_nonlq_solver(pre.H, pre.G, ppp, pre.Js, pre.gs, pre.θs, parameter_values, z_guess;
+                                  preoptimization_info=pre.preopt,
+                                  max_iters=max_iters, tol=tol, verbose=false, to=TimerOutput())
 
         # Split z_sol per player and extract current control and next state
         z_sols = Vector{Vector{Float64}}(undef, N)
@@ -73,4 +76,4 @@ function hardware_nplayer_hierarchy_navigation(pre, x0::AbstractMatrix{<:Real}, 
     return hardware_nplayer_hierarchy_navigation(pre, x0_vec, z0_guess, tol, max_iters; silence_logs=silence_logs)
 end
 
-end # module
+end # module HardwareFunctions
