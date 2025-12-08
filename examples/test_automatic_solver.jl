@@ -430,54 +430,58 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 	out_all_augmented_z_est = nothing
 
 	if isnothing(preoptimization_info)
-		# If we don't have preoptimization info, then run the preoptimization step now.
-		preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend, to, verbose)
+		@timeit to "[Non-LQ Solver][Preoptimization]" begin
+			# If we don't have preoptimization info, then run the preoptimization step now.
+			preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend, to, verbose)
+		end
 	end
 
-	# Unpack preoptimization info - variables.
-	problem_vars = preoptimization_info.problem_vars
-	all_variables = preoptimization_info.all_variables
-	zs = problem_vars.zs
-	λs = problem_vars.λs
-	μs = problem_vars.μs
-	# θ = problem_vars.θ
+	@timeit to "[Non-LQ Solver][Setup]" begin
+		# Unpack preoptimization info - variables.
+		problem_vars = preoptimization_info.problem_vars
+		all_variables = preoptimization_info.all_variables
+		zs = problem_vars.zs
+		λs = problem_vars.λs
+		μs = problem_vars.μs
+		# θ = problem_vars.θ
 
-	# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
-	setup_info = preoptimization_info.setup_info
-	πs = setup_info.πs
-	K_syms = setup_info.K_syms
-	M_fns = setup_info.M_fns
-	N_fns = setup_info.N_fns
+		# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
+		setup_info = preoptimization_info.setup_info
+		πs = setup_info.πs
+		K_syms = setup_info.K_syms
+		M_fns = setup_info.M_fns
+		N_fns = setup_info.N_fns
 
-	# Set up solver objects and functions.
-	mcp_obj = preoptimization_info.mcp_obj
-	F = preoptimization_info.F_sym
-	linsolver = preoptimization_info.linsolver
-	compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
+		# Set up solver objects and functions.
+		mcp_obj = preoptimization_info.mcp_obj
+		F = preoptimization_info.F_sym
+		linsolver = preoptimization_info.linsolver
+		compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
 
-	# Set up variables for augmented in/output.
-	out_all_augment_variables = preoptimization_info.out_all_augment_variables
-	out_all_augmented_z_est = nothing
+		# Set up variables for augmented in/output.
+		out_all_augment_variables = preoptimization_info.out_all_augment_variables
+		out_all_augmented_z_est = nothing
 
-	# Initial guess for primal and dual variables.
-	z_est = @something(z0_guess, zeros(length(all_variables)))
+		# Initial guess for primal and dual variables.
+		z_est = @something(z0_guess, zeros(length(all_variables)))
 
-	# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
-	num_iterations = 0
+		# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
+		num_iterations = 0
 
-	# These (nonsensical) values should never be returned or it indicates a bug.
-	convergence_criterion = Inf
-	nonlq_solver_status = :BUG_unspecified
-	F_eval = similar(F, Float64)
+		# These (nonsensical) values should never be returned or it indicates a bug.
+		convergence_criterion = Inf
+		nonlq_solver_status = :BUG_unspecified
+		F_eval = similar(F, Float64)
 
-	θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
-	θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
+		θ_order = 1:length(θs)
+		θ_vals_vec = vcat([parameter_values[k] for k in θ_order]...)
 
-	# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
-	function params_for_z(z)
-		all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
-		param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
-		return param_eval_vec, all_K_evals_vec
+		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
+		function params_for_z(z)
+			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
+			return param_eval_vec, all_K_evals_vec
+		end
 	end
 
 	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
@@ -550,7 +554,7 @@ end
 # TODO: Add a new function that only runs the non-lq solver.
 function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
 	z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false,
-	backend=SymbolicTracingUtils.SymbolicsBackend())
+	backend=SymbolicTracingUtils.SymbolicsBackend(), multiple_runs=1)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -594,15 +598,34 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 	# Get preoptimized info.
 	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend=backend, verbose=verbose, to=to)
 
+	# Optional warmup to trigger compilation before timed solve.
+	let
+		z0 = zeros(length(preoptimization_info.all_variables))
+		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
+		K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info)
+		param0 = vcat(θ_vals_vec, K0)
+		mcp = preoptimization_info.mcp_obj
+		Fbuf = similar(preoptimization_info.F_sym, Float64)
+		Jbuf = mcp.jacobian_z!.result_buffer
+		mcp.f!(Fbuf, z0, param0)
+		mcp.jacobian_z!(Jbuf, z0, param0)
+	end
+
 	# If specified, use the preoptimization timing information. Else, make a new one.
 	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
 
 	# Run the non-LQ solver.
-	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
-		H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
-		preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
-		tol=1e-3, verbose=verbose, to=to,
-	)
+	z_sol, status, info, all_variables, vars, augmented_vars = nothing, nothing, nothing, nothing, nothing, nothing
+	for i in 1:multiple_runs
+		@timeit to "[Call to Non-LQ Solver]" begin
+			z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
+				H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
+				preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
+				tol=1e-3, verbose=verbose, to=to,
+			)
+		end
+	end
 
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
