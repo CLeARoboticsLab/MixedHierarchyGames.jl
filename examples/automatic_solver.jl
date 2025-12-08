@@ -1,9 +1,9 @@
-
 using BlockArrays: BlockArrays, BlockArray, Block, blocks, blocksizes
 using Graphs
 using InvertedIndices
 using LinearAlgebra: I, norm, pinv, Diagonal, rank
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
+using Logging
 using Plots
 using SciMLBase: SciMLBase
 using Symbolics
@@ -17,6 +17,21 @@ include("solve_kkt_conditions.jl")
 include("evaluate_results.jl")
 include("general_kkt_construction.jl")
 
+
+function setup_problem_parameter_variables(backend, num_params_per_player; verbose = false)
+	"""
+	Constructs the symbolic parameter variable θ used in the problem, used for initial states for now.
+
+	num_params_per_player (Int) : The number of parameters for each player.
+	"""
+
+	θs = Dict{Int, Any}()
+	for idx in 1:length(num_params_per_player)
+		verbose && @info "Setting up symbolic parameter variable θ with dimension $num_params_per_player[idx]."
+		θs[idx] = SymbolicTracingUtils.make_variables(backend, make_symbolic_variable(:θ, idx), num_params_per_player[idx])
+	end
+	return θs
+end
 
 function setup_problem_variables(H, graph, primal_dimension_per_player, gs; backend = SymbolicTracingUtils.SymbolicsBackend(), verbose = false)
 	"""
@@ -38,7 +53,7 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 	zs (Vector{Vector{Num}}) : A vector of each player's decision variable symbols.
 	λs (Vector{Vector{Num}}) : A vector of each player's Lagrange multiplier symbols for their constraints.
 	μs (Dict{Tuple{Int, Int}, Vector{Num}}) : A dictionary of Lagrange multiplier symbols for each leader-follower pair.
-	θ (Num) : The parameter symbol.
+	θ (Num) : The parameter symbol, used for altering the initial state between calls.
 	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
 	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
 	"""
@@ -97,13 +112,14 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 		end
 
 		if verbose
-			println("ws for P$i ($(length(ws[i]))):\n", ws[i])
-			println()
-			println("ys for P$i ($(length(ys[i]))):\n", ys[i])
-			println()
+			@debug "ws for P$i" ws=ws[i] len=length(ws[i])
+			@debug "ys for P$i" ys=ys[i] len=length(ys[i])
 		end
 	end
-	θ = only(SymbolicTracingUtils.make_variables(backend, :θ, 1))
+
+	# TODO: Generalize to be the initial state so it can change on the fly.
+	# TODO: Probably separate by player (i.e. make new variable for each player's initial state).
+	# θ = SymbolicTracingUtils.make_variables(backend, :θ, num_params)
 
 	# Construct a list of all variables in order and solve.
 	temp = vcat(collect(values(μs))...)
@@ -112,11 +128,11 @@ function setup_problem_variables(H, graph, primal_dimension_per_player, gs; back
 		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
 	end
 
-	(; all_variables, zs, λs, μs, θ, ys, ws)
+	(; all_variables, zs, λs, μs, ys, ws)
 end
 
 
-function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose = false)
 	"""
 	Solves a linear-quadratic equality-constrained mathematical programming network problem.
 
@@ -132,7 +148,8 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						    player's decision variable zᵢ.
-	parameter_value (Float64) : The value to assign to the parameter θ in the problem (default: 1e-5).
+	θs (Dict{Int, Any}) : A dictionary of symbolic parameter variables for each player.
+	parameter_values (Dict{Int, Float64}) : A dictionary of values to assign to the parameters θ in the problem (default: 1e-5).
 	verbose (Bool) : Whether to print verbose output (default: false).
 
 	Returns
@@ -148,9 +165,9 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 	N = nv(graph)
 
 	# Construct symbols for each player's decision variables.
-	(; all_variables, zs, λs, μs, θ, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
+	(; all_variables, zs, λs, μs, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 
-	πs, _, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θ)
+	πs, _, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θs)
 
 	# Construct a list of all variables in order and solve.
 	temp = vcat(collect(values(μs))...)
@@ -158,31 +175,15 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_
 	if !isempty(temp)
 		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
 	end
-	z_sol, status, info = solve_with_path(πs, all_variables, θ, parameter_value)
+	z_sol, status, info = solve_with_path(πs, all_variables, θs, parameter_values)
 
-	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θ)
+	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θs)
 end
 
 
-function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
-	"""
-	Compares the solution to an LQ hierarchical game using the PATH solver and using a custom linear solver.
-	Ensures that both solvers return the same solution on the LQ problem.
-	"""
-
-	# Run the PATH solver through the run_solver call.
-	z_sol_path, path_status, info, all_variables, (; πs, zs, λs, μs, θ) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs, all_variables, θ, parameter_value; verbose)
-
-	@assert isapprox(z_sol_path, z_sol_linsolve, atol = 1e-4)
-	@show "PATH status: $path_status"
-	@show "LinSolve status: $linsolve_status"
-
-	z_sol_path, path_status, z_sol_linsolve, linsolve_status, info, all_variables, (; πs, zs, λs, μs, θ)
-end
-
-# Main body of algorithm implementation for simple example. Will restructure as needed.
-function main(verbose = false)
+# function get_three_player_openloop_lq_problem(T=10, Δt=0.5, x0=[ [0.0; 2.0], [2.0; 4.0], [6.0; 8.0] ]; verbose = false)
+# , x0=[ [0.0; 2.0], [2.0; 4.0], [6.0; 8.0] ]
+function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false, backend=SymbolicTracingUtils.SymbolicsBackend())
 	# Number of players in the game
 	N = 3
 
@@ -192,7 +193,6 @@ function main(verbose = false)
 	add_edge!(G, 2, 1); # P1 -> P2
 	add_edge!(G, 2, 3); # P2 -> P3
 
-
 	H = 1
 	Hp1 = H+1 # number of planning stages is 1 for OL game.
 
@@ -200,7 +200,6 @@ function main(verbose = false)
 	flatten(vs) = collect(Iterators.flatten(vs))
 
 	# Initial sizing of various dimensions.
-	T = 3 # time horizon
 	state_dimension = 2 # player 1,2,3's state dimension
 	control_dimension = 2 # player 1,2,3's control dimension
 
@@ -212,11 +211,24 @@ function main(verbose = false)
 	total_dimension = aggre_state_dimension + aggre_control_dimension
 	primal_dimension_per_player = x_dim + u_dim
 
+	num_params_per_player = repeat([state_dimension], N) # each player's initial state
+	θs = setup_problem_parameter_variables(backend, num_params_per_player)
+
+	problem_dims = (;
+		state_dimension,
+		control_dimension,
+		x_dim,
+		u_dim,
+		aggre_state_dimension,
+		aggre_control_dimension,
+		total_dimension,
+		primal_dimension_per_player,
+	)
 
 	#### Player Objectives ####
 	# Player 1's objective function: P1 wants to get close to P2's final position 
 	# considering only its own control effort.
-	function J₁(z₁, z₂, z₃, θ)
+	function J₁(z₁, z₂, z₃, θi)
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -225,7 +237,7 @@ function main(verbose = false)
 	end
 
 	# Player 2's objective function: P2 wants P1 and P3 to get to the origin
-	function J₂(z₁, z₂, z₃, θ)
+	function J₂(z₁, z₂, z₃, θi)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -236,7 +248,7 @@ function main(verbose = false)
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
-	function J₃(z₁, z₂, z₃, θ)
+	function J₃(z₁, z₂, z₃, θi)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -252,10 +264,8 @@ function main(verbose = false)
 
 
 	#### Player's individual dynamics ####
-	Δt = 0.5 # time step
-
 	# Dynamics are the only constraints (for now).
-	function dynamics(z, t)
+	function single_integrator_dynamics(z, t)
 		(; xs, us) = unflatten_trajectory(z, state_dimension, control_dimension)
 		x = xs[t]
 		u = us[t]
@@ -266,35 +276,73 @@ function main(verbose = false)
 	end
 
 	# Set up the equality constraints for each player.
-	ics = [[0.0; 2.0],
-	       [2.0; 4.0],
-		   [6.0; 8.0]] # initial conditions for each player
+	# ics = θs
+	# [[0.0; 2.0],
+	#        [2.0; 4.0],
+	# 	   [6.0; 8.0]] # initial conditions for each player
 
 	make_ic_constraint(i) = function (zᵢ)
 		(; xs, us) = unflatten_trajectory(zᵢ, state_dimension, control_dimension)
 		x1 = xs[1]
-		return x1 - ics[i]
+		return x1 - θs[i]
 	end
 
-	dynamics_constraint(zᵢ) = mapreduce(vcat, 1:T) do t dynamics(zᵢ, t) end
+	dynamics_constraint(zᵢ) = mapreduce(vcat, 1:T) do t single_integrator_dynamics(zᵢ, t) end
 
 	# each player has the same dynamics constraint
 	gs = [function (zᵢ) vcat(dynamics_constraint(zᵢ), make_ic_constraint(i)(zᵢ)) end for i in 1:N]
 
+	return N, G, H, problem_dims, Js, gs, θs, backend
+end
+
+function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose = false)
+	"""
+	Compares the solution to an LQ hierarchical game using the PATH solver and using a custom linear solver.
+	Ensures that both solvers return the same solution on the LQ problem.
+	"""
+
+	# Run the PATH solver through the run_solver call.
+	z_sol_path, path_status, info, all_variables, (; πs, zs, λs, μs, θs) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
+	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs, all_variables, θs, parameter_values; verbose)
+	
+	@assert isapprox(z_sol_path, z_sol_linsolve, atol = 1e-4)
+	verbose && @info "PATH status: $path_status"
+	verbose && @info "LinSolve status: $linsolve_status"
+
+	z_sol_path, path_status, z_sol_linsolve, linsolve_status, info, all_variables, (; πs, zs, λs, μs, θs)
+end
+
+# Main body of algorithm implementation for simple example. Will restructure as needed.
+function main(verbose = false)
+	T = 3
+	Δt = 0.5
+
+	# TODO: Pass symbolic parameters into here for use in defining the equality constraints.
+	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
+
+	primal_dimension_per_player = problem_dims.primal_dimension_per_player
+	state_dimension = problem_dims.state_dimension
+	control_dimension = problem_dims.control_dimension
+	num_initial_states = N * state_dimension # length of all players' initial states
+
+	# Print dimension information.
+	@info "Problem dimensions:\n" *
+		"  Number of players: $N\n" *
+		"  Number of Stages: $H (OL = 1; FB > 1)\n" *
+		"  Time Horizon (# steps): $T\n" *
+		"  Step period: Δt = $(Δt)s\n" *
+		"  Dimension per player: $(primal_dimension_per_player)\n" *
+		"  Total primal dimension: $(problem_dims.total_dimension)"
 
 	### Solve the LQ game using the automatic solver. ###
-	parameter_value = 1e-5
-	z_sol, status, _, _, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
-	(; πs, zs, λs, μs, θ) = vars
+	parameter_values = [[0.0; 2.0],
+	                    [2.0; 4.0],
+		                [6.0; 8.0]] # initial state for each player
+	# num_initial_states = length(initstate_parameter_values)
+	z_sol, status, _, _, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
+	(; πs, zs, λs, μs) = vars
 
-
-	# Print some information about the solution.
-	println("z-lengths: ", length(zs[1]), " ", length(zs[2]), " ", length(zs[3]))
-	println("λ-lengths: ", length(λs[1]), " ", length(λs[2]), " ", length(λs[3]))
-	println("μ-lengths: ", [length(μs[(i, j)]) for (i, j) in keys(μs)])
-	println("Solution status: ", size(z_sol), " ", z_sol[1:36])
-
-
+	# Extract each player's solution from the full solution vector.
 	z₁ = zs[1]
 	z₂ = zs[2]
 	z₃ = zs[3]
@@ -302,38 +350,34 @@ function main(verbose = false)
 	z₂_sol = z_sol[(length(z₁)+1):(length(z₁)+length(z₂))]
 	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
-
 	# Evaluate the KKT residuals at the solution to check solution quality.
-	evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
+	evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values; verbose)
 
-	(; xs, us) = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
-	println("P1 (x,u) solution : ($xs, $us)")
-	println("P1 Objective: $(Js[1](z₁_sol, z₂_sol, z₃_sol, 0))")
-	(; xs, us) = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
-	println("P2 (x,u) solution : ($xs, $us)")
-	println("P2 Objective: $(Js[2](z₁_sol, z₂_sol, z₃_sol, 0))")
-	(; xs, us) = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
-	println("P3 (x,u) solution : ($xs, $us)")
-	println("P3 Objective: $(Js[3](z₁_sol, z₂_sol, z₃_sol, 0))")
+	# Print solution information.
+	z_sols = [z₁_sol, z₂_sol, z₃_sol]
+	verbose && print_solution_info(z_sols, Js, problem_dims)
 
+	# Report objective value for each agent at the solved trajectories.
+	# Note: in this example, there are no parameters in the objectives, so we pass `nothing`.
+	costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
+	println()
+	@info "Agent costs" costs=costs
 
-	### Plot the trajectories of each player. ###
-
-	# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
-	state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
-
-	# Reconstruct trajectories from solutions
-	xs1, _ = unflatten_trajectory(z₁_sol, state_dimension, control_dimension)
-	xs2, _ = unflatten_trajectory(z₂_sol, state_dimension, control_dimension)
-	xs3, _ = unflatten_trajectory(z₃_sol, state_dimension, control_dimension)
-
-	# Plot the trajectories.
-	plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose)
+	# Plot the trajectories of each player.
+	plot_player_trajectories(z_sols, T, Δt, problem_dims)
 
 	return z_sol, status, info, πs, all_variables
 end
 
-function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false)
+function plot_player_trajectories(z_sols, T, Δt, problem_dims)
+
+	state_dimension = problem_dims.state_dimension
+	control_dimension = problem_dims.control_dimension
+
+	xs1, _ = unflatten_trajectory(z_sols[1], state_dimension, control_dimension)
+	xs2, _ = unflatten_trajectory(z_sols[2], state_dimension, control_dimension)
+	xs3, _ = unflatten_trajectory(z_sols[3], state_dimension, control_dimension)
+
 	# Plot the trajectories of each player.
 	# Helper: turn the vector-of-vectors `xs` into a 2×(T+1) matrix
 	state_matrix(xs_vec) = hcat(xs_vec...)  # each column is x at time t
@@ -361,4 +405,21 @@ function plot_player_trajectories(xs1, xs2, xs3, T, Δt, verbose = false)
 	scatter!(plt, [0.0], [0.0]; marker = :cross, ms = 8, color = :black, label = "Origin (0,0)")
 
 	display(plt)
+end
+
+function print_solution_info(z_sols, Js, problem_dims)
+	"""
+	Prints the solution information for each player, including their trajectories and objective values.
+	"""
+	(; xs, us) = unflatten_trajectory(z_sols[1], state_dimension, control_dimension)
+	@info "P1 (x,u) solution" xs=xs us=us
+	@info "P1 Objective" value=Js[1](z_sols[1], z_sols[2], z_sols[3], 0)
+
+	(; xs, us) = unflatten_trajectory(z_sols[2], state_dimension, control_dimension)
+	@info "P2 (x,u) solution" xs=xs us=us
+	@info "P2 Objective" value=Js[2](z_sols[1], z_sols[2], z_sols[3], 0)
+
+	(; xs, us) = unflatten_trajectory(z_sols[3], state_dimension, control_dimension)
+	@info "P3 (x,u) solution" xs=xs us=us
+	@info "P3 Objective" value=Js[3](z_sols[1], z_sols[2], z_sols[3], 0)
 end

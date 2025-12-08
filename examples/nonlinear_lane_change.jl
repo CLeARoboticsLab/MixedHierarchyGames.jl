@@ -60,4 +60,4 @@ z0_guess = vcat(z0_guess_1_2, z0_guess_3)
 
 
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
-TestAutomaticSolver.nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; max_iters = 5000)
+TestAutomaticSolver.nplayer_hierarchy_navigation_bicycle_dynamics(x0, x_goal, z0_guess, R; max_iters = 350)
