@@ -69,10 +69,10 @@ function lq_game_linsolve(πs, variables, θs, parameter_values; to=TimerOutput(
 		Dictionary mapping player indices to their KKT conditions.
 	variables: Vector{Symbolics.Num}
 		Vector of all symbolic variables in the game.
-	θs: Vector{Symbolics.Num
+	θs (Dict{Int, Vector{Num}}) : 
 		Symbolic parameters for the game.
-	parameter_values: Float64
-		Numeric values to substitute for the symbolic parameters θs.
+	parameter_values (Dict{Int, Vector{Float64}}) :
+		Numeric values for the parameters.
 	to: TimerOutput
 		TimerOutput object for profiling (default: new TimerOutput()).
 	linear_solve_algorithm: LinearSolve algorithm (default: UMFPACKFactorization)

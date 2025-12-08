@@ -27,8 +27,7 @@ function setup_problem_parameter_variables(backend, num_params_per_player; verbo
 
 	θs = Dict{Int, Any}()
 	for idx in 1:length(num_params_per_player)
-		verbose && @info "Setting up symbolic parameter variable θ with dimension $num_params_per_player[idx]".
-		make_symbolic_variable(:θ, idx)
+		verbose && @info "Setting up symbolic parameter variable θ with dimension $num_params_per_player[idx]."
 		θs[idx] = SymbolicTracingUtils.make_variables(backend, make_symbolic_variable(:θ, idx), num_params_per_player[idx])
 	end
 	return θs
@@ -149,7 +148,7 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, param
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						    player's decision variable zᵢ.
-	θs (Dict{Int, Any}}) : A dictionary of symbolic parameter variables for each player.
+	θs (Dict{Int, Any}) : A dictionary of symbolic parameter variables for each player.
 	parameter_values (Dict{Int, Float64}) : A dictionary of values to assign to the parameters θ in the problem (default: 1e-5).
 	verbose (Bool) : Whether to print verbose output (default: false).
 
@@ -166,8 +165,6 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, param
 	N = nv(graph)
 
 	# Construct symbols for each player's decision variables.
-	# TODO: Compute the number of initial states by player.
-	num_params = sum(length.(Ref(θs)))
 	(; all_variables, zs, λs, μs, ws, ys) = setup_problem_variables(H, graph, primal_dimension_per_player, gs; verbose)
 
 	πs, _, _, _ = get_lq_kkt_conditions(graph, Js, zs, λs, μs, gs, ws, ys, θs)

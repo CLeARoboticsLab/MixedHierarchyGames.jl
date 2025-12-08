@@ -19,7 +19,7 @@ function make_symbolic_variable(args...)
 
     if variable_name in [:x] && num_items == 2 # Just :x
         return Symbol(variable_name_str * time_str)
-    elseif variable_name in [:θ] && num_items == 2 # Just :x
+    elseif variable_name in [:θ] && num_items == 2 # Just :θ, which has no time component in general
         return Symbol(variable_name_str * "^" * string(args[2]))
     elseif variable_name in [:u, :λ, :z, :M, :N, :K, :θ] && num_items == 3
        return Symbol(variable_name_str * "^" * string(args[2]) * time_str)

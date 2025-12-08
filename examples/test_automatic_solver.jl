@@ -122,14 +122,12 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	for ii in reverse(topological_sort(graph))
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
-		# augmented_variables = all_augmented_variables[ii]
 		if has_leader(graph, ii)
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
 					# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
 					augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
 					augmented_z_est = vcat(z_est, augmented_z_est...)
-					# augmented_z_est = [z_est; K_evals[jj] for jj in collect(BFSIterator(graph, ii))[2:end]]
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
@@ -153,7 +151,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
-	# augmented_z_est = vcat(z_est, all_K_evals_vec)
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 end
 
@@ -253,7 +250,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
-	θs (Vector{Num}} : A vector of parameter symbols.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	backend (SymbolicTracingUtils.SymbolicsBackend, optional) : The symbolic backend to use for variable creation (default: SymbolicTracingUtils.SymbolicsBackend()).
 	to (TimerOutput, optional) : TimerOutput object for profiling (default: new TimerOutput()).
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
@@ -281,7 +278,6 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		zs = problem_vars.zs
 		λs = problem_vars.λs
 		μs = problem_vars.μs
-		# θ = problem_vars.θ
 		ws = problem_vars.ws
 		ys = problem_vars.ys
 	end
@@ -292,12 +288,12 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		πs = setup_info.πs
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
-			π_sizes = setup_info.π_sizes
+		π_sizes = setup_info.π_sizes
 
-			all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
-			θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
-			θ_syms_flat = vcat([θs[i] for i in θ_order]...)
-			all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
+		all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		θ_syms_flat = vcat([θs[i] for i in θ_order]...)
+		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
 
 		# Set up a function to evaluate the K matrices using only z.
 		function compute_Ks_with_z(z)
@@ -439,7 +435,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 	θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
 	θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
 
-	# Helper to compute params (θ, K) for a given z.
+	# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
 	function params_for_z(z)
 		all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
 		param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
@@ -486,11 +482,11 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 				for ii in 1:10
 					next_z_est = z_est .+ α * dz_sol
 					# Recompute params at the trial point.
-					param_eval_vec_kp1, _ = params_for_z(next_z_est)
+					param_eval_vec_kp1, all_K_evals_vec_kp1 = params_for_z(next_z_est)
 					mcp_obj.f!(F_eval, next_z_est, param_eval_vec_kp1)
 					if norm(F_eval) < norm(F_eval_linsolve)
 						param_eval_vec = param_eval_vec_kp1
-						all_K_evals_vec = param_eval_vec_kp1[length(θ_vals_vec)+1:end]
+						all_K_evals_vec = all_K_evals_vec_kp1
 						break
 					else
 						α *= 0.5
@@ -514,7 +510,9 @@ end
 
 
 # TODO: Add a new function that only runs the non-lq solver.
-function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false)
+function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
+	z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false,
+	backend=SymbolicTracingUtils.SymbolicsBackend())
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -527,7 +525,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
-	θs (Vector{Num}} : A vector of parameter symbols.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
 										   If not provided, defaults to a zero vector.
 	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
@@ -556,7 +554,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 	to = TimerOutput()
 
 	# Get preoptimized info.
-	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend, verbose, to)
+	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend=backend, verbose=verbose, to=to)
 
 	# If specified, use the preoptimization timing information. Else, make a new one.
 	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
@@ -606,8 +604,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	end
 
 	# Ensure that the solutions are the same for the LQ solver and the non-LQ solver on an LQ example.
-	# @assert isapprox(z_sol_nonlq, z_sol_lq, atol=1e-4)
-	println("\n",z_sol_nonlq - z_sol_lq |> norm)
+	@assert isapprox(z_sol_nonlq, z_sol_lq, atol=1e-4)
 	if verbose
 		is_same_solution = isapprox(z_sol_nonlq, z_sol_lq, atol = 1e-4)
 		@info "LQ status: $status_lq \nDo the LQ and non-LQ solver produce the same solution? > $is_same_solution)"
@@ -626,7 +623,7 @@ x0 = [
 ###############################################################
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=true, verbose = false, show_timing_info=false)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -707,10 +704,10 @@ function nplayer_hierarchy_navigation(x0; run_lq=true, verbose = false, show_tim
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
 
 	# Evaluate the solution against the KKT conditions (or approximate KKT conditions for non-LQ).
-		if run_lq
-			evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
-		end
-		evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
+	if run_lq
+		evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
+	end
+	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
 
 
 	# Plot the trajectories.
