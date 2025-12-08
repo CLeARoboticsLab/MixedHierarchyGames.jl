@@ -366,7 +366,6 @@ function main(verbose = false)
 	println()
 	@info "Agent costs" costs=costs
 
-
 	# Plot the trajectories of each player.
 	plot_player_trajectories(z_sols, T, Δt, problem_dims)
 

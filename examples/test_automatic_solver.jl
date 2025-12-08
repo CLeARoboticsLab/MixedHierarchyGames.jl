@@ -556,7 +556,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 	to = TimerOutput()
 
 	# Get preoptimized info.
-	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; verbose, to)
+	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend, verbose, to)
 
 	# If specified, use the preoptimization timing information. Else, make a new one.
 	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
@@ -564,13 +564,14 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 	# Run the non-LQ solver.
 	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
 		H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
-		preoptimization_info, max_iters, tol=1e-3, verbose, to,
+		preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
+		tol=1e-3, verbose=verbose, to=to,
 	)
 
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
 
-function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose = false)
+function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, backend=SymbolicTracingUtils.SymbolicsBackend(); verbose = false)
 	"""
 	We can only run this comparison on an LQ game, or it will error.
 	"""
@@ -578,7 +579,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	# Run our solver through the run_lq_solver call.
 	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θs), all_augmented_vars = run_nonlq_solver(
 		H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
-		tol=1e-3, verbose,
+		backend=backend, tol=1e-3, verbose=verbose,
 	)
 	
 	verbose && @info("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
@@ -682,7 +683,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=true, verbose = false, show_tim
 	# Solve the game using our non-LQ solver. Use initial states as the parameter value vector.
 	parameter_values = x0_vecs
 	if run_lq
-		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
+		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values, backend; verbose)
 	else
 		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
 		println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")

@@ -240,7 +240,8 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - extractor * K_syms[jj] * ys[jj])
+			Φʲ = -extractor * K_syms[jj] * ys[jj]
+			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
 		# Compute the KKT conditions [∇ᵢπᵢ; ⋯; ∇ⱼπᵢ; ⋯; gᵢ(zᵢ)] based on the Lagrangians.
