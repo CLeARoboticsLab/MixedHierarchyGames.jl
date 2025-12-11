@@ -30,7 +30,9 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	# Create list of symbolic output expressions.
 	all_πs = Vector{Symbolics.Num}(vcat([πs[ii] for ii in order]...))
 
-	θ_vec = vcat([θs[ii] for ii in order]...)
+	# Flatten θ to match the ordering of πs.
+	θ_order = order
+	θ_vec = vcat([θs[ii] for ii in θ_order]...)
 	all_vars_and_params = vcat(all_variables, θ_vec)
 
 	# Build the in-place version of the function.
@@ -39,9 +41,17 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	# Allocate output storage (same size as all_πs).
 	π_eval = similar(all_πs, Float64)
 
-	# Evaluate in place
-	per_player_param_vals = [parameter_values[ii] for ii in order]
-	param_vals_vec = vcat(per_player_param_vals...)
+	# Evaluate in place. Normalize parameter_values to match θ_order.
+	param_per_player = if parameter_values isa AbstractDict
+		[parameter_values[ii] for ii in θ_order]
+	elseif parameter_values isa AbstractMatrix
+		[collect(@view parameter_values[i, :]) for i in 1:size(parameter_values, 1)]
+	elseif parameter_values isa AbstractVector{<:AbstractVector}
+		parameter_values
+	else
+		error("parameter_values must be a Dict, matrix, or vector-of-vectors; got $(typeof(parameter_values))")
+	end
+	param_vals_vec = vcat(param_per_player...)
 
 	π_fns!(π_eval, vcat(z_sol, param_vals_vec))
 

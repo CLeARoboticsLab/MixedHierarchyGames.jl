@@ -134,7 +134,6 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				zero_subs = Dict(v => 0. for v in vars)
 				π_at_zero = Symbolics.substitute.(πs[ii], Ref(zero_subs))
 				ks[ii] = Ms[ii] \ π_at_zero
-				# ks[ii] = zeros(length(Ms[ii] \ π_at_zero))
 				println("π(0), ks[$ii] computed at zero substitution: ", norm(π_at_zero), " ", norm(ks[ii]))
 			end
 		end
@@ -211,6 +210,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 	π_sizes = Dict{Int, Any}()
 
 	K_syms = Dict{Int, Any}()
+	k_syms = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 
 	M_fns = Dict{Int, Any}()
@@ -237,8 +237,14 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				make_symbolic_variable(:K, ii, H),
 				length(ws[ii]) * length(ys[ii]),
 			), length(ws[ii]), length(ys[ii]))
+			k_syms[ii] = reshape(SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:k, ii, H),
+				length(ws[ii]),
+			), length(ws[ii]))
 		else
 			K_syms[ii] = Symbolics.Num[]
+			k_syms[ii] = Symbolics.Num[]
 		end
 
 		# Build the Lagrangian using these variables.
@@ -251,7 +257,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Φʲ = - extractor * K_syms[jj] * ys[jj]
+			Φʲ = - extractor * (K_syms[jj] * ys[jj] + k_syms[jj])
 			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
@@ -291,8 +297,12 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 		end
 	end
 
-	# Identify all augmented variables.
-	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
+	# Identify all augmented variables (include symbolic K and k so evaluations align with returned numeric vectors).
+	out_all_augmented_variables = vcat(
+		all_variables,
+		vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...,
+		vcat(map(ii -> reshape(k_syms[ii], :), 1:N))...,
+	)
 
-	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_fns=π_fns, π_sizes=π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, k_syms=k_syms, M_fns=M_fns, N_fns=N_fns, π_fns=π_fns, π_sizes=π_sizes)
 end
