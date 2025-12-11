@@ -187,12 +187,10 @@ function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
 					# πs[ii] is a vector of expressions; gather variables from each entry.
 					vars_in_pi = unique!(reduce(vcat, Symbolics.get_variables.(πs[ii])))
 					vars_in_pi_set = Set(vars_in_pi)
-					# println(length(vars_in_pi), πs[ii])
 					idx_lookup = Dict(v => j for (j, v) in enumerate(all_variables))
 
 					# Map each symbol to its current numeric value from z_est (and later θ/K/k).
 					vals = Dict{Any, Any}()
-					# println(vars_in_pi)
 					for v in vars_in_pi
 						haskey(idx_lookup, v) && (vals[v] = z_est[idx_lookup[v]])
 					end
@@ -228,13 +226,10 @@ function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
 						end
 					end
 
-					# println(length(πs[ii]), " ", length(vals))
 					π_eval = Symbolics.substitute.(πs[ii], Ref(vals))
-					# println(π_eval)
 					# Evaluate any symbolic constants before casting to Float64.
 					π_eval_num = Float64.(Symbolics.value.(π_eval))
 
-					# println(length(ws[ii]), length(z_est), println(π_fns[ii](augmented_z_est)))
 					k_evals[ii] = M_evals[ii] \ π_eval_num
 				end
 			end
@@ -252,10 +247,6 @@ function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
 	all_k_evals_vec = vcat(map(ii -> reshape(@something(k_evals[ii], Float64[]), :), 1:nv(graph))...)
-	# all_K_evals_vec = vcat(all_K_evals_vec, map(ii -> reshape(@something(k_evals[ii], Float64[]), :), 1:nv(graph))...)
-	#l_K_evals_vec, k_evals[ii])
-	# augmented_z_est = vcat(z_est, all_K_evals_vec)
-	# return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 	return vcat(all_K_evals_vec, all_k_evals_vec), (; M_evals, N_evals, K_evals, k_evals, to)
 end
 
