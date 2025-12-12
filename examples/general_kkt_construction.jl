@@ -24,7 +24,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	gs (Vector{Function}) : A vector of equality constraint functions for each player.
 	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
 	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
-	θ (Num) : The parameter symbol.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	verbose (Bool) : Whether to print verbose output (default: false).
 	to (TimerOutput) : A TimerOutput object for performance profiling (default: TimerOutput()).
 
@@ -125,7 +125,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
 				Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
 
-				Ks[ii] = - Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
+				Ks[ii] = Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
 			end
 		end
 	end
@@ -158,7 +158,7 @@ function construct_augmented_variables(ii, all_variables, K_syms, G)
 end
 
 
-function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
+function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend; to=TimerOutput(), verbose = false)
 	"""
 	Precomputes symbolic KKT conditions, and functions for evaluating M and N matrices for each player in the game.
 
@@ -176,7 +176,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 	gs (Vector{Function}) : A function returning vector of equality constraint functions for each player.
 	ws (Dict{Int, Vector{Num}}) : A dictionary of each player's remaining variable symbols (decision output).
 	ys (Dict{Int, Vector{Num}}) : A dictionary of each player's information variable symbols (decision input).
-	θ (Num) : The parameter symbol.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	all_variables (Vector{Num}}) : A vector of all symbolic variables in the game.
 	backend : The symbolic backend to use for constructing symbolic variables and functions.
 	to (TimerOutput) : A TimerOutput object for performance profiling (default: TimerOutput()).
@@ -231,7 +231,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 		end
 
 		# Build the Lagrangian using these variables.
-		Lᵢ = Js[ii](zs..., θ) - λs[ii]' * gs[ii](zs[ii])
+		Lᵢ = Js[ii](zs..., θs[ii]) - λs[ii]' * gs[ii](zs[ii])
 		for jj in BFSIterator(G, ii)
 			if ii == jj
 				continue
@@ -240,7 +240,8 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θ, all_v
 			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - extractor * K_syms[jj] * ys[jj])
+			Φʲ = - extractor * K_syms[jj] * ys[jj]
+			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
 		# Compute the KKT conditions [∇ᵢπᵢ; ⋯; ∇ⱼπᵢ; ⋯; gᵢ(zᵢ)] based on the Lagrangians.

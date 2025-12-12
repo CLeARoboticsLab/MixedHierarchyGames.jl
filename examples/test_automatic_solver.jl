@@ -85,6 +85,39 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	return z_sol, F, linsolve_status
 end
 
+function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
+	followers = get!(follower_order_cache, ii) do
+		collect(BFSIterator(graph, ii))[2:end]
+	end
+
+	aug_len = length(z_est)
+	for jj in followers
+		kj = K_evals[jj]
+		aug_len += isnothing(kj) ? 0 : length(kj)
+	end
+
+	buf = get!(buffer_cache, ii) do
+		Vector{Float64}(undef, aug_len)
+	end
+	if length(buf) != aug_len
+		resize!(buf, aug_len)
+	end
+
+	copyto!(buf, 1, z_est, 1, length(z_est))
+	offset = length(z_est) + 1
+	for jj in followers
+		kj = K_evals[jj]
+		if isnothing(kj)
+			continue
+		end
+		flat = reshape(kj, :)
+		copyto!(buf, offset, flat, 1, length(flat))
+		offset += length(flat)
+	end
+
+	buf
+end
+
 function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	"""
 	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
@@ -120,17 +153,20 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	N_evals = Dict{Int, Any}()
 	K_evals = Dict{Int, Any}()
 
+	# Cache follower ordering and augmented buffers to reduce allocations.
+	follower_order_cache = Dict{Int, Vector{Int}}()
+	buffer_cache = Dict{Int, Vector{Float64}}()
+
 	for ii in reverse(topological_sort(graph))
 		# TODO: optimize: we can use one massive augmented vector if we include dummy values for variables we don't have yet.
 		# Get the list of symbols we need values for.
-		# augmented_variables = all_augmented_variables[ii]
 		if has_leader(graph, ii)
 			@timeit to "[Compute K Evals] Player $ii" begin
 				@timeit to "[Make Augmented z]" begin
 					# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
-					augmented_z_est = map(jj -> reshape(K_evals[jj], :), collect(BFSIterator(graph, ii))[2:end]) # skip ii itself
-					augmented_z_est = vcat(z_est, augmented_z_est...)
-					# augmented_z_est = [z_est; K_evals[jj] for jj in collect(BFSIterator(graph, ii))[2:end]]
+					# For small numbers of variables, this caching may not help much with runtime.
+					# TODO: Use this only when the number of variables reaches a sufficient size where it will matter.
+					augmented_z_est = _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
@@ -154,7 +190,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
-	# augmented_z_est = vcat(z_est, all_K_evals_vec)
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 end
 
@@ -241,7 +276,7 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	return α, success
 end
 
-function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; backend=SymbolicTracingUtils.SymbolicsBackend(), to=TimerOutput(), verbose=false)
+function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend=SymbolicTracingUtils.SymbolicsBackend(), to=TimerOutput(), verbose=false)
 	"""
 	Precomputes and sets up the necessary components for solving a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -254,6 +289,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs;
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	backend (SymbolicTracingUtils.SymbolicsBackend, optional) : The symbolic backend to use for variable creation (default: SymbolicTracingUtils.SymbolicsBackend()).
 	to (TimerOutput, optional) : TimerOutput object for profiling (default: new TimerOutput()).
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
@@ -281,20 +317,22 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs;
 		zs = problem_vars.zs
 		λs = problem_vars.λs
 		μs = problem_vars.μs
-		θ = problem_vars.θ
 		ws = problem_vars.ws
 		ys = problem_vars.ys
 	end
 
 	@timeit to "Precomputation of KKT Jacobians" begin
-		out_all_augment_variables, setup_info = setup_approximate_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θ, all_variables, backend; to=TimerOutput(), verbose = false)
+		out_all_augment_variables, setup_info = setup_approximate_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend; to=TimerOutput(), verbose = false)
 		K_syms = setup_info.K_syms
 		πs = setup_info.πs
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
+		π_sizes = setup_info.π_sizes
 
 		all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
-		π_sizes = setup_info.π_sizes
+		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		θ_syms_flat = vcat([θs[i] for i in θ_order]...)
+		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
 
 		# Set up a function to evaluate the K matrices using only z.
 		function compute_Ks_with_z(z)
@@ -313,24 +351,24 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs;
 
 	@timeit to "[Linear Solve] Setup ParametricMCP" begin
 		# Final MCP vector: leader stationarity + leader constraints + follower KKT
-		F_sym = Vector{symbolic_type}([
-			vcat(collect(values(πs))...)..., # KKT conditions of all players
-		])
+		π_order = sort(collect(keys(πs)))
+		F_sym = Symbolics.Num.(vcat([πs[i] for i in π_order]...))  # flattened in deterministic order
 
 		z̲ = fill(-Inf, length(F_sym));
 		z̅ = fill(Inf, length(F_sym))
 
 		# Form mcp via ParametricMCP initialization.
 		@info "$(length(all_variables)) variables, $(length(F_sym)) conditions"
-		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, all_K_syms_vec, z̲, z̅; compute_sensitivities = false)
+		params_syms_vec = Symbolics.Num.(all_param_syms_vec)
+		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, params_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
 
 	return (;problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, to, backend)
 end
 
 
-function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess=nothing; 
-						  parameter_value = 1e-5, max_iters = 30, tol = 1e-6, verbose = false,
+function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess=nothing; 
+						  max_iters = 30, tol = 1e-6, verbose = false,
 						  ls_α_init=1.0, ls_β=0.5, ls_c₁=1e-4, max_ls_iters=10,
 						  to = TimerOutput(), backend=SymbolicTracingUtils.SymbolicsBackend(),
 						  preoptimization_info=nothing)
@@ -393,131 +431,133 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_gues
 	out_all_augmented_z_est = nothing
 
 	if isnothing(preoptimization_info)
-		# If we don't have preoptimization info, then run the preoptimization step now.
-		preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; backend, to, verbose)
+		@timeit to "[Non-LQ Solver][Preoptimization]" begin
+			# If we don't have preoptimization info, then run the preoptimization step now.
+			preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend, to, verbose)
+		end
 	end
 
-	# Unpack preoptimization info - variables.
-	problem_vars = preoptimization_info.problem_vars
-	all_variables = preoptimization_info.all_variables
-	zs = problem_vars.zs
-	λs = problem_vars.λs
-	μs = problem_vars.μs
-	θ = problem_vars.θ
+	@timeit to "[Non-LQ Solver][Setup]" begin
+		# Unpack preoptimization info - variables.
+		problem_vars = preoptimization_info.problem_vars
+		all_variables = preoptimization_info.all_variables
+		zs = problem_vars.zs
+		λs = problem_vars.λs
+		μs = problem_vars.μs
 
-	# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
-	setup_info = preoptimization_info.setup_info
-	πs = setup_info.πs
-	K_syms = setup_info.K_syms
-	M_fns = setup_info.M_fns
-	N_fns = setup_info.N_fns
+		# Unpack preoptimization info - Symbolic KKT conditions and evaluation functions.
+		setup_info = preoptimization_info.setup_info
+		πs = setup_info.πs
+		K_syms = setup_info.K_syms
+		M_fns = setup_info.M_fns
+		N_fns = setup_info.N_fns
 
-	# Set up solver objects and functions.
-	mcp_obj = preoptimization_info.mcp_obj
-	F = preoptimization_info.F_sym
-	linsolver = preoptimization_info.linsolver
-	compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
+		# Set up solver objects and functions.
+		mcp_obj = preoptimization_info.mcp_obj
+		F = preoptimization_info.F_sym
+		linsolver = preoptimization_info.linsolver
+		compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
 
-	# Set up variables for augmented in/output.
-	out_all_augment_variables = preoptimization_info.out_all_augment_variables
-	out_all_augmented_z_est = nothing
+		# Set up variables for augmented in/output.
+		out_all_augment_variables = preoptimization_info.out_all_augment_variables
+		out_all_augmented_z_est = nothing
 
-	# Initial guess for primal and dual variables.
-	z_est = @something(z0_guess, zeros(length(all_variables)))
+		# Initial guess for primal and dual variables.
+		z_est = @something(z0_guess, zeros(length(all_variables)))
 
-	# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
-	num_iterations = 0
+		# Set up variables used for tracking number of iterations, convergence, and status in solver loop.
+		num_iterations = 0
 
-	# These (nonsensical) values should never be returned or it indicates a bug.
-	convergence_criterion = Inf
-	nonlq_solver_status = :BUG_unspecified
-	F_eval = similar(F, Float64)
+		# These (nonsensical) values should never be returned or it indicates a bug.
+		convergence_criterion = Inf
+		nonlq_solver_status = :BUG_unspecified
+		F_eval = similar(F, Float64)
+
+		θ_order = 1:length(θs)
+		θ_vals_vec = vcat([parameter_values[k] for k in θ_order]...)
+
+		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
+		function params_for_z(z)
+			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
+			return param_eval_vec, all_K_evals_vec
+		end
+	end
 
 	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
-	# 1. The solution has converged.
-	# 2. The max number of iterations is reached.
-	# The algorithm always at least checks if the provided guess is a solution.
 	while true
-		@timeit to "[Non-LQ Solver][Iterative Loop]" begin
+		
+		@timeit to "[Non-LQ Solver][Iterative Loop incl. Early Termination]" begin
 
-			# Compute the numeric K_evals for each player based on the current guess for z.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Evaluate K Numerically]" begin
-				all_K_evals_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
+				param_eval_vec, all_K_evals_vec = params_for_z(z_est)
 			end
 
-			# Check termination condition 1: convergence before starting the next iteration.
 			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
-				mcp_obj.f!(F_eval, z_est, all_K_evals_vec)
+				mcp_obj.f!(F_eval, z_est, param_eval_vec)
 				convergence_criterion = norm(F_eval)
 				@info("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				if convergence_criterion < tol
-					# Handle the case where max_iters is set to 0 by checking whether the guess is optimal and then returning.
 					nonlq_solver_status = (num_iterations > 0) ? :solved : :solver_not_run_but_z0_optimal
 					break
 				end
 			end
-
-			# Check termination condition 2: max number of iterations reached.
-			if num_iterations >= max_iters
-				nonlq_solver_status = :max_iters_reached
-				break
-			end
-
-			# Update the number of iterations after we check for convergence of the previous iteration.
-			num_iterations += 1
-
-			# TODO: F_eval is compute multiple times in each loop (in this call, above, linesearch). Optimize if needed.
-			@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
-				dz_sol, F_eval_linsolve, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z_est; to)
-			end
-
-			# If there is a linear solver failure, then exit the loop and return a failure status.
-			if linsolve_status != :solved
-				nonlq_solver_status = :linear_solver_error
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
-				break
-			end
-
-			# Update the estimate.
-			# TODO: Using a constant step size. Add a line search here since we see oscillation.
-			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
-				α = 1.
-				for ii in 1:10
-					next_z_est = z_est .+ α * dz_sol
-
-					# This line recomputes K at each step size, which is correct but inefficient. Uncomment if we want it.
-					# all_Ks_vec_kp1 = compute_Ks_with_z(next_z_est)
-
-					# Check if the merit function decreases; currently, we use an outdated version of K.
-					mcp_obj.f!(F_eval, next_z_est, all_K_evals_vec)
-					if norm(F_eval) < norm(F_eval_linsolve)
-						break
-					else
-						α *= 0.5
-					end
+		
+			@timeit to "[Non-LQ Solver][Iterative Update Loop]" begin
+				if num_iterations >= max_iters
+					nonlq_solver_status = :max_iters_reached
+					break
 				end
-				# α = 1. / (num_iterations+1) # Diminishing step size
-				# α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to, α_init=ls_α_init, β=ls_β, c₁=ls_c₁, max_ls_iters=max_ls_iters)
-				next_z_est = z_est .+ α * dz_sol
+
+				num_iterations += 1
+
+				@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
+					dz_sol, F_eval_linsolve, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, param_eval_vec, z_est; to)
+				end
+
+				if linsolve_status != :solved
+					nonlq_solver_status = :linear_solver_error
+					@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+					break
+				end
+
+				@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
+					α = 1.
+					for ii in 1:10
+						next_z_est = z_est .+ α * dz_sol
+						# Recompute params at the trial point.
+						param_eval_vec_kp1, all_K_evals_vec_kp1 = params_for_z(next_z_est)
+						mcp_obj.f!(F_eval, next_z_est, param_eval_vec_kp1)
+						if norm(F_eval) < norm(F_eval_linsolve)
+							param_eval_vec = param_eval_vec_kp1
+							all_K_evals_vec = all_K_evals_vec_kp1
+							break
+						else
+							α *= 0.5
+						end
+					end
+					next_z_est = z_est .+ α * dz_sol
+				end
+
+				# Update the current estimate.
+				z_est = next_z_est
+
+				# Compile all numerical values that we used into one large vector (for this iteration only).
+				out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
 			end
-
-			# Update the current estimate.
-			z_est = next_z_est
-
-			# Compile all numerical values that we used into one large vector (for this iteration only).
-			# TODO: Compile for multiple iterations later.
-			out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
 		end
 	end
 
 	# TODO: Redo to add more general output.
 	info = (;num_iterations, final_convergence_criterion=convergence_criterion, to)
-	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θ), (;out_all_augment_variables, out_all_augmented_z_est)
+	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θs), (;out_all_augment_variables, out_all_augmented_z_est)
 end
 
 
 # TODO: Add a new function that only runs the non-lq solver.
-function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs; z0_guess=nothing, parameter_value = 1e-5, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false)
+function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
+	z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false,
+	backend=SymbolicTracingUtils.SymbolicsBackend(), multiple_runs=1, exclude_jit_timing=true)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -530,6 +570,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 							   accepting each player's decision variables, z₁, z₂, ..., zₙ, and the parameter θ.
 	gs (Vector{Function}) : A vector of equality constraint functions for each player, accepting only that
 						  	player's decision variable.
+	θs (Dict{Int, Vector{Num}}) : The parameters symbols.
 	z0_guess (Vector{Float64}, optional) : An optional initial guess for the decision variables.
 										   If not provided, defaults to a zero vector.
 	parameter_value (Float64, optional) : Numeric value to substitute for the symbolic parameter θ (default: 1e-5).
@@ -558,26 +599,56 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs;
 	to = TimerOutput()
 
 	# Get preoptimized info.
-	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; verbose, to)
+	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend=backend, verbose=verbose, to=to)
+
+	# Optional warmup to trigger compilation before timed solve.
+	z_sol, status, info, all_variables, vars, augmented_vars = nothing, nothing, nothing, nothing, nothing, nothing
+	if !exclude_jit_timing
+		# z0 = zeros(length(preoptimization_info.all_variables))
+		# θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		# θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
+		# K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info)
+		# param0 = vcat(θ_vals_vec, K0)
+		# mcp = preoptimization_info.mcp_obj
+		# Fbuf = similar(preoptimization_info.F_sym, Float64)
+		# Jbuf = mcp.jacobian_z!.result_buffer
+		# mcp.f!(Fbuf, z0, param0)
+		# mcp.jacobian_z!(Jbuf, z0, param0)
+		z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
+				H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
+				preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
+				tol=1e-3, verbose=verbose
+			)
+	end
 
 	# If specified, use the preoptimization timing information. Else, make a new one.
 	to = include_preoptimization_timing ? preoptimization_info.to : TimerOutput()
 
 	# Run the non-LQ solver.
-	# duals_guess = zeros(length(preoptimization_info.all_variables) - sum(primal_dimension_per_player))
-	# z0_guess = vcat(rand(sum(primal_dimension_per_player)), duals_guess)
-	z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, z0_guess; preoptimization_info, parameter_value, max_iters, tol=1e-3, verbose, to)
+	z_sol, status, info, all_variables, vars, augmented_vars = nothing, nothing, nothing, nothing, nothing, nothing
+	for i in 1:multiple_runs
+		@timeit to "[Call to Non-LQ Solver]" begin
+			z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
+				H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
+				preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
+				tol=1e-3, verbose=verbose, to=to,
+			)
+		end
+	end
 
 	return z_sol, status, info, all_variables, vars, augmented_vars
 end
 
-function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; parameter_value = 1e-5, verbose = false)
+function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, backend=SymbolicTracingUtils.SymbolicsBackend(); verbose = false)
 	"""
 	We can only run this comparison on an LQ game, or it will error.
 	"""
 
 	# Run our solver through the run_lq_solver call.
-	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars = run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs; tol=1e-3, parameter_value, verbose)
+	z_sol_nonlq, status_nonlq, info_nonlq, all_variables, (; πs, zs, λs, μs, θs), all_augmented_vars = run_nonlq_solver(
+		H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
+		backend=backend, tol=1e-3, verbose=verbose,
+	)
 	
 	verbose && @info("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
 
@@ -586,16 +657,16 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 	lq_zs = lq_vars.zs
 	lq_λs = lq_vars.λs
 	lq_μs = lq_vars.μs
-	lq_θ = lq_vars.θ
+	# lq_θ = lq_vars.θ
 	lq_ws = lq_vars.ws
 	lq_ys = lq_vars.ys
 
 	to1 = TimerOutput()
 	@timeit to1 "LQ KKT Condition Gen" begin
-		lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, lq_θ)
+		lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, θs)
 	end
 	@timeit to1 "LQ KKT Condition Solve" begin
-		z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, lq_θ, parameter_value; verbose)
+		z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, θs, parameter_values; verbose)
 	end
 	info_lq = (; πs = lq_πs)
 	if verbose
@@ -609,7 +680,7 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 		@info "LQ status: $status_lq \nDo the LQ and non-LQ solver produce the same solution? > $is_same_solution)"
 	end
 
-	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, (; πs, zs, λs, μs, θ), all_augmented_vars
+	z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, (; πs, zs, λs, μs, θs), all_augmented_vars
 end
 
 
@@ -622,7 +693,7 @@ x0 = [
 ###############################################################
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_timing_info=false)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -646,7 +717,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	# Set up the problem.
 	T = 10
 	Δt = 0.1
-	N, G, H, problem_dims, Js, gs = get_three_player_openloop_lq_problem(T, Δt, x0; verbose)
+	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
 	primal_dimension_per_player = problem_dims.primal_dimension_per_player
 	state_dimension = problem_dims.state_dimension
@@ -655,7 +726,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	# Modify P2's objective function to be nonlinear unless we are running an LQ game.
 	if !run_lq
 		# Player 2's objective function: P2 wants P1 and P3 to get to the origin
-		function J₂_quartic(z₁, z₂, z₃, θ)
+		function J₂_quartic(z₁, z₂, z₃, θi)
 			(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 			xs³, us³ = xs, us
 			(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -672,7 +743,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	go_to_goal(x; g) = norm(x - g)^2
 
 	# Pursuer
-	Js[1] = (z₁, z₂, z₃, θ) -> begin
+	Js[1] = (z₁, z₂, z₃, θi) -> begin
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -687,7 +758,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 	end
 
 	# Protector
-	Js[2] = (z₁, z₂, z₃, θ) -> begin
+	Js[2] = (z₁, z₂, z₃, θi) -> begin
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -703,7 +774,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 
 	# VIP
 	x_goal = [0.0; 0.0]
-	Js[3] = (z₁, z₂, z₃, θ) -> begin
+	Js[3] = (z₁, z₂, z₃, θi) -> begin
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
@@ -727,18 +798,19 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 		"  Dimension per player: $(primal_dimension_per_player)\n" *
 		"  Total primal dimension: $(problem_dims.total_dimension)"
 
-	# Solve the game using our non-LQ solver.
-	parameter_value = 1e-5
+	# Solve the game using our non-LQ solver. Use initial states as the parameter value vector.
+	parameter_values = x0_vecs
 	if run_lq
-		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values, backend; verbose)
 	else
-		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs; parameter_value, verbose)
+		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
+		println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
 		if show_timing_info
 			show(info_nonlq.to)
 		end
 	end
 	z_sol = z_sol_nonlq
-	(; πs, zs, λs, μs, θ) = vars
+	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
 	z₁ = zs[1]
@@ -754,9 +826,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 
 	# Evaluate the solution against the KKT conditions (or approximate KKT conditions for non-LQ).
 	if run_lq
-		evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θ, parameter_value; verbose = verbose)
+		evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
 	end
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θ, parameter_value; verbose = verbose)
+	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
 
 
 	# Plot the trajectories.
@@ -764,6 +836,13 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose = false, show_ti
 
 	# Print solution information.
 	verbose && print_solution_info(z_sols, Js, problem_dims)
+
+	# Report objective value for each agent at the solved trajectories.
+	# Note: in this example, there are no parameters in the objectives, so we pass `nothing`.
+	costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
+	println()
+	@info "Agent costs" costs=costs
+
 
 	###################OUTPUT: next state, current control ######################
 	next_state, curr_control = construct_output(z_sols, problem_dims)

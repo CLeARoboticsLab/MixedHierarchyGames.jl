@@ -16,6 +16,26 @@ def julia_init():
     # Go up to the main project root: ros2/src/multi_robot_controller/multi_robot_controller -> main project
     project_root = str(Path(__file__).resolve().parents[4])
     time_start = time.perf_counter()
+    
+    # Pre-load OpenSSL_jll to use system OpenSSL libraries
+    # Set environment variable first, then load OpenSSL_jll before any other packages
+    Main.eval("""
+        ENV["JULIA_SSL_LIBRARY"] = "system"
+        # Clear any incompatible artifacts that might have been downloaded
+        try
+            import Pkg
+            Pkg.Artifacts.clear_artifacts!()
+        catch e
+            @warn "Artifact clear failed" exception=e
+        end
+        # Load OpenSSL_jll with system libraries
+        try
+            using OpenSSL_jll
+        catch e
+            @warn "OpenSSL_jll preload failed, continuing anyway" exception=e
+        end
+    """)
+    
     Main.eval(
         f"""
         import Pkg

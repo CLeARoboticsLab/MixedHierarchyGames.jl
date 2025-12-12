@@ -60,7 +60,8 @@ def main():
     # For each initial state, run a receding-horizon loop in Python calling the
     # single-step hardware function once per timestep and updating x0.
     for idx, x0 in enumerate(x0_list):
-        print(f"\n=== RH call {idx} ===")
+        print(f"\n=== receding horizon call with new initial states: {idx} ===")
+        print(f"Initial state: {x0}")
 
         # histories per player
         Nplayers = len(x0)
@@ -138,8 +139,14 @@ def main():
         assert finite_nested(states_hist), "Non-finite values in states"
         assert finite_nested(controls_hist), "Non-finite values in controls"
 
-        print(f"states len: {[len(s) for s in states_hist]}")
-        print(f"controls len: {[len(u) for u in controls_hist]}")
+        # Assert that the initial states are all different (i.e. tests that different initial states are being used via parameters).
+        initial_states = [states_hist[i][0] for i in range(Nplayers)]
+        for i in range(Nplayers):
+            for j in range(i + 1, Nplayers):
+                assert initial_states[i] != initial_states[j], "Initial states are not different."
+
+        print(f"states len: {[s[2] for s in states_hist]}")
+        print(f"controls len: {[u[1] for u in controls_hist]}")
 
     print("\nAll integration calls completed successfully.")
 
