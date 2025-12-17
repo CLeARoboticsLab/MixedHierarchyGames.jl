@@ -57,7 +57,7 @@ def julia_init():
 
     # Build preoptimization once
     time_middle = time.perf_counter()
-    pre = Main.HardwareFunctions.build_lq_preoptimization(10, 0.5, silence_logs=True)
+    pre = Main.HardwareFunctions.build_lq_preoptimization(10, 0.1, silence_logs=True)
     time_end = time.perf_counter()
     print(f"Time taken: {time_end - time_middle} seconds")
     print(f"Preoptimization built successfully")
@@ -69,7 +69,8 @@ def goal_reached(posittion, goal_position, threshold=0.3):
     Check if the robot has reached the goal position within a threshold.
     """
     distance = math.sqrt((posittion[0] - goal_position[0]) ** 2 + (posittion[1] - goal_position[1]) ** 2)
-    return distance < threshold
+    # return distance < threshold
+    return False
 
 
 class MultiRobotController(Node):
@@ -142,11 +143,19 @@ class MultiRobotController(Node):
     def run_planner_step(self):
         if self.latest_odom_01 is None or self.latest_odom_02 is None:
             # only for placeholder
+<<<<<<< HEAD
             time_start = time.perf_counter()
             result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]], self.z_guess)
             time_end = time.perf_counter()
             self.get_logger().info(f"Time taken: {time_end - time_start} seconds")
             # self.get_logger().warn("Waiting for odometry...")
+=======
+            # time_start = time.perf_counter()
+            # result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]])
+            # time_end = time.perf_counter()
+            # self.get_logger().info(f"Time taken: {time_end - time_start} seconds")
+            self.get_logger().warn("Waiting for odometry...")
+>>>>>>> 51f7eaa6fc39795f59ce511795563e11552ff2ed
             return
 
         try:
@@ -169,12 +178,13 @@ class MultiRobotController(Node):
             # result = Main.nplayer_hierarchy_navigation(initial_state)
             result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state, self.z_guess, silence_logs=True)
             
-            # guess should be updated
-
-            # result is (next_state, curr_control)
-            # next_state: [[x1_next], [x2_next], [x3_next]]  
-            # curr_control: [[u1_curr], [u2_curr], [u3_curr]] where ui_curr = [vx, vy]
-            next_states, curr_controls, z_sol = result
+            # Guess should be updated
+            # result is a NamedTuple with fields: x_next, u_curr, z_sol
+            # x_next: [[x1_next], [x2_next], [x3_next]]  
+            # u_curr: [[u1_curr], [u2_curr], [u3_curr]] where ui_curr = [vx, vy]
+            next_states = result.x_next
+            curr_controls = result.u_curr
+            z_sol = result.z_sol
 
             # Update z_guess for warm-starting next iteration.
             self.z_guess = z_sol
@@ -188,6 +198,7 @@ class MultiRobotController(Node):
             u1 = curr_controls[0]  # [vx1, vy1]
             u2 = curr_controls[1]  # [vx2, vy2]
             u3 = curr_controls[2]  # [vx3, vy3]
+            
             
             # Convert [vx, vy] to linear velocity and angular velocity
             v1, omega1 = self.convert_to_cmd_vel(u1[0], u1[1], [state1[0], state1[1]], next_states[0], state1[2])
