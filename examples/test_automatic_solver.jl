@@ -686,9 +686,12 @@ end
 
 ######### INPUT: Initial conditions ##########################
 x0 = [
-	[-5.0; 1.0],
-	[-2.; -2.5], # [px, py]
-	[2.0; -4.0],
+	# [-5.0; 1.0],
+	# [-2.; -2.5], # [px, py]
+	# [2.0; -4.0],
+	[-3.0, 1.0],
+	[-2.0, -2.0],
+	[2.0, -2.0],
 ]
 ###############################################################
 
@@ -753,7 +756,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 
 		# sum(sum((xs³ - xs¹)).^2) 
 		# Main.@infiltrate
-		2sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) - sum(sum((xs²[t] - xs¹[t]).^2 for t in 1:T)) + 1.25*sum(sum(u .^ 2) for u in us¹)
+		2sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) - sum(sum(((xs²[t] - xs¹[t]).^2) for t in 1:T)) + 1.25*sum(sum(u .^ 2) for u in us¹)
 		# sum(stay_close_incentive(xs³[t], xs¹[t]) for t in 1:T) + 0.05*sum(sum(u .^ 2) for u in us¹)
 	end
 
@@ -766,8 +769,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
 		# Main.@infiltrate
-		0.5sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) 
-		-sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) + 0.25*sum(sum(u .^ 2) for u in us²) 
+		0.5sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) - sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) + 0.25*sum(sum(u .^ 2) for u in us²) 
 		#  + repulse_incentive.(xs³, xs¹)      # repulse from pursuer
 			# + 0.05*sum(sum(u .^ 2) for u in us²) # control cost
 	end
@@ -781,8 +783,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 		xs², us² = xs, us
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
-		out = 10*sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) 
-		out += sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
+		out = 10 * sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) + 0.1 * sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
 			# + sum(stay_close_incentive.(xs³, xs²)) # stay close to protector
 			# + 0.05*sum(sum(u .^ 2) for u in us³)   # control cost
 	end
