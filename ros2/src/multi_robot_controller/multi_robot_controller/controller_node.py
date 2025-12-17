@@ -143,7 +143,7 @@ class MultiRobotController(Node):
         if self.latest_odom_01 is None or self.latest_odom_02 is None:
             # only for placeholder
             time_start = time.perf_counter()
-            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]])
+            result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, [[0, 1], [0, 2], [0, 3]], self.z_guess)
             time_end = time.perf_counter()
             self.get_logger().info(f"Time taken: {time_end - time_start} seconds")
             # self.get_logger().warn("Waiting for odometry...")

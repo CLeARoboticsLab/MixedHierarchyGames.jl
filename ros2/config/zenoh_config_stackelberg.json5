@@ -1,0 +1,43 @@
+////
+//// This file presents the default configuration used by both the `zenoh-plugin-ros2dds` plugin and the `zenoh-bridge-ros2dds` standalone executable.
+//// The "ros2" JSON5 object below can be used as such in the "plugins" part of a config file for the zenoh router (zenohd).
+////
+{
+    plugins: {
+      ros2dds: {
+        transient_local_cache_multiplier: 100,
+        allow: {
+           subscribers: ["/bluebonnet/platform/cmd_vel"],
+           publishers: ["/tf", "/tf_static", "/bluebonnet/platform/cmd_vel"],
+	   service_clients: ["/record_audio"],
+        },
+      },
+    },
+    metadata: {
+      name: "bluebonnet",
+    },
+  
+    ////
+    //// mode: The bridge's mode (router, peer or client)
+    //// SET TO 'ROUTER' FOR TESTING BETWEEN TWO DRONES. 
+    //// SET TO 'ROUTER' FOR THE GCS ONLY AND 'CLIENT' FOR ALL DRONES IN
+    //// CENTRALIZED EXPERIMENT, SET TO 'PEERS' FOR DRONES IN DECENTRALIZED
+    //// EXPERIMENTS
+    mode: "peer", 
+    //// mode: "client", 
+  
+    ////
+    //// Which endpoints to connect to. E.g. tcp/localhost:7447.
+    //// By configuring the endpoints, it is possible to tell zenoh which remote router or other zenoh-bridge-ros2dds to connect to at startup.
+    //// SET TO THE OTHER DRONE WHEN TESTING BETWEEN TWO DRONES,
+    //// SET TO THE GCS IN REAL EXPERIMENTS
+    //// I WOULD TRY WITH TCP FIRST AND IF IT DOESN'T WORK WITH THREE DRONES
+    //// I WOULD SWITCH TO UDP
+    connect: {
+      endpoints: [
+        "tcp/192.168.131.3:7447"
+      ]
+    },
+  
+  }
+  

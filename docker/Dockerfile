@@ -64,12 +64,12 @@ ENV PYTHON_PATH=/opt/venv/bin/python
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Install PyCall in default Julia environment (required by PyJulia)
-RUN JULIA_SSL_LIBRARY=system julia --startup-file=no -e "import Pkg; ENV[\"PYTHON\"]=\"${PYTHON_PATH}\"; Pkg.add(\"PyCall\"); Pkg.build(\"PyCall\")" || true
+RUN JULIA_SSL_LIBRARY=system julia --startup-file=no -e "import Pkg; ENV[\"PYTHON\"]=\"${PYTHON_PATH}\"; Pkg.add.(Pkg.PackageSpec.(name = [\"PyCall\", \"OpenSSL_jll\"])); Pkg.build(\"PyCall\")" || true
 
 # Install Julia packages in project
 RUN cd /home/${USER}/workspace && \
     rm -rf ~/.julia/artifacts/* || true && \
-    JULIA_SSL_LIBRARY=system julia --startup-file=no -e "import Pkg; Pkg.activate(\".\"); ENV[\"PYTHON\"]=\"${PYTHON_PATH}\"; Pkg.add(\"PyCall\"); Pkg.build(\"PyCall\"); Pkg.instantiate(); Pkg.precompile()" || true
+    JULIA_SSL_LIBRARY=system julia --startup-file=no -e "import Pkg; Pkg.activate(\".\"); ENV[\"PYTHON\"]=\"${PYTHON_PATH}\"; Pkg.add.(Pkg.PackageSpec.(name = [\"PyCall\", \"OpenSSL_jll\"])); Pkg.build(\"PyCall\"); Pkg.instantiate(); Pkg.precompile()" || true
 
 USER ${USER}
 

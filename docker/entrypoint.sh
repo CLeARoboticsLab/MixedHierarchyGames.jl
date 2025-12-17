@@ -7,6 +7,11 @@ export PATH="/opt/venv/bin:${PATH}"
 # Use system OpenSSL for Julia
 export JULIA_SSL_LIBRARY=system
 
+# Set Cyclone DDS config if not already set
+if [ -z "${CYCLONEDDS_URI:-}" ] && [ -f /home/developer/workspace/ros2/config/cyclonedds.xml ]; then
+    export CYCLONEDDS_URI="file:///home/developer/workspace/ros2/config/cyclonedds.xml"
+fi
+
 # Source ROS 2
 set +u
 if [ -f /opt/ros/jazzy/setup.bash ]; then

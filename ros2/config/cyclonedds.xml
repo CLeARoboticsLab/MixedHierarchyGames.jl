@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config
+https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <General>
+                <Interfaces>
+                        <NetworkInterface name="enp0s31f6" autodetermine="false" priority="default" multicast="default"/>
+                        <NetworkInterface autodetermine="false" priority="default" multicast="default" name="docker0"/>
+                </Interfaces>
+        </General>
+        <Discovery>
+                <ParticipantIndex>none</ParticipantIndex>
+                <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+        </Discovery>
+        <Internal>
+                <SocketReceiveBufferSize min="10MB"/>
+        </Internal>
+    </Domain>
+</CycloneDDS>

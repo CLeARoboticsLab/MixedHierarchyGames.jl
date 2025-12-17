@@ -8,7 +8,7 @@ services:
         GID: ${HOST_GID:-1011}
     image: stackelberg/ros-jazzy-julia:latest
     container_name: stackelberg-dev
-    network_mode: bridge
+    network_mode: host
     ipc: host
     user: "${HOST_UID:-1011}:${HOST_GID:-1011}"
     environment:
@@ -17,6 +17,7 @@ services:
       - ROS_DOMAIN_ID=0
       - ROS_NAMESPACE=
       - JULIA_SSL_LIBRARY=system
+      - CYCLONEDDS_URI=file:///home/developer/workspace/ros2/config/cyclonedds.xml
     volumes:
       - ..:/home/developer/workspace:cached
       - workspace_venv:/home/developer/workspace/.venv
