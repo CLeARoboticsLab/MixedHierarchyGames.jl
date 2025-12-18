@@ -13,6 +13,9 @@ numpy>=1.20.0
 PyYAML>=5.1
 lark>=1.0.0
 
+# ROS bridge for communicating with robots via websocket
+roslibpy>=0.2.0
+
 # Note: rclpy and other ROS packages are installed via apt (ros-jazzy-desktop)
 # The venv is created with --system-site-packages to access them
 
