@@ -18,6 +18,7 @@ setup(
     entry_points={
         'console_scripts': [
             'controller_node = multi_robot_controller.controller_node:main',
+            'pursuit_evasion_controller = multi_robot_controller.pursuit_evasion_controller:main',
         ],
     },
 )
