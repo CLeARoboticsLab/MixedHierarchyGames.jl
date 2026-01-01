@@ -190,7 +190,7 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false, ba
 	# Set up the information structure.
 	# This defines a stackelberg chain with three players, where P1 is the leader of P2, and P1+P2 are leaders of P3.
 	G = SimpleDiGraph(N);
-	add_edge!(G, 2, 1); # P1 -> P2
+	# add_edge!(G, 2, 1); # P1 -> P2
 	add_edge!(G, 2, 3); # P2 -> P3
 
 	H = 1
@@ -225,42 +225,91 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false, ba
 		primal_dimension_per_player,
 	)
 
-	#### Player Objectives ####
-	# Player 1's objective function: P1 wants to get close to P2's final position 
-	# considering only its own control effort.
-	function J₁(z₁, z₂, z₃, θi)
+	# #### Player Objectives ####
+	# # Player 1's objective function: P1 wants to get close to P2's final position 
+	# # considering only its own control effort.
+	# function J₁(z₁, z₂, z₃, θi)
+	# 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+	# 	xs¹, us¹ = xs, us
+	# 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+	# 	xs², us² = xs, us
+	# 	0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	# end
+
+	# # Player 2's objective function: P2 wants P1 and P3 to get to the origin
+	# function J₂(z₁, z₂, z₃, θi)
+	# 	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+	# 	xs³, us³ = xs, us
+	# 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+	# 	xs², us² = xs, us
+	# 	(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+	# 	xs¹, us¹ = xs, us
+	# 	sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
+	# end
+
+	# # Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
+	# function J₃(z₁, z₂, z₃, θi)
+	# 	(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+	# 	xs³, us³ = xs, us
+	# 	(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+	# 	xs², us² = xs, us
+	# 	0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+	# end
+
+	# maintain distance between x and y of r
+	stay_close_incentive(x, y; r=1) = norm(x - y)
+	go_to_goal(x; g) = norm(x - g)^2
+
+	Js = Dict{Int, Any}()
+
+	# Pursuer
+	Js[1] = (z₁, z₂, z₃, θi) -> begin
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us¹)
-	end
-
-	# Player 2's objective function: P2 wants P1 and P3 to get to the origin
-	function J₂(z₁, z₂, z₃, θi)
 		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
 		xs³, us³ = xs, us
-		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
-		xs², us² = xs, us
+
+		# sum(sum((xs³ - xs¹)).^2) 
+		# Main.@infiltrate
+		2sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) - sum(sum(((xs²[t] - xs¹[t]).^2) for t in 1:T)) + 1.25*sum(sum(u .^ 2) for u in us¹)
+		# sum(stay_close_incentive(xs³[t], xs¹[t]) for t in 1:T) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	end
+
+	# Protector
+	Js[2] = (z₁, z₂, z₃, θi) -> begin
 		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
 		xs¹, us¹ = xs, us
-		sum((0.5*(xs¹[end] .+ xs³[end])) .^ 2) + 0.05*sum(sum(u .^ 2) for u in us²)
-	end
-
-	# Player 3's objective function: P3 wants to get close to P2's final position considering its own and P2's control effort.
-	function J₃(z₁, z₂, z₃, θi)
-		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
-		xs³, us³ = xs, us
 		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
 		xs², us² = xs, us
-		0.5*sum((xs³[end] .- xs²[end]) .^ 2) + 0.05*sum(sum(u³ .^ 2) for u³ in us³) + 0.05*sum(sum(u² .^ 2) for u² in us²)
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		# Main.@infiltrate
+		0.5sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) - sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) + 0.25*sum(sum(u .^ 2) for u in us²) 
+		#  + repulse_incentive.(xs³, xs¹)      # repulse from pursuer
+			# + 0.05*sum(sum(u .^ 2) for u in us²) # control cost
 	end
 
-	Js = Dict{Int, Any}(
-		1 => J₁,
-		2 => J₂,
-		3 => J₃,
-	)
+	# VIP
+	x_goal = [0.0; 0.0]
+	Js[3] = (z₁, z₂, z₃, θi) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		out = 10 * sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) + 0.1 * sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
+			# + sum(stay_close_incentive.(xs³, xs²)) # stay close to protector
+			# + 0.05*sum(sum(u .^ 2) for u in us³)   # control cost
+	end
+
+	# Js = Dict{Int, Any}(
+	# 	1 => J₁,
+	# 	2 => J₂,
+	# 	3 => J₃,
+	# )
 
 
 	#### Player's individual dynamics ####
@@ -276,7 +325,6 @@ function get_three_player_openloop_lq_problem(T=10, Δt=0.5; verbose = false, ba
 	end
 
 	# Set up the equality constraints for each player.
-	# ics = θs
 	# [[0.0; 2.0],
 	#        [2.0; 4.0],
 	# 	   [6.0; 8.0]] # initial conditions for each player
@@ -313,9 +361,9 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs, θs, 
 end
 
 # Main body of algorithm implementation for simple example. Will restructure as needed.
-function main(verbose = false)
-	T = 3
-	Δt = 0.5
+function main(x0=[[0.0; 2.0], [2.0; 4.0], [6.0; 8.0]]; verbose = false)
+	T = 10
+	Δt = 0.1
 
 	# TODO: Pass symbolic parameters into here for use in defining the equality constraints.
 	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
@@ -335,9 +383,7 @@ function main(verbose = false)
 		"  Total primal dimension: $(problem_dims.total_dimension)"
 
 	### Solve the LQ game using the automatic solver. ###
-	parameter_values = [[0.0; 2.0],
-	                    [2.0; 4.0],
-		                [6.0; 8.0]] # initial state for each player
+	parameter_values = x0 # initial state for each player
 	# num_initial_states = length(initstate_parameter_values)
 	z_sol, status, _, _, info, all_variables, vars = compare_lq_solvers(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
 	(; πs, zs, λs, μs) = vars
@@ -387,18 +433,18 @@ function plot_player_trajectories(z_sols, T, Δt, problem_dims)
 	X3 = state_matrix(xs3)
 
 	# Plot 2D paths
-	plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
-		legend = :bottomright, aspect_ratio = :equal, grid = true)
+		plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
+			legend = :outertopright, aspect_ratio = :equal, grid = true)
 
-	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 3, label = "P1")
-	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2")
-	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3")
+	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 2, label = "P1")
+	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 2, label = "P2")
+	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 2, label = "P3")
 
 	# Mark start (t=0) and end (t=T) points
 	scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
-		markershape = :star5, ms = 8, label = "start (t=0)")
+		markershape = :star5, ms = 3, label = "start (t=0)")
 	scatter!(plt, [X1[1, end], X2[1, end], X3[1, end]], [X1[2, end], X2[2, end], X3[2, end]];
-		markershape = :hexagon, ms = 8, label = "end (t=$T)")
+		markershape = :hexagon, ms = 3, label = "end (t=$T)")
 
 
 	# Origin

@@ -34,7 +34,7 @@ function hardware_nplayer_hierarchy_navigation(pre, x0::Vector{<:AbstractVector}
         ppp = pre.problem_dims.primal_dimension_per_player
 
         # Normalize parameter vector to match solver expectation (Vector of Vectors)
-        parameter_values = [Vector{Float64}(xi) for xi in x0]
+        parameter_values = [Vector{Float64}(x0_i) for x0_i in x0]
 
         # Warm start
         z_guess = isnothing(z0_guess) ? zeros(length(pre.preopt.all_variables)) : z0_guess
@@ -76,4 +76,4 @@ function hardware_nplayer_hierarchy_navigation(pre, x0::AbstractMatrix{<:Real}, 
     return hardware_nplayer_hierarchy_navigation(pre, x0_vec, z0_guess, tol, max_iters; silence_logs=silence_logs)
 end
 
-end # module
+end # module HardwareFunctions

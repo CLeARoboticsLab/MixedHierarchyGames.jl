@@ -71,11 +71,12 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	@timeit to "[Linear Solve] Call to Solver" begin
 		solution = solve!(linsolver)
 	end
+	# Main.@infiltrate
 
 	if !SciMLBase.successful_retcode(solution) &&
 	   (solution.retcode !== SciMLBase.ReturnCode.Default)
-		verbose &&
-			@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
+		# verbose &&
+		@warn "Linear solve failed. Exiting prematurely. Return code: $(solution.retcode)"
 		linsolve_status = :failed
 	else
 		z_sol = solution.u
@@ -485,7 +486,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 
 	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
 	while true
-		@timeit to "[Non-LQ Solver][Iterative Loop]" begin
+		
+		@timeit to "[Non-LQ Solver][Iterative Loop incl. Early Termination]" begin
 
 			@timeit to "[Non-LQ Solver][Iterative Loop][Evaluate K Numerically]" begin
 				param_eval_vec, all_K_evals_vec = params_for_z(z_est)
@@ -500,47 +502,49 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 					break
 				end
 			end
-
-			if num_iterations >= max_iters
-				nonlq_solver_status = :max_iters_reached
-				break
-			end
-
-			num_iterations += 1
-
-			@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
-				dz_sol, F_eval_linsolve, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, param_eval_vec, z_est; to)
-			end
-
-			if linsolve_status != :solved
-				nonlq_solver_status = :linear_solver_error
-				@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
-				break
-			end
-
-			@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
-				α = 1.
-				for ii in 1:10
-					next_z_est = z_est .+ α * dz_sol
-					# Recompute params at the trial point.
-					param_eval_vec_kp1, all_K_evals_vec_kp1 = params_for_z(next_z_est)
-					mcp_obj.f!(F_eval, next_z_est, param_eval_vec_kp1)
-					if norm(F_eval) < norm(F_eval_linsolve)
-						param_eval_vec = param_eval_vec_kp1
-						all_K_evals_vec = all_K_evals_vec_kp1
-						break
-					else
-						α *= 0.5
-					end
+		
+			@timeit to "[Non-LQ Solver][Iterative Update Loop]" begin
+				if num_iterations >= max_iters
+					nonlq_solver_status = :max_iters_reached
+					break
 				end
-				next_z_est = z_est .+ α * dz_sol
+
+				num_iterations += 1
+
+				@timeit to "[Non-LQ Solver][Iterative Loop][Solve Linearized KKT System]" begin
+					dz_sol, F_eval_linsolve, linsolve_status = approximate_solve_with_linsolve!(mcp_obj, linsolver, param_eval_vec, z_est; to)
+				end
+
+				if linsolve_status != :solved
+					nonlq_solver_status = :linear_solver_error
+					@warn "Linear solve failed. Exiting prematurely. Return code: $(linsolve_status)"
+					break
+				end
+
+				@timeit to "[Non-LQ Solver][Iterative Loop][Update Estimate of z]" begin
+					α = 1.
+					for ii in 1:10
+						next_z_est = z_est .+ α * dz_sol
+						# Recompute params at the trial point.
+						param_eval_vec_kp1, all_K_evals_vec_kp1 = params_for_z(next_z_est)
+						mcp_obj.f!(F_eval, next_z_est, param_eval_vec_kp1)
+						if norm(F_eval) < norm(F_eval_linsolve)
+							param_eval_vec = param_eval_vec_kp1
+							all_K_evals_vec = all_K_evals_vec_kp1
+							break
+						else
+							α *= 0.5
+						end
+					end
+					next_z_est = z_est .+ α * dz_sol
+				end
+
+				# Update the current estimate.
+				z_est = next_z_est
+
+				# Compile all numerical values that we used into one large vector (for this iteration only).
+				out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
 			end
-
-			# Update the current estimate.
-			z_est = next_z_est
-
-			# Compile all numerical values that we used into one large vector (for this iteration only).
-			out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
 		end
 	end
 
@@ -553,7 +557,7 @@ end
 # TODO: Add a new function that only runs the non-lq solver.
 function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
 	z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false,
-	backend=SymbolicTracingUtils.SymbolicsBackend(), multiple_runs=1)
+	backend=SymbolicTracingUtils.SymbolicsBackend(), multiple_runs=1, exclude_jit_timing=true)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
 
@@ -598,17 +602,23 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 	preoptimization_info = preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs; backend=backend, verbose=verbose, to=to)
 
 	# Optional warmup to trigger compilation before timed solve.
-	let
-		z0 = zeros(length(preoptimization_info.all_variables))
-		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
-		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
-		K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info)
-		param0 = vcat(θ_vals_vec, K0)
-		mcp = preoptimization_info.mcp_obj
-		Fbuf = similar(preoptimization_info.F_sym, Float64)
-		Jbuf = mcp.jacobian_z!.result_buffer
-		mcp.f!(Fbuf, z0, param0)
-		mcp.jacobian_z!(Jbuf, z0, param0)
+	z_sol, status, info, all_variables, vars, augmented_vars = nothing, nothing, nothing, nothing, nothing, nothing
+	if !exclude_jit_timing
+		# z0 = zeros(length(preoptimization_info.all_variables))
+		# θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		# θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
+		# K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info)
+		# param0 = vcat(θ_vals_vec, K0)
+		# mcp = preoptimization_info.mcp_obj
+		# Fbuf = similar(preoptimization_info.F_sym, Float64)
+		# Jbuf = mcp.jacobian_z!.result_buffer
+		# mcp.f!(Fbuf, z0, param0)
+		# mcp.jacobian_z!(Jbuf, z0, param0)
+		z_sol, status, info, all_variables, vars, augmented_vars = run_nonlq_solver(
+				H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values, z0_guess;
+				preoptimization_info=preoptimization_info, backend=backend, max_iters=max_iters,
+				tol=1e-3, verbose=verbose
+			)
 	end
 
 	# If specified, use the preoptimization timing information. Else, make a new one.
@@ -676,9 +686,12 @@ end
 
 ######### INPUT: Initial conditions ##########################
 x0 = [
-	[0.0; 2.0], # [px, py]
-	[2.0; 4.0],
-	[6.0; 8.0],
+	# [-5.0; 1.0],
+	# [-2.; -2.5], # [px, py]
+	# [2.0; -4.0],
+	[-3.0, 1.0],
+	[-2.0, -2.0],
+	[2.0, -2.0],
 ]
 ###############################################################
 
@@ -705,8 +718,8 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	end
 
 	# Set up the problem.
-	T = 3
-	Δt = 0.5
+	T = 10
+	Δt = 0.1
 	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
 	primal_dimension_per_player = problem_dims.primal_dimension_per_player
@@ -727,6 +740,55 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 		end
 		Js[2] = J₂_quartic
 	end
+
+	# maintain distance between x and y of r
+	stay_close_incentive(x, y; r=1) = norm(x - y)
+	go_to_goal(x; g) = norm(x - g)^2
+
+	# Pursuer
+	Js[1] = (z₁, z₂, z₃, θi) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+
+		# sum(sum((xs³ - xs¹)).^2) 
+		# Main.@infiltrate
+		2sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) - sum(sum(((xs²[t] - xs¹[t]).^2) for t in 1:T)) + 1.25*sum(sum(u .^ 2) for u in us¹)
+		# sum(stay_close_incentive(xs³[t], xs¹[t]) for t in 1:T) + 0.05*sum(sum(u .^ 2) for u in us¹)
+	end
+
+	# Protector
+	Js[2] = (z₁, z₂, z₃, θi) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		# Main.@infiltrate
+		0.5sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) - sum(sum((xs³[t] - xs¹[t]).^2 for t in 1:T)) + 0.25*sum(sum(u .^ 2) for u in us²) 
+		#  + repulse_incentive.(xs³, xs¹)      # repulse from pursuer
+			# + 0.05*sum(sum(u .^ 2) for u in us²) # control cost
+	end
+
+	# VIP
+	x_goal = [0.0; 0.0]
+	Js[3] = (z₁, z₂, z₃, θi) -> begin
+		(; xs, us) = unflatten_trajectory(z₁, state_dimension, control_dimension)
+		xs¹, us¹ = xs, us
+		(; xs, us) = unflatten_trajectory(z₂, state_dimension, control_dimension)
+		xs², us² = xs, us
+		(; xs, us) = unflatten_trajectory(z₃, state_dimension, control_dimension)
+		xs³, us³ = xs, us
+		out = 10 * sum((xs³[end] .- x_goal) .^ 2) + 1.25*sum(sum(u .^ 2) for u in us³) + 0.1 * sum(sum((xs³[t] - xs²[t]).^2 for t in 1:T)) # stay close to protector  		   # go to goal
+			# + sum(stay_close_incentive.(xs³, xs²)) # stay close to protector
+			# + 0.05*sum(sum(u .^ 2) for u in us³)   # control cost
+	end
+
+
 
 	# Print dimension information.
 	@info "Problem dimensions:\n" *
