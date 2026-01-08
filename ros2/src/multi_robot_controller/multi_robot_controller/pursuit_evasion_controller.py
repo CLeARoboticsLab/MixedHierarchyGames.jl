@@ -5,11 +5,12 @@ import numpy as np
 import math
 import time
 from pathlib import Path
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib import animation
+import csv
 from julia.api import Julia
+# Set environment variable BEFORE Julia is initialized
+import os
+os.environ["GKSwstype"] = "nul"
+os.environ["JULIA_SSL_LIBRARY"] = "system"
 jl = Julia(compiled_modules=False)
 from julia import Main
 import roslibpy
@@ -30,16 +31,12 @@ def julia_init():
     time_start = time.perf_counter()
     
     # Pre-load OpenSSL_jll to use system OpenSSL libraries
-    # Set environment variable first, then load OpenSSL_jll before any other packages
+    # Set environment variables to avoid Qt6/FreeType compatibility issues
+    # CRITICAL: Set GKSwstype BEFORE any Plots/GR loading
     Main.eval("""
         ENV["JULIA_SSL_LIBRARY"] = "system"
-        # Clear any incompatible artifacts that might have been downloaded
-        try
-            import Pkg
-            Pkg.Artifacts.clear_artifacts!()
-        catch e
-            @warn "Artifact clear failed" exception=e
-        end
+        # Set headless backend BEFORE Plots is loaded to avoid Qt6
+        ENV["GKSwstype"] = "nul"
         # Load OpenSSL_jll with system libraries
         try
             using OpenSSL_jll
@@ -60,6 +57,28 @@ def julia_init():
 
         using Logging
         global_logger(NullLogger())
+        
+        # CRITICAL: Set GKSwstype BEFORE Plots loads (automatic_solver.jl may use Plots)
+        # This must be set in Julia's ENV before any Plots/GR code runs
+        ENV["GKSwstype"] = "nul"
+        
+        # Pre-load Plots with null backend to avoid Qt6 loading
+        # This must happen BEFORE automatic_solver.jl is included
+        # Wrap in try-catch to continue even if Plots fails to load
+        try
+            using Plots
+            # Force GR to use null backend (no GUI, no Qt6)
+            # This should prevent Qt6 from loading
+            try
+                gr(show = false, fmt = :png)
+            catch e2
+                @warn "gr() configuration failed" exception=e2
+                # Continue anyway - might still work
+            end
+        catch e
+            @error "Failed to pre-load Plots with headless backend" exception=e
+            @warn "This may cause Qt6/FreeType issues. Continuing anyway..."
+        end
 
     Base.include(Main, joinpath(raw"{project_root}", "examples", "automatic_solver.jl"))
     Base.include(Main, joinpath(raw"{project_root}", "examples", "test_automatic_solver.jl"))
@@ -98,11 +117,11 @@ class PursuitEvasionController(Node):
 
         # Subscribers for odometry (ROS 2)
         self.odom_sub_01 = self.create_subscription(
-            Odometry, '/odom_01', self.odom_callback_01, 10)
+            Odometry, '/vrpn_client_node/Bluebonnet/pose', self.odom_callback_01, 10)
         self.odom_sub_02 = self.create_subscription(
-            Odometry, '/odom_02', self.odom_callback_02, 10)
+            Odometry, '/vrpn_client_node/Lonebot/pose', self.odom_callback_02, 10)
         self.odom_sub_03 = self.create_subscription(
-            Odometry, '/odom_03', self.odom_callback_03, 10)
+            Odometry, '/vrpn_client_node/Husky/pose', self.odom_callback_03, 10)
 
         # Odometry buffers
         self.latest_odom_01 = None
@@ -118,8 +137,7 @@ class PursuitEvasionController(Node):
         # Trajectory logging (from odometry)
         self.trajectory = []  # list of ((x1,y1), (x2,y2), (x3,y3))
         self.project_root = str(Path(__file__).resolve().parents[4])
-        self.gif_output_path = Path(self.project_root) / "ros2" / "trajectory.gif"
-        self.png_output_path = Path(self.project_root) / "ros2" / "trajectory_final.png"
+        self.csv_output_path = Path(self.project_root) / "ros2" / "trajectory.csv"
         self._shutdown_initiated = False
 
         # Setup roslibpy connections for each robot
@@ -214,92 +232,31 @@ class PursuitEvasionController(Node):
         except Exception as e:
             self.get_logger().error(f"Error sending command to robot {robot_idx+1}: {e}")
 
-    def _save_trajectory_gif(self):
-        if len(self.trajectory) < 2:
-            self.get_logger().warn("Not enough trajectory points to generate GIF.")
+    def _save_trajectory_csv(self):
+        """Save trajectory data to CSV file."""
+        if len(self.trajectory) == 0:
+            self.get_logger().warn("No trajectory data to save.")
             return
 
-        # Prepare data arrays
-        x1 = [p[0][0] for p in self.trajectory]
-        y1 = [p[0][1] for p in self.trajectory]
-        x2 = [p[1][0] for p in self.trajectory]
-        y2 = [p[1][1] for p in self.trajectory]
-        x3 = [p[2][0] for p in self.trajectory]
-        y3 = [p[2][1] for p in self.trajectory]
-
-        all_x = x1 + x2 + x3
-        all_y = y1 + y2 + y3
-        # Include goal position in bounds
-        gx, gy = float(GOAL_POSITION[0]), float(GOAL_POSITION[1])
-        all_x.append(gx)
-        all_y.append(gy)
-        xmin, xmax = min(all_x) - 0.5, max(all_x) + 0.5
-        ymin, ymax = min(all_y) - 0.5, max(all_y) + 0.5
-
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_xlim(xmin, xmax)
-        ax.set_ylim(ymin, ymax)
-        ax.grid(True, linestyle='--', alpha=0.4)
-        ax.set_title("Agent Trajectories")
-
-        line1, = ax.plot([], [], 'r-', lw=2, label='Agent 1')
-        line2, = ax.plot([], [], 'g-', lw=2, label='Agent 2')
-        line3, = ax.plot([], [], 'b-', lw=2, label='Agent 3')
-        pt1, = ax.plot([], [], 'ro', ms=5)
-        pt2, = ax.plot([], [], 'go', ms=5)
-        pt3, = ax.plot([], [], 'bo', ms=5)
-        goal_label = f'Goal ({gx:.2f}, {gy:.2f})'
-        goal_pt, = ax.plot([gx], [gy], 'k*', ms=10, label=goal_label)
-        ax.legend(loc='upper right')
-
-        def init():
-            line1.set_data([], [])
-            line2.set_data([], [])
-            line3.set_data([], [])
-            pt1.set_data([], [])
-            pt2.set_data([], [])
-            pt3.set_data([], [])
-            return line1, line2, line3, pt1, pt2, pt3, goal_pt
-
-        def animate(i):
-            line1.set_data(x1[:i+1], y1[:i+1])
-            line2.set_data(x2[:i+1], y2[:i+1])
-            line3.set_data(x3[:i+1], y3[:i+1])
-            pt1.set_data([x1[i]], [y1[i]])
-            pt2.set_data([x2[i]], [y2[i]])
-            pt3.set_data([x3[i]], [y3[i]])
-            return line1, line2, line3, pt1, pt2, pt3, goal_pt
-
-        ani = animation.FuncAnimation(
-            fig, animate, init_func=init, frames=len(self.trajectory),
-            interval=100, blit=True
-        )
-
-        self.gif_output_path.parent.mkdir(parents=True, exist_ok=True)
-        ani.save(str(self.gif_output_path), writer='pillow', fps=10)
-        self.get_logger().info(f"Saved trajectory GIF to: {self.gif_output_path}")
-        plt.close(fig)
-
-        # Save final static figure
-        fig2, ax2 = plt.subplots(figsize=(6, 6))
-        ax2.set_aspect('equal', adjustable='box')
-        ax2.set_xlim(xmin, xmax)
-        ax2.set_ylim(ymin, ymax)
-        ax2.grid(True, linestyle='--', alpha=0.4)
-        ax2.set_title("Final Agent Trajectories")
-        ax2.plot(x1, y1, 'r-', lw=2, label='Agent 1')
-        ax2.plot(x2, y2, 'g-', lw=2, label='Agent 2')
-        ax2.plot(x3, y3, 'b-', lw=2, label='Agent 3')
-        ax2.plot([x1[-1]], [y1[-1]], 'ro', ms=5)
-        ax2.plot([x2[-1]], [y2[-1]], 'go', ms=5)
-        ax2.plot([x3[-1]], [y3[-1]], 'bo', ms=5)
-        goal_label2 = f'Goal ({gx:.2f}, {gy:.2f})'
-        ax2.plot([gx], [gy], 'k*', ms=10, label=goal_label2)
-        ax2.legend(loc='upper right')
-        fig2.savefig(str(self.png_output_path), dpi=150, bbox_inches='tight')
-        self.get_logger().info(f"Saved final trajectory figure to: {self.png_output_path}")
-        plt.close(fig2)
+        self.csv_output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            with open(self.csv_output_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                # Write header
+                writer.writerow(['robot1_x', 'robot1_y', 'robot2_x', 'robot2_y', 'robot3_x', 'robot3_y'])
+                
+                # Write trajectory data
+                for point in self.trajectory:
+                    writer.writerow([
+                        point[0][0], point[0][1],  # Robot 1
+                        point[1][0], point[1][1],  # Robot 2
+                        point[2][0], point[2][1]   # Robot 3
+                    ])
+            
+            self.get_logger().info(f"Saved trajectory CSV to: {self.csv_output_path} ({len(self.trajectory)} points)")
+        except Exception as e:
+            self.get_logger().error(f"Failed to save trajectory CSV: {e}")
 
     def run_planner_step(self):
         if self.latest_odom_01 is None or self.latest_odom_02 is None or self.latest_odom_03 is None:
@@ -368,8 +325,8 @@ class PursuitEvasionController(Node):
                 # Stop timer and publish zero velocities
                 self.timer.cancel()
                 self._publish_stop()
-                # Save trajectory GIF and shutdown
-                # self._save_trajectory_gif()
+                # Save trajectory CSV and shutdown
+                self._save_trajectory_csv()
                 self._shutdown_initiated = True
                 # Clean up roslibpy connections
                 for i, pub in enumerate(self.ros_publishers):
