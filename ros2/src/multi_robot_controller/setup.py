@@ -9,7 +9,7 @@ setup(
     data_files=[
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools','julia'],
+    install_requires=['setuptools', 'julia', 'roslibpy'],
     zip_safe=True,
     maintainer='your_name',
     maintainer_email='your_email@example.com',
@@ -19,6 +19,7 @@ setup(
         'console_scripts': [
             'controller_node = multi_robot_controller.controller_node:main',
             'pursuit_evasion_controller = multi_robot_controller.pursuit_evasion_controller:main',
+            'csv_cmd_vel_player = multi_robot_controller.csv_cmd_vel_player:main',
         ],
     },
 )
