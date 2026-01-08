@@ -1,9 +1,12 @@
+# ros2 topic pub /cmd_vel_01 geometry_msgs/msg/Twist "{'linear': {'x': 0.0, 'y': 0.0, 'z': 0.0}, 'angular': {'x': 0.0, 'y': 0.0, 'z': 0.0}}"
+
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 import numpy as np
 import math
+import csv
 
 import time
 from pathlib import Path
@@ -111,6 +114,10 @@ class MultiRobotController(Node):
         self.gif_output_path = Path(self.project_root) / "ros2" / "trajectory.gif"
         self.png_output_path = Path(self.project_root) / "ros2" / "trajectory_final.png"
         self._shutdown_initiated = False
+        # CSV logging of trajectory and cmd_vel at fixed 0.1s timestep
+        self.dt = 0.1
+        self.step_index = 0
+        self._init_csv_logger()
 
         self.get_logger().info("MultiRobotController node started.")
 
@@ -246,6 +253,28 @@ class MultiRobotController(Node):
         self.get_logger().info(f"Saved final trajectory figure to: {self.png_output_path}")
         plt.close(fig2)
 
+    def _init_csv_logger(self):
+        self.csv_output_path = Path(self.project_root) / "ros2" / "trajectory_log.csv"
+        self.csv_output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.csv_file = open(str(self.csv_output_path), 'w', newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow([
+            "time_s",
+            "x1", "y1",
+            "x2", "y2",
+            "x3", "y3",
+            "v1", "omega1",
+            "v2", "omega2",
+            "v3", "omega3",
+        ])
+        self.csv_file.flush()
+
+    def _close_csv(self):
+        if hasattr(self, "csv_file") and self.csv_file and not self.csv_file.closed:
+            self.csv_file.flush()
+            self.csv_file.close()
+            self.get_logger().info(f"Saved trajectory CSV to: {self.csv_output_path}")
+
     def run_planner_step(self):
         if self.latest_odom_01 is None or self.latest_odom_02 is None or self.latest_odom_03 is None:
             # only for placeholder
@@ -314,9 +343,9 @@ class MultiRobotController(Node):
             self.trajectory.append(((state1[0], state1[1]), (state2[0], state2[1]), (state3[0], state3[1])))
 
             # Clip angular velocities for safety
-            omega1 = np.clip(omega1, -0.5, 0.5)
-            omega2 = np.clip(omega2, -0.5, 0.5)
-            omega3 = np.clip(omega3, -0.5, 0.5)
+            omega1 = np.clip(omega1, -0.3, 0.3)
+            omega2 = np.clip(omega2, -0.3, 0.3)
+            omega3 = np.clip(omega3, -0.3, 0.3)
             
             self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 
@@ -331,6 +360,22 @@ class MultiRobotController(Node):
             twist3 = Twist()  # Placeholder for third robot if needed
             twist3.linear.x = v3
             twist3.angular.z = omega3
+
+            # Write per-step CSV log using fixed timestep (0.1s)
+            t_now = self.step_index * self.dt
+            if hasattr(self, "csv_writer"):
+                self.csv_writer.writerow([
+                    f"{t_now:.1f}",
+                    state1[0], state1[1],
+                    state2[0], state2[1],
+                    state3[0], state3[1],
+                    v1, omega1,
+                    v2, omega2,
+                    v3, omega3,
+                ])
+            if hasattr(self, "csv_file"):
+                self.csv_file.flush()
+            self.step_index += 1
 
             if not goal_reached(state3[:2], GOAL_POSITION):
                 self.cmd_pub_01.publish(twist1)
@@ -351,6 +396,11 @@ class MultiRobotController(Node):
             # self.get_logger().info(f"Published: v1={v1:.2f}, v2={v2:.2f}")
             # self.get_logger().info(f"Published: omega1={omega1:.2f}, omega2={omega2:.2f}")
 
+
+    def destroy_node(self):
+        # Ensure CSV file is closed on shutdown
+        self._close_csv()
+        super().destroy_node()
 
 def main(pre, args=None):
     rclpy.init(args=args)

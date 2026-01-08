@@ -486,6 +486,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 
 	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
 	while true
+		# everything in the loop is one iteration of the solver, that's what we need to count.
 		
 		@timeit to "[Non-LQ Solver][Iterative Loop incl. Early Termination]" begin
 

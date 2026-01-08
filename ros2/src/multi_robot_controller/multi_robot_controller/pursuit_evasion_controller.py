@@ -369,7 +369,7 @@ class PursuitEvasionController(Node):
                 self.timer.cancel()
                 self._publish_stop()
                 # Save trajectory GIF and shutdown
-                self._save_trajectory_gif()
+                # self._save_trajectory_gif()
                 self._shutdown_initiated = True
                 # Clean up roslibpy connections
                 for i, pub in enumerate(self.ros_publishers):
