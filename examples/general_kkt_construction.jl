@@ -73,8 +73,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 		# requires looking up/computing/extracting ∇wⱼΦʲ(wⱼ) for all followers j.
 		else
 			@timeit to "[KKT Conditions] Non-Leaf" begin
-				# For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
-				# Iterate in breadth-first order over the followers so that we can finish up the computation.
+			# For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
+			# Iterate in breadth-first order over the followers so that we can finish up the computation.
 				for jj in BFSIterator(G, ii)
 
 					# Skip the current player.
@@ -82,10 +82,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 						continue
 					end
 
-					# Compute the policy term of follower j (TODO: Add a look up for efficiency).
-					πⱼ = πs[jj] # This term always exists if we are proceeding in reverse topological order.
-
-					# If the policy exists for follower j, then look up its ∇wⱼΦʲ(wⱼ) and 
+					# If the policy exists for follower j, then look up its ∇wⱼΦʲ(wⱼ) and
 					# extract ∇zᵢΦʲ(wⱼ) from it (i is a leader of j).
 					# If it doesn't exist, then compute it using Mⱼ and Nⱼ and extract z̃ⱼ = [0... I ...0] ∇zᵢΦʲ(wⱼ) w₍.
 
@@ -94,10 +91,6 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					# BUG: This assumes that zᵢ is the first element of wⱼ, which is not always true (Nash KKT combinations).
 
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-
-					# SUPPOSE: we have these values which list the symbols and their sizes.
-					# ws_ordering;
-					# ws_sizes;
 
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
@@ -263,7 +256,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 
 	for ii in reverse_topological_order
 		# TODO: This whole optimization is for computing M and N, which is only for players with leaders.
-		#       Look into skipping players without leaders. 
+		#       Look into skipping players without leaders.
 
 		# TODO: Can be made more efficient if needed.
 		# πⁱ has size num constraints + num primal variables of i AND its followers.
@@ -296,7 +289,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				continue
 			end
 
-			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
+			# To avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 			Φʲ = - extractor * (K_syms[jj] * ys[jj] + k_syms[jj])
@@ -312,7 +305,6 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 
 				# Add the policy constraint.
 				if ii != jj
-					# TODO: Do we need the constant term if we add this constraint in?
 					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 					πᵢ = vcat(πᵢ, zs[jj] - extractor * (K_syms[jj] * ys[jj] + k_syms[jj]))
@@ -332,7 +324,6 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			@timeit to "[KKT Precompute] Compute M and N for player $ii" begin
 				Mᵢ = Symbolics.jacobian(πᵢ, ws[ii])
 				Nᵢ = Symbolics.jacobian(πᵢ, ys[ii])
-				# TODO: Explore adding a solve for K here.
 			end
 
 			@timeit to "[KKT Precompute] Compute M, N functions for player $ii" begin
@@ -340,10 +331,9 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
 				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
 			end
-		else
-			# TODO: dirty code, clean up
-			augmented_variables[ii] = all_variables
-		end
+			else
+				augmented_variables[ii] = all_variables
+			end
 	end
 
 	# Identify all augmented variables.

@@ -612,6 +612,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 end
 
 
+############################
 # TODO: Add a new function that only runs the non-lq solver.
 function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values;
 	z0_guess=nothing, max_iters = 30, tol = 1e-6, include_preoptimization_timing=false, verbose = false,
@@ -745,8 +746,7 @@ x0 = [
 ]
 ###############################################################
 
-# Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false, strip_policy_constraints_eval=true)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false, strip_policy_constraints_eval=true, show_variable_offsets=false)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -818,6 +818,10 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
+	if show_variable_offsets
+		print_variable_offsets(vars)
+	end
+
 	z₁ = zs[1]
 	z₂ = zs[2]
 	z₃ = zs[3]
@@ -847,7 +851,6 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	# Report objective value for each agent at the solved trajectories.
 	# Note: in this example, there are no parameters in the objectives, so we pass `nothing`.
 	costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
-	println()
 	@info "Agent costs" costs=costs
 
 
@@ -857,6 +860,34 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	return next_state, curr_control
 	# next_state: [ [x1_next], [x2_next], [x3_next] ] = [ [-0.0072, 1.7970], [1.7925, 3.5889], [5.4159, 7.2201] ] where xi_next = [ pⁱ_x, pⁱ_y]
 	# curr_control: [ [u1_curr], [u2_curr], [u3_curr] ] = [ [-0.0144, -0.4060], [-0.4150, -0.8222], [-1.1683, -1.5598] ] where ui_curr = [ vⁱ_x, vⁱ_y]
+end
+
+function print_variable_offsets(vars)
+	"""
+	Print index ranges for z, λ, and μ blocks inside the global variable vector.
+	"""
+	(; zs, λs, μs) = vars
+	offset = 1
+
+	for i in 1:length(zs)
+		len_i = length(zs[i])
+		println("z$i: ", offset, ":", offset + len_i - 1)
+		offset += len_i
+	end
+
+	for i in 1:length(λs)
+		len_i = length(λs[i])
+		println("λ$i: ", offset, ":", offset + len_i - 1)
+		offset += len_i
+	end
+
+	μ_keys = collect(keys(μs))
+	μ_vals = collect(values(μs))
+	for (key, vec) in zip(μ_keys, μ_vals)
+		len_i = length(vec)
+		println("μ", key, ": ", offset, ":", offset + len_i - 1)
+		offset += len_i
+	end
 end
 
 function construct_output(z_sols, problem_dims)
