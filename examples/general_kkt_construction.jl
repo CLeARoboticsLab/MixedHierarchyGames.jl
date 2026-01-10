@@ -118,11 +118,12 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 			# Add the policy constraint.
 			if ii != jj
-				println(ii, " ",jj)
+				# println(ii, " ",jj)
 				# TODO: Do we need the constant term if we add this constraint in?
 				extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-				πᵢ = vcat(πᵢ, zs[jj] - extractor * Ks[jj] * ys[jj])
-				println("player $ii adding policy constraint for follower $jj: ", zs[jj] - extractor * Ks[jj] * ys[jj])
+				Φʲ = - extractor * Ks[jj] * ys[jj]
+				πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+				# println("player $ii adding policy constraint for follower $jj: ", zs[jj] - Φʲ)
 				end
 			end
 		end
@@ -300,7 +301,8 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 					# TODO: Do we need the constant term if we add this constraint in?
 					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					πᵢ = vcat(πᵢ, zs[jj] - extractor * K_syms[jj] * ys[jj])
+					Φʲ = - extractor * K_syms[jj] * ys[jj]
+					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
 				end
 			end
 		end
