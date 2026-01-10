@@ -100,8 +100,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
-						# Solve Mw + Ny = 0 using symbolic M and N.
-						Φʲ = - extractor * Ks[jj] * ys[jj]
+					# Solve Mw + Ny = 0 using symbolic M and N.
+					Φʲ = - extractor * Ks[jj] * ys[jj]
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
@@ -116,14 +116,11 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
 
-			# Add the policy constraint.
-			if ii != jj
-				# println(ii, " ",jj)
-				# TODO: Do we need the constant term if we add this constraint in?
-				extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-				Φʲ = - extractor * Ks[jj] * ys[jj]
-				πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
-				# println("player $ii adding policy constraint for follower $jj: ", zs[jj] - Φʲ)
+				# Add the policy constraint.
+				if ii != jj
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+					Φʲ = - extractor * Ks[jj] * ys[jj]
+					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
 				end
 			end
 		end
@@ -296,14 +293,13 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
 
-				# Add the policy constraint.
-				if ii != jj
-					# TODO: Do we need the constant term if we add this constraint in?
-					zi_size = length(zs[ii])
-					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					Φʲ = - extractor * K_syms[jj] * ys[jj]
-					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
-				end
+					# Add the policy constraint.
+					if ii != jj
+						zi_size = length(zs[ii])
+						extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+						Φʲ = - extractor * K_syms[jj] * ys[jj]
+						πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+					end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
