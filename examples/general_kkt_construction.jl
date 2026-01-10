@@ -40,6 +40,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	Ms = Dict{Int, Any}()
 	Ns = Dict{Int, Any}()
 	Ks = Dict{Int, Any}()
+	ks = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 	Φs = Dict{Int, Any}()
 
@@ -100,8 +101,9 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
-						# Solve Mw + Ny = 0 using symbolic M and N.
-						Φʲ = - extractor * Ks[jj] * ys[jj]
+						# Solve Mw + Ny + π(0) = 0 using symbolic M and N.
+						kj = get(ks, jj, zeros(length(ws[jj])))
+						Φʲ = - extractor * (Ks[jj] * ys[jj] + kj)
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
@@ -121,21 +123,28 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				println(ii, " ",jj)
 				# TODO: Do we need the constant term if we add this constraint in?
 				extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-				πᵢ = vcat(πᵢ, zs[jj] - extractor * Ks[jj] * ys[jj])
-				println("player $ii adding policy constraint for follower $jj: ", zs[jj] - extractor * Ks[jj] * ys[jj])
-				end
+				kj = get(ks, jj, zeros(length(ws[jj])))
+				πᵢ = vcat(πᵢ, zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
+				println("player $ii adding policy constraint for follower $jj: ", zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
+			end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
 		πs[ii] = πᵢ
 
-		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0 (if there is a leader), else not needed.
+		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ + πᵢ(0) = 0 (if there is a leader), else not needed.
 		if has_leader(G, ii)
 			@timeit to "[KKT Conditions] Compute M and N for follower $ii" begin
 				Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
 				Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
 
 				Ks[ii] = Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
+
+				# Constant term from the affine KKT residual.
+				vars = vcat(ws[ii], ys[ii])
+				zero_subs = Dict(v => 0.0 for v in vars)
+				π_at_zero = Symbolics.substitute.(πs[ii], Ref(zero_subs))
+				ks[ii] = Ms[ii] \ π_at_zero
 			end
 		end
 	end
@@ -143,7 +152,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	for ii in 1:nv(G)
 		println("Number KKT conditions constructed for player $ii: $(length(πs[ii])).")
 	end
-	return πs, Ms, Ns, (;K_evals = nothing)
+	return πs, Ms, Ns, (;K_evals = nothing, k_evals = nothing)
 end
 
 
@@ -176,7 +185,7 @@ function strip_policy_constraints(πs, G, zs, gs)
 end
 
 
-function construct_augmented_variables(ii, all_variables, K_syms, G)
+function construct_augmented_variables(ii, all_variables, K_syms, k_syms, G)
 	"""
 	Constructs an augmented list of variables including symbolic M and N matrices for use in optimized KKT solving.
 	This vector can not have extra terms because of the dependencies among the evaluated M and N matrices.
@@ -193,6 +202,7 @@ function construct_augmented_variables(ii, all_variables, K_syms, G)
 		if has_leader(G, jj)
 			# Vectorize them for storage.
 			vcat(augmented_variables, reshape(K_syms[jj], :))
+			vcat(augmented_variables, reshape(k_syms[jj], :))
 		end
 	end
 
@@ -245,6 +255,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 	π_sizes = Dict{Int, Any}()
 
 	K_syms = Dict{Int, Any}()
+	k_syms = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 
 	M_fns = Dict{Int, Any}()
@@ -270,8 +281,14 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				make_symbolic_variable(:K, ii, H),
 				length(ws[ii]) * length(ys[ii]),
 			), length(ws[ii]), length(ys[ii]))
+			k_syms[ii] = reshape(SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:k, ii, H),
+				length(ws[ii]),
+			), length(ws[ii]))
 		else
 			K_syms[ii] = Symbolics.Num[]
+			k_syms[ii] = Symbolics.Num[]
 		end
 
 		# Build the Lagrangian using these variables.
@@ -284,7 +301,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Φʲ = - extractor * K_syms[jj] * ys[jj]
+			Φʲ = - extractor * (K_syms[jj] * ys[jj] + k_syms[jj])
 			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
@@ -300,7 +317,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 					# TODO: Do we need the constant term if we add this constraint in?
 					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					πᵢ = vcat(πᵢ, zs[jj] - extractor * K_syms[jj] * ys[jj])
+					πᵢ = vcat(πᵢ, zs[jj] - extractor * (K_syms[jj] * ys[jj] + k_syms[jj]))
 				end
 			end
 		end
@@ -321,7 +338,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			end
 
 			@timeit to "[KKT Precompute] Compute M, N functions for player $ii" begin
-				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, G)
+				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, k_syms, G)
 				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
 				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
 			end
@@ -332,7 +349,11 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 	end
 
 	# Identify all augmented variables.
-	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
+	out_all_augmented_variables = vcat(
+		all_variables,
+		vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...,
+		vcat(map(ii -> reshape(k_syms[ii], :), 1:N))...,
+	)
 
-	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, k_syms=k_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
 end

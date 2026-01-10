@@ -84,7 +84,7 @@ function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z
 	return z_sol, F, linsolve_status
 end
 
-function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
+function _build_augmented_z_est(ii, z_est, K_evals, k_evals, graph, follower_order_cache, buffer_cache)
 	followers = get!(follower_order_cache, ii) do
 		collect(BFSIterator(graph, ii))[2:end]
 	end
@@ -93,6 +93,8 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache,
 	for jj in followers
 		kj = K_evals[jj]
 		aug_len += isnothing(kj) ? 0 : length(kj)
+		kj_aff = k_evals[jj]
+		aug_len += isnothing(kj_aff) ? 0 : length(kj_aff)
 	end
 
 	buf = get!(buffer_cache, ii) do
@@ -112,12 +114,19 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache,
 		flat = reshape(kj, :)
 		copyto!(buf, offset, flat, 1, length(flat))
 		offset += length(flat)
+		kj_aff = k_evals[jj]
+		if isnothing(kj_aff)
+			continue
+		end
+		flat_aff = reshape(kj_aff, :)
+		copyto!(buf, offset, flat_aff, 1, length(flat_aff))
+		offset += length(flat_aff)
 	end
 
 	buf
 end
 
-function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
+function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values; to=TimerOutput())
 	"""
 	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
 
@@ -147,10 +156,15 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 	N_fns = setup_info.N_fns
 	π_sizes = setup_info.π_sizes
 	graph = setup_info.graph
+	all_variables = problem_vars.all_variables
+	πs = setup_info.πs
+	K_syms = setup_info.K_syms
+	k_syms = setup_info.k_syms
 
 	M_evals = Dict{Int, Any}()
 	N_evals = Dict{Int, Any}()
 	K_evals = Dict{Int, Any}()
+	k_evals = Dict{Int, Any}()
 
 	# Cache follower ordering and augmented buffers to reduce allocations.
 	follower_order_cache = Dict{Int, Vector{Int}}()
@@ -165,7 +179,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 					# Create an augmented version using the numerical values that we have (based on z_est and computed follower Ms/Ns).
 					# For small numbers of variables, this caching may not help much with runtime.
 					# TODO: Use this only when the number of variables reaches a sufficient size where it will matter.
-					augmented_z_est = _build_augmented_z_est(ii, z_est, K_evals, graph, follower_order_cache, buffer_cache)
+					augmented_z_est = _build_augmented_z_est(ii, z_est, K_evals, k_evals, graph, follower_order_cache, buffer_cache)
 				end
 				# Produce linearized versions of the current M and N values which can be used.
 				@timeit to "[Get Numeric M, N]" begin
@@ -175,12 +189,55 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 				@timeit to "[Solve for K]" begin
 					K_evals[ii] = M_evals[ii] \ N_evals[ii]
+
+					vars_in_pi = unique!(reduce(vcat, Symbolics.get_variables.(πs[ii])))
+					vars_in_pi_set = Set(vars_in_pi)
+					idx_lookup = Dict(v => j for (j, v) in enumerate(all_variables))
+
+					vals = Dict{Any, Any}()
+					for v in vars_in_pi
+						haskey(idx_lookup, v) && (vals[v] = z_est[idx_lookup[v]])
+					end
+
+					# Substitute θ parameters.
+					if !isnothing(θs) && !isempty(θs)
+						θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+						θ_syms_flat = vcat([θs[i] for i in θ_order]...)
+						θ_vals_flat = vcat([parameter_values[i] for i in θ_order]...)
+						for (sym, val) in zip(θ_syms_flat, θ_vals_flat)
+							sym in vars_in_pi_set && (vals[sym] = val)
+						end
+					end
+
+					# Substitute follower K and k parameters.
+					followers = collect(BFSIterator(graph, ii))[2:end]
+					for jj in followers
+						if haskey(K_evals, jj) && !isnothing(K_evals[jj])
+							Kj_sym = K_syms[jj]
+							Kj_val = K_evals[jj]
+							for (i, el) in enumerate(vec(Kj_sym))
+								el in vars_in_pi_set && (vals[el] = vec(Kj_val)[i])
+							end
+						end
+						if haskey(k_evals, jj) && !isnothing(k_evals[jj])
+							kj_sym = k_syms[jj]
+							kj_val = k_evals[jj]
+							for (i, el) in enumerate(vec(kj_sym))
+								el in vars_in_pi_set && (vals[el] = vec(kj_val)[i])
+							end
+						end
+					end
+
+					π_eval = Symbolics.substitute.(πs[ii], Ref(vals))
+					π_eval_num = Float64.(Symbolics.value.(π_eval))
+					k_evals[ii] = M_evals[ii] \ π_eval_num
 				end
 			end
 		else
 			M_evals[ii] = nothing
 			N_evals[ii] = nothing
 			K_evals[ii] = nothing
+			k_evals[ii] = nothing
 		end
 	end
 
@@ -189,7 +246,8 @@ function compute_K_evals(z_est, problem_vars, setup_info; to=TimerOutput())
 
 	# Make a vector of all K_evals for use in ParametricMCP.
 	all_K_evals_vec = vcat(map(ii -> reshape(@something(K_evals[ii], Float64[]), :), 1:nv(graph))...)
-	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
+	all_k_evals_vec = vcat(map(ii -> reshape(@something(k_evals[ii], Float64[]), :), 1:nv(graph))...)
+	return vcat(all_K_evals_vec, all_k_evals_vec), (; M_evals, N_evals, K_evals, k_evals, to)
 end
 
 function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to=TimerOutput(), α_init=1.0, β=0.5, c₁=1e-4, max_ls_iters=5)
@@ -235,7 +293,7 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	@timeit to "[Line Search][Iteration Setup]" begin
 		# Compute the right hand side of the Armijo condition.
 		@timeit to "[Line Search][Iteration Setup][Eval K]" begin
-			K_vec0, _ = compute_Ks_with_z(zk)
+			K_vec0 = compute_Ks_with_z(zk)
 			all_Ks_vec_kp1 = K_vec0
 		end
 		@timeit to "[Line Search][Iteration Setup][Eval F]" begin
@@ -323,6 +381,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 	@timeit to "Precomputation of KKT Jacobians" begin
 		out_all_augment_variables, setup_info = setup_approximate_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend; to=TimerOutput(), verbose = false)
 		K_syms = setup_info.K_syms
+		k_syms = setup_info.k_syms
 		πs = setup_info.πs
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
@@ -331,11 +390,13 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		all_K_syms_vec = vcat(map(ii -> reshape(@something(K_syms[ii], Symbolics.Num[]), :), 1:N)...)
 		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
 		θ_syms_flat = vcat([θs[i] for i in θ_order]...)
-		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
+		all_k_syms_vec = vcat(map(ii -> reshape(@something(k_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec, all_k_syms_vec)
+		θ_placeholder_vals = [zeros(length(θs[i])) for i in θ_order]
 
 		# Set up a function to evaluate the K matrices using only z.
 		function compute_Ks_with_z(z)
-			all_K_evals_vec, (; to) = compute_K_evals(z, problem_vars, setup_info; to)
+			all_K_evals_vec, (; to) = compute_K_evals(z, problem_vars, setup_info, θs, θ_placeholder_vals; to)
 			return all_K_evals_vec
 		end
 	end
@@ -456,7 +517,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		mcp_obj = preoptimization_info.mcp_obj
 		F = preoptimization_info.F_sym
 		linsolver = preoptimization_info.linsolver
-		compute_Ks_with_z = preoptimization_info.compute_Ks_with_z
+		compute_Ks_with_z = z -> compute_K_evals(z, problem_vars, setup_info, θs, parameter_values)[1]
 
 		# Set up variables for augmented in/output.
 		out_all_augment_variables = preoptimization_info.out_all_augment_variables
@@ -478,7 +539,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 
 		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
 		function params_for_z(z)
-			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info, θs, parameter_values)
 			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
 			return param_eval_vec, all_K_evals_vec
 		end
@@ -603,7 +664,7 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 		z0 = zeros(length(preoptimization_info.all_variables))
 		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
 		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
-		K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info)
+		K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info, θs, parameter_values)
 		param0 = vcat(θ_vals_vec, K0)
 		mcp = preoptimization_info.mcp_obj
 		Fbuf = similar(preoptimization_info.F_sym, Float64)
