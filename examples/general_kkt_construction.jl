@@ -100,8 +100,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
-					# Solve Mw + Ny = 0 using symbolic M and N.
-					Φʲ = - extractor * Ks[jj] * ys[jj]
+						# Solve Mw + Ny = 0 using symbolic M and N.
+						Φʲ = - extractor * Ks[jj] * ys[jj]
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
