@@ -350,8 +350,9 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 
 	@timeit to "[Linear Solve] Setup ParametricMCP" begin
 		# Final MCP vector: leader stationarity + leader constraints + follower KKT
-		π_order = sort(collect(keys(πs)))
-		F_sym = Symbolics.Num.(vcat([πs[i] for i in π_order]...))  # flattened in deterministic order
+		πs_solve = strip_policy_constraints(πs, graph, zs, gs)
+		π_order = sort(collect(keys(πs_solve)))
+		F_sym = Symbolics.Num.(vcat([πs_solve[i] for i in π_order]...))  # flattened in deterministic order
 
 		z̲ = fill(-Inf, length(F_sym));
 		z̅ = fill(Inf, length(F_sym))
@@ -472,8 +473,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		nonlq_solver_status = :BUG_unspecified
 		F_eval = similar(F, Float64)
 
-		θ_order = 1:length(θs)
-		θ_vals_vec = vcat([parameter_values[k] for k in θ_order]...)
+		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat([parameter_values[k] for k in θ_order]...)
 
 		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
 		function params_for_z(z)
@@ -684,7 +685,7 @@ x0 = [
 ###############################################################
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false, strip_policy_constraints_eval=true)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -742,6 +743,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	parameter_values = x0_vecs
 	if run_lq
 		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values, backend; verbose)
+		if show_timing_info
+			show(info_nonlq.to)
+		end
 	else
 		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
 		println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
@@ -766,9 +770,11 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 
 	# Evaluate the solution against the KKT conditions (or approximate KKT conditions for non-LQ).
 	if run_lq
-		evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
+		πs_eval_lq = strip_policy_constraints_eval ? strip_policy_constraints(info_lq.πs, G, zs, gs) : info_lq.πs
+		evaluate_kkt_residuals(πs_eval_lq, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
 	end
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
+	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
 
 
 	# Plot the trajectories.

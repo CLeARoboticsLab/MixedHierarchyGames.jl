@@ -413,6 +413,9 @@ function print_solution_info(z_sols, Js, problem_dims)
 	"""
 	Prints the solution information for each player, including their trajectories and objective values.
 	"""
+	state_dimension = problem_dims.state_dimension
+	control_dimension = problem_dims.control_dimension
+
 	(; xs, us) = unflatten_trajectory(z_sols[1], state_dimension, control_dimension)
 	@info "P1 (x,u) solution" xs=xs us=us
 	@info "P1 Objective" value=Js[1](z_sols[1], z_sols[2], z_sols[3], 0)

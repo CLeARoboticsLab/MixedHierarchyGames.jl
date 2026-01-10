@@ -128,7 +128,6 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
 		πs[ii] = πᵢ
-		println(ii, "\n", πᵢ, "\n\n\n\n")
 
 		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0 (if there is a leader), else not needed.
 		if has_leader(G, ii)
