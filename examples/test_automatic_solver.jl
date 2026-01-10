@@ -656,7 +656,8 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 		lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, θs)
 	end
 	@timeit to1 "LQ KKT Condition Solve" begin
-		z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, θs, parameter_values; verbose)
+		lq_πs_solve = strip_policy_constraints(lq_πs, graph, lq_zs, gs)
+		z_sol_lq, status_lq = lq_game_linsolve(lq_πs_solve, all_lq_variables, θs, parameter_values; verbose)
 	end
 	info_lq = (; πs = lq_πs)
 	if verbose
