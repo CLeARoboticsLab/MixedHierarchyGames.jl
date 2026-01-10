@@ -54,6 +54,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	end
 
 	for ii in order
+		zi_size = length(zs[ii])
+
 		# Include the objective of the player and its constraint term.
 		Lᵢ = Js[ii](zs..., θ) - λs[ii]' * gs[ii](zs[ii])
 
@@ -90,7 +92,6 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					# zᵢ is often the first element of wⱼ, so we can just extract the relevant rows.
 					# BUG: This assumes that zᵢ is the first element of wⱼ, which is not always true (Nash KKT combinations).
 
-					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 
 					# SUPPOSE: we have these values which list the symbols and their sizes.
@@ -114,6 +115,13 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 			@timeit to "[KKT Conditions] Compute πᵢ" begin
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
+
+				# Add the policy constraint.
+				if ii != jj
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+					Φʲ = - extractor * Ks[jj] * ys[jj]
+					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+				end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
@@ -130,7 +138,39 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 		end
 	end
 
+	for ii in 1:nv(G)
+		println("Number KKT conditions constructed for player $ii: $(length(πs[ii])).")
+	end
 	return πs, Ms, Ns, (;K_evals = nothing)
+end
+
+
+function strip_policy_constraints(πs, G, zs, gs)
+	"""
+	Return a copy of πs with follower policy-constraint rows removed.
+	Assumes πᵢ is ordered as [∇_{zᵢ}Lᵢ; ∇_{zⱼ}Lᵢ; ...; (policy constraints); gᵢ(zᵢ)].
+	"""
+	πs_stripped = Dict{Int, Any}()
+	for ii in 1:nv(G)
+		πᵢ = πs[ii]
+		parts = Any[]
+		idx = 1
+		for jj in BFSIterator(G, ii)
+			len_z = length(zs[jj])
+			push!(parts, πᵢ[idx:(idx + len_z - 1)])
+			idx += len_z
+			if ii != jj
+				# Skip the policy-constraint block for follower jj.
+				idx += len_z
+			end
+		end
+		len_g = length(gs[ii](zs[ii]))
+		push!(parts, πᵢ[idx:(idx + len_g - 1)])
+		idx += len_g
+		@assert idx - 1 == length(πᵢ) "strip_policy_constraints: unexpected π length for player $ii."
+		πs_stripped[ii] = vcat(parts...)
+	end
+	return πs_stripped
 end
 
 
@@ -158,7 +198,9 @@ function construct_augmented_variables(ii, all_variables, K_syms, G)
 end
 
 
-function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend; to=TimerOutput(), verbose = false)
+function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend;
+	to = TimerOutput(),
+	verbose = false)
 	"""
 	Precomputes symbolic KKT conditions, and functions for evaluating M and N matrices for each player in the game.
 
@@ -250,6 +292,14 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			@timeit to "[KKT Precompute] Compute πᵢ" begin
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
+
+					# Add the policy constraint.
+					if ii != jj
+						zi_size = length(zs[ii])
+						extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+						Φʲ = - extractor * K_syms[jj] * ys[jj]
+						πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+					end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
