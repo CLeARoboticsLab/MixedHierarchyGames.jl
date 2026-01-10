@@ -118,15 +118,13 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
 
-			# Add the policy constraint.
-			if ii != jj
-				println(ii, " ",jj)
-				# TODO: Do we need the constant term if we add this constraint in?
-				extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-				kj = get(ks, jj, zeros(length(ws[jj])))
-				πᵢ = vcat(πᵢ, zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
-				println("player $ii adding policy constraint for follower $jj: ", zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
-			end
+				# Add the policy constraint.
+				if ii != jj
+					# TODO: Do we need the constant term if we add this constraint in?
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+					kj = get(ks, jj, zeros(length(ws[jj])))
+					πᵢ = vcat(πᵢ, zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
+				end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
