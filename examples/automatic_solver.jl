@@ -175,7 +175,8 @@ function run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, param
 	if !isempty(temp)
 		all_variables = vcat(all_variables, vcat(collect(values(μs))...))
 	end
-	z_sol, status, info = solve_with_path(πs, all_variables, θs, parameter_values)
+	πs_solve = strip_policy_constraints(πs, graph, zs, gs)
+	z_sol, status, info = solve_with_path(πs_solve, all_variables, θs, parameter_values)
 
 	z_sol, status, info, all_variables, (; πs, zs, λs, μs, θs)
 end
@@ -303,7 +304,8 @@ function compare_lq_solvers(H, graph, primal_dimension_per_player, Js, gs, θs, 
 
 	# Run the PATH solver through the run_solver call.
 	z_sol_path, path_status, info, all_variables, (; πs, zs, λs, μs, θs) = run_lq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
-	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs, all_variables, θs, parameter_values; verbose)
+	πs_solve = strip_policy_constraints(πs, graph, zs, gs)
+	z_sol_linsolve, linsolve_status = lq_game_linsolve(πs_solve, all_variables, θs, parameter_values; verbose)
 	
 	@assert isapprox(z_sol_path, z_sol_linsolve, atol = 1e-4)
 	verbose && @info "PATH status: $path_status"
@@ -411,6 +413,9 @@ function print_solution_info(z_sols, Js, problem_dims)
 	"""
 	Prints the solution information for each player, including their trajectories and objective values.
 	"""
+	state_dimension = problem_dims.state_dimension
+	control_dimension = problem_dims.control_dimension
+
 	(; xs, us) = unflatten_trajectory(z_sols[1], state_dimension, control_dimension)
 	@info "P1 (x,u) solution" xs=xs us=us
 	@info "P1 Objective" value=Js[1](z_sols[1], z_sols[2], z_sols[3], 0)
