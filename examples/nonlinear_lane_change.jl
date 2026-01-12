@@ -13,15 +13,15 @@ R = 6.0  # turning radius
 # unicycle model initial conditions
 x_goal = [1.5R; R; 0.0; 0.0]  # target position
 x0 = [
-	[-0.9R; R; 0.0; 2.0], # P1 (LEADER)
+	[-1.5R; R; 0.0; 2.0], # P1 (LEADER)
 	[-2.0R; R; 0.0; 2.0], # P2 (FOLLOWER)
 	[-R; 0.0; pi/2; 1.523], # P3 (LANE MERGER)
     [-2.5R; R; 0.0; 2.0], # P4 (EXTRA PLAYER BEHIND P2)
 ]
 
 R = 6.0  # turning radius
-T = 10 # 10, 15
-Δt = 0.5 # 0.5, 0.4
+T = 14 # 10, 15
+Δt = 0.4 # 0.5, 0.4
 
 function make_unicycle_traj(
     T::Integer,
@@ -125,4 +125,4 @@ z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
 
 ###############################################################
 # TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
-TestAutomaticSolver.nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 2000)
+nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 2000)
