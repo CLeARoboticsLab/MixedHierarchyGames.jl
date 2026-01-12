@@ -861,16 +861,16 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# println("Info structure: Shallow-tree")
 
 	# 3. mixed A
-	add_edge!(G, 1, 2); # P1 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
-	add_edge!(G, 1, 3); # P1 -> P3
-	println("Info structure: Mixed A")
+	# add_edge!(G, 1, 2); # P1 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# println("Info structure: Mixed A")
 
 	# 4. Stackelberg chain
-	# add_edge!(G, 1, 3); # P1 -> P3
-	# add_edge!(G, 3, 2); # P3 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
-	# println("Info structure: Stackelberg chain")
+	add_edge!(G, 1, 3); # P1 -> P3
+	add_edge!(G, 3, 2); # P3 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
+	println("Info structure: Stackelberg chain")
 
 	# 5. mixed B
 	# add_edge!(G, 1, 2); # P1 -> P2
