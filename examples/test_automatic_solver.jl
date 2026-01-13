@@ -304,6 +304,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		- F_sym: Symbolic representation of the MCP function vector.
 		- all_variables: A vector of all symbolic variables used in the problem.
 		- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+		- π_sizes_trimmed: A dictionary mapping each player to the size of their trimmed KKT condition vector.
 		- to: TimerOutput object used for profiling.
 		- backend: The symbolic backend used for preoptimization.
 	"""
@@ -340,17 +341,12 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		end
 	end
 
-	@timeit to "Linear Solver Initialization" begin
-		F_size = sum(values(π_sizes))
-		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
-		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
-	end
-
 	symbolic_type = eltype(all_variables)
 
 	@timeit to "[Linear Solve] Setup ParametricMCP" begin
 		# Final MCP vector: leader stationarity + leader constraints + follower KKT
 		πs_solve = strip_policy_constraints(πs, graph, zs, gs)
+		π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
 		π_order = sort(collect(keys(πs_solve)))
 		F_sym = Symbolics.Num.(vcat([πs_solve[i] for i in π_order]...))  # flattened in deterministic order
 
@@ -363,7 +359,13 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, params_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
 
-	return (;problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, to, backend)
+	@timeit to "Linear Solver Initialization" begin
+		F_size = length(F_sym)
+		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
+	end
+
+	return (; problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, π_sizes_trimmed, to, backend)
 end
 
 
@@ -408,6 +410,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 												- F_sym: Symbolic representation of the MCP function vector.
 												- all_variables: A vector of all symbolic variables used in the problem.
 												- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+												- π_sizes_trimmed: A dictionary mapping each player to the size of their trimmed KKT condition vector.
 												- to: TimerOutput object used for profiling.
 												- backend: The symbolic backend used for preoptimization.
 
