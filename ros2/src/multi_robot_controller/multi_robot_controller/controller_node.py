@@ -145,16 +145,29 @@ class MultiRobotController(Node):
 
     def convert_to_cmd_vel(self, vx, vy, pose, target_pose, current_theta):
         v = math.hypot(vx, vy)
-        # target_theta = math.atan2(vy, vx)
         target_theta = math.atan2(target_pose[1] - pose[1], target_pose[0] - pose[0])
         print("target_theta:", target_theta)
         print("current_theta:", current_theta)
-        # if vy >= 0:
-        #     target_theta = math.asin(vy, v)
-        # else:
-        #     target_theta = math.pi - math.asin(vy, vx)
 
-        omega = (target_theta - current_theta)  # Assuming a time step of 0.1 seconds
+        # Wrap angle error to [-pi, pi] to avoid discontinuities around the boundary
+        def _wrap_to_pi(angle):
+            return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+        angle_error = _wrap_to_pi(target_theta - current_theta)
+
+        # Proportional heading control with optional smoothing and clamping
+        k_omega = getattr(self, "k_omega", 1.0)
+        omega_cmd = k_omega * angle_error
+
+        # Low-pass filter to avoid sudden sign flips (keep smallest inertia)
+        alpha = getattr(self, "omega_lpf_alpha", 0.5)  # 0<alpha<=1, closer to 1 = less smoothing
+        prev_omega = getattr(self, "prev_omega", 0.0)
+        omega = alpha * omega_cmd + (1.0 - alpha) * prev_omega
+        self.prev_omega = omega
+
+        # Optional safety clamp here is light; final clamp happens before publish
+        max_omega_local = getattr(self, "max_omega_local", 1.0)
+        omega = max(-max_omega_local, min(max_omega_local, omega))
         
         return v, omega
     
@@ -346,6 +359,10 @@ class MultiRobotController(Node):
             omega1 = np.clip(omega1, -0.3, 0.3)
             omega2 = np.clip(omega2, -0.3, 0.3)
             omega3 = np.clip(omega3, -0.3, 0.3)
+            
+            v1 = np.clip(v1, -0.2, 0.2)
+            v2 = np.clip(v2, -0.2, 0.2)
+            v3 = np.clip(v3, -0.2, 0.2)
             
             self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 

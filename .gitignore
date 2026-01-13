@@ -6,3 +6,6 @@ ros2/log/
 ros2/resource/
 ros2/*.png
 ros2/*.gif
+ros2/*.csv
+
+*.pyc
