@@ -257,12 +257,16 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 		# TODO: This whole optimization is for computing M and N, which is only for players with leaders.
 		#       Look into skipping players without leaders. 
 
-		# TODO: Can be made more efficient if needed.
-		# πⁱ has size num constraints + num primal variables of i AND its followers.
-		π_sizes[ii] = length(gs[ii](zs[ii]))
-		for jj in BFSIterator(G, ii) # loop includes ii itself.
+	# TODO: Can be made more efficient if needed.
+	# πⁱ has size num constraints + num primal variables of i AND its followers.
+	π_sizes[ii] = length(gs[ii](zs[ii]))
+	for jj in BFSIterator(G, ii) # loop includes ii itself.
+		π_sizes[ii] += length(zs[jj])
+		# Add policy constraints for each follower.
+		if ii != jj
 			π_sizes[ii] += length(zs[jj])
 		end
+	end
 
 		if has_leader(G, ii)
 			# TODO: Use this directly instead of Msym and Nsym, for optimization.
