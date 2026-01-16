@@ -174,7 +174,12 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 				end
 
 				@timeit to "[Solve for K]" begin
+					zi_size = length(problem_vars.zs[ii])
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[ii]) - zi_size))
 					K_evals[ii] = M_evals[ii] \ N_evals[ii]
+					# Compute the policy ϕ_i = -M_i^{-1} N_i
+					ϕⁱ = -extractor * K_evals[ii]
+					println("Player $ii policy ϕ[$ii] to be embedded: ", norm(ϕⁱ))
 				end
 			end
 		else
