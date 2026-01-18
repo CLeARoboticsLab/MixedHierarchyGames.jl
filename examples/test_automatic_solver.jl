@@ -11,6 +11,7 @@ using SciMLBase: SciMLBase
 using SparseArrays: spzeros
 using Symbolics
 using SymbolicTracingUtils
+using JLD2
 
 include("graph_utils.jl")
 include("make_symbolic_variables.jl")
@@ -841,7 +842,7 @@ end
 
 
 
-function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 50, verbose = false)
+function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 50, verbose = false, strip_policy_constraints_eval=true)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled with nonlinear (unicycle, bicycle) dynamics in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -850,6 +851,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	----------
 	x0 (Vector{Vector{Float64}}) : A vector of initial conditions for each player, where each initial condition is a vector [px, py].
 	verbose (Bool, optional) : Whether to print verbose output (default: false).
+	strip_policy_constraints_eval (Bool, optional) : Whether to strip policy constraints when evaluating KKT residuals (default: true).
 	"""
 
 	# Normalize x0 to Vector{Vector{Float64}} to support inputs from Python (which often pass a Matrix)
@@ -875,14 +877,14 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 1, 4); # P1 -> P4
 
 	# 3. mixed A
-	add_edge!(G, 1, 2); # P1 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
-	add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 1, 2); # P1 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
 
 	# 4. Stackelberg chain
-	# add_edge!(G, 1, 3); # P1 -> P3
-	# add_edge!(G, 3, 2); # P3 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
+	add_edge!(G, 1, 3); # P1 -> P3
+	add_edge!(G, 3, 2); # P3 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
 
 	# 5. mixed B
 	# add_edge!(G, 1, 2); # P1 -> P2
@@ -1155,7 +1157,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol, z₄_sol]
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
+	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	# Reconstruct trajectories from solutions

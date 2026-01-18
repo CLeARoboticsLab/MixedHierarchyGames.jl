@@ -1,5 +1,3 @@
-# include("examples/TestAutomaticSolver.jl") once before running this file
-
 ######### INPUT: Initial conditions ##########################
 # parameters
 R = 6.0  # turning radius
@@ -124,5 +122,12 @@ z0_guess_4 = zeros(6*(T+1)) # for player 4
 z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
 
 ###############################################################
-# TestAutomaticSolver.nplayer_hierarchy_navigation(x0; verbose = false)
+# load warmstart data 
+warmstart_file = JLD2.load("./warmstart/Stackelberg_chain_data.jld2")
+z0_guess = warmstart_file["z_sol_nonlq"] 
+
+# add perturbation
+σ = 1e-2
+z0_guess .+= σ * randn(length(z0_guess))
+
 nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 2000)
