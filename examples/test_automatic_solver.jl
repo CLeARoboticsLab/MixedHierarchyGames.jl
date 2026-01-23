@@ -11,7 +11,6 @@ using SciMLBase: SciMLBase
 using SparseArrays: spzeros
 using Symbolics
 using SymbolicTracingUtils
-using JLD2
 
 include("graph_utils.jl")
 include("make_symbolic_variables.jl")
@@ -1137,8 +1136,6 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
-	# Save solutions for each player
-	@save "Stackelberg_chain_data.jld2" z_sol_nonlq vars
 
 	z₁ = zs[1]
 	z₂ = zs[2]
