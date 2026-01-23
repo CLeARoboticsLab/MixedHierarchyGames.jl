@@ -11,6 +11,7 @@ using SciMLBase: SciMLBase
 using SparseArrays: spzeros
 using Symbolics
 using SymbolicTracingUtils
+using JLD2
 
 include("graph_utils.jl")
 include("make_symbolic_variables.jl")
@@ -173,7 +174,12 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 				end
 
 				@timeit to "[Solve for K]" begin
+					zi_size = length(problem_vars.zs[ii])
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[ii]) - zi_size))
 					K_evals[ii] = M_evals[ii] \ N_evals[ii]
+					# Compute the policy ϕ_i = -M_i^{-1} N_i
+					ϕⁱ = -extractor * K_evals[ii]
+					println("Player $ii policy ϕ[$ii] to be embedded: ", norm(ϕⁱ))
 				end
 			end
 		else
@@ -1131,6 +1137,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
 
+	# Save solutions for each player
+	@save "Stackelberg_chain_data.jld2" z_sol_nonlq vars
 
 	z₁ = zs[1]
 	z₂ = zs[2]
