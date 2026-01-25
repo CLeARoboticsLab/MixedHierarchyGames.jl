@@ -179,7 +179,6 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 					K_evals[ii] = M_evals[ii] \ N_evals[ii]
 					# Compute the policy ϕ_i = -M_i^{-1} N_i
 					ϕⁱ = -extractor * K_evals[ii]
-					println("Player $ii policy ϕ[$ii] to be embedded: ", norm(ϕⁱ))
 				end
 			end
 		else
@@ -197,7 +196,7 @@ function compute_K_evals(z_est, problem_vars, setup_info; to = TimerOutput())
 	return all_K_evals_vec, (; M_evals, N_evals, K_evals, to)
 end
 
-function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to = TimerOutput(), α_init = 1.0, β = 0.5, c₁ = 1e-4, max_ls_iters = 5)
+function armijo_backtracking_linesearch(mcp_obj, compute_params_with_z, z_est, dz_sol; to = TimerOutput(), α_init = 1.0, β = 0.5, c₁ = 1e-4, max_ls_iters = 5)
 	"""
 	Performs an Armijo backtracking line search to find an appropriate step size for updating the estimate of decision variables.
 
@@ -205,8 +204,8 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	----------
 	mcp_obj: MCPObject
 		The MCP object containing the function and gradient information.
-	compute_Ks_with_z: Function
-		A function that computes the K matrices given the current estimate of decision variables z.
+	compute_params_with_z: Function
+		A function that computes the parameter vector (θ, K) given the current estimate of decision variables z.
 	z_est: Vector{Float64}
 		Current estimate of all decision variables.
 	dz_sol: Vector{Float64}
@@ -240,14 +239,14 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 	@timeit to "[Line Search][Iteration Setup]" begin
 		# Compute the right hand side of the Armijo condition.
 		@timeit to "[Line Search][Iteration Setup][Eval K]" begin
-			K_vec0, _ = compute_Ks_with_z(zk)
-			all_Ks_vec_kp1 = K_vec0
+			param_vec0 = compute_params_with_z(zk)
+			all_Ks_vec_kp1 = param_vec0
 		end
 		@timeit to "[Line Search][Iteration Setup][Eval F]" begin
-			mcp_obj.f!(F, zk, K_vec0)
+			mcp_obj.f!(F, zk, param_vec0)
 		end
 		@timeit to "[Line Search][Iteration Setup][Eval F grad]" begin
-			mcp_obj.jacobian_z!(∇F, zk, K_vec0)
+			mcp_obj.jacobian_z!(∇F, zk, param_vec0)
 		end
 
 		armijo_F0_norm = norm(F)^2
@@ -260,7 +259,7 @@ function armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_so
 			# Evaluate merit function at new point.
 			zkp1 = zk .+ α * dz_sol
 			@timeit to "[Line Search][Iteration Setup][Eval K]" begin
-				all_Ks_vec_kp1 = compute_Ks_with_z(zkp1)
+				all_Ks_vec_kp1 = compute_params_with_z(zkp1)
 			end
 			@timeit to "[Line Search][Iteration Setup][Eval F]" begin
 				mcp_obj.f!(F, zkp1, all_Ks_vec_kp1) # No parameters
@@ -497,6 +496,11 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
 			return param_eval_vec, all_K_evals_vec
 		end
+
+		function params_vec_for_z(z)
+			param_eval_vec, _ = params_for_z(z)
+			return param_eval_vec
+		end
 	end
 
 	# Run the iteration loop indefinitely, until we satisfy one of the termination conditions.
@@ -552,7 +556,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 					end
 				end
 				# α = 1. / (num_iterations+1) # Diminishing step size
-				# α, _ = armijo_backtracking_linesearch(mcp_obj, compute_Ks_with_z, z_est, dz_sol; to, α_init = ls_α_init, β = ls_β, c₁ = ls_c₁, max_ls_iters = max_ls_iters)
+				# α, _ = armijo_backtracking_linesearch(mcp_obj, params_vec_for_z, z_est, dz_sol; to, α_init = ls_α_init, β = ls_β, c₁ = ls_c₁, max_ls_iters = max_ls_iters)
 				next_z_est = z_est .+ α * dz_sol
 			end
 
@@ -875,9 +879,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 1, 4); # P1 -> P4
 
 	# 3. mixed A
-	add_edge!(G, 1, 2); # P1 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
-	add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 1, 2); # P1 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
 
 	# 4. Stackelberg chain
 	# add_edge!(G, 1, 3); # P1 -> P3
@@ -885,8 +889,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 2, 4); # P2 -> P4
 
 	# 5. mixed B
-	# add_edge!(G, 1, 2); # P1 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
 
 	H = 1
 	Hp1 = H+1 # number of planning stages is 1 for OL game.
@@ -1155,7 +1159,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol, z₄_sol]
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
+	πs_eval = strip_policy_constraints(πs, G, zs, gs)
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	# Reconstruct trajectories from solutions

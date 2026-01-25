@@ -353,7 +353,8 @@ function main(verbose = false)
 	z₃_sol = z_sol[(length(z₁)+length(z₂)+1):(length(z₁)+length(z₂)+length(z₃))]
 
 	# Evaluate the KKT residuals at the solution to check solution quality.
-	evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values; verbose)
+	πs_eval = strip_policy_constraints(πs, G, zs, gs)
+	evaluate_kkt_residuals(πs_eval, all_variables, z_sol, θs, parameter_values; verbose)
 
 	# Print solution information.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol]
