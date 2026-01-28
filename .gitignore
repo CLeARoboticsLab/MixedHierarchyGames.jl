@@ -1,3 +1,4 @@
 Manifest.toml
 warmstart/*.jld2
 *.jld2
+*.pdf
