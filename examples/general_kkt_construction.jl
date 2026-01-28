@@ -116,7 +116,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					# TODO: Do we need the constant term if we add this constraint in?
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 					kj = get(ks, jj, zeros(length(ws[jj])))
-					πᵢ = vcat(πᵢ, zs[jj] - extractor * (Ks[jj] * ys[jj] + kj))
+					ϕʲ = - extractor * (Ks[jj] * ys[jj] + kj)
+					πᵢ = vcat(πᵢ, zs[jj] - ϕʲ)
 				end
 			end
 		end
@@ -186,14 +187,17 @@ function construct_augmented_variables(ii, all_variables, K_syms, k_syms, G)
 		return all_variables
 	end
 
+	# ii == 2 && Main.@infiltrate
+
 	# If ii is not a leaf, we need to include the symbolic M and N matrices.
 	augmented_variables = copy(all_variables)
 	
 	for jj in BFSIterator(G, ii)
-		if has_leader(G, jj)
+		if ii == jj continue end
+		if has_leader(G, jj) # TODO: Is this even necessary? Can we remove this check? HK thinks yes.
 			# Vectorize them for storage.
-			vcat(augmented_variables, reshape(K_syms[jj], :))
-			vcat(augmented_variables, reshape(k_syms[jj], :))
+			augmented_variables = vcat(augmented_variables, reshape(K_syms[jj], :))
+			augmented_variables = vcat(augmented_variables, reshape(k_syms[jj], :))
 		end
 	end
 
@@ -258,12 +262,16 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 		# TODO: This whole optimization is for computing M and N, which is only for players with leaders.
 		#       Look into skipping players without leaders.
 
-		# TODO: Can be made more efficient if needed.
-		# πⁱ has size num constraints + num primal variables of i AND its followers.
-		π_sizes[ii] = length(gs[ii](zs[ii]))
-		for jj in BFSIterator(G, ii) # loop includes ii itself.
+	# TODO: Can be made more efficient if needed.
+	# πⁱ has size num constraints + num primal variables of i AND its followers.
+	π_sizes[ii] = length(gs[ii](zs[ii]))
+	for jj in BFSIterator(G, ii) # loop includes ii itself.
+		π_sizes[ii] += length(zs[jj])
+		# Add policy constraints for each follower.
+		if ii != jj
 			π_sizes[ii] += length(zs[jj])
 		end
+	end
 
 		if has_leader(G, ii)
 			# TODO: Use this directly instead of Msym and Nsym, for optimization.
@@ -307,13 +315,15 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				if ii != jj
 					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					πᵢ = vcat(πᵢ, zs[jj] - extractor * (K_syms[jj] * ys[jj] + k_syms[jj]))
+					Φʲ = - extractor * K_syms[jj] * ys[jj]
+					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
 				end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
 		πs[ii] = πᵢ
 
+		# ii == 2 && Main.@infiltrate
 
 		# Finally, we compute symbolic versions of M and N that only depend on the symbolic versions of lower-level algorithms.
 		# This allows us to evaluate M and N at any z_est without needing to recompute the entire symbolic gradient.
