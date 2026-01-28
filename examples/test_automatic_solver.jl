@@ -21,6 +21,12 @@ include("general_kkt_construction.jl")
 
 include("automatic_solver.jl")
 
+function build_full_param_vector(θ_vals_vec, all_variables, out_all_augmented_z_est)
+	@assert length(out_all_augmented_z_est) >= length(all_variables) "Augmented vector shorter than variables."
+	extra_params = out_all_augmented_z_est[(length(all_variables) + 1):end]
+	return vcat(θ_vals_vec, extra_params)
+end
+
 
 function approximate_solve_with_linsolve!(mcp_obj, linsolver, all_K_evals_vec, z; to = TimerOutput(), verbose = false)
 	"""
@@ -126,7 +132,42 @@ function _build_augmented_z_est(ii, z_est, K_evals, k_evals, graph, follower_ord
 	buf
 end
 
-function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values; to=TimerOutput())
+function _symbol_value_lookup(z_est, all_variables)
+	idx_lookup = Dict(v => i for (i, v) in enumerate(all_variables))
+	return idx_lookup
+end
+
+function _eval_symbol_vector(sym_vec, idx_lookup, z_est)
+	out = Vector{Float64}(undef, length(sym_vec))
+	for (i, sym) in enumerate(sym_vec)
+		if haskey(idx_lookup, sym)
+			out[i] = z_est[idx_lookup[sym]]
+		else
+			out[i] = 0.0
+		end
+	end
+	return out
+end
+
+function compute_ref_values_from_z(z_est, problem_vars)
+	all_variables = problem_vars.all_variables
+	ys = problem_vars.ys
+	ws = problem_vars.ws
+	idx_lookup = _symbol_value_lookup(z_est, all_variables)
+
+	y_refs = Dict{Int, Vector{Float64}}()
+	w_refs = Dict{Int, Vector{Float64}}()
+	for ii in keys(ys)
+		y_refs[ii] = _eval_symbol_vector(ys[ii], idx_lookup, z_est)
+		w_refs[ii] = _eval_symbol_vector(ws[ii], idx_lookup, z_est)
+	end
+	return y_refs, w_refs
+end
+
+function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
+	y_ref_values = nothing,
+	w_ref_values = nothing,
+	to=TimerOutput())
 	"""
 	Computes the numeric evaluations of the K matrices for each player, based on the current estimate of all decision variables.
 
@@ -160,6 +201,8 @@ function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
 	πs = setup_info.πs
 	K_syms = setup_info.K_syms
 	k_syms = setup_info.k_syms
+	y_ref_syms = get(setup_info, :y_ref_syms, Dict{Int, Any}())
+	w_ref_syms = get(setup_info, :w_ref_syms, Dict{Int, Any}())
 
 	M_evals = Dict{Int, Any}()
 	N_evals = Dict{Int, Any}()
@@ -227,6 +270,30 @@ function compute_K_evals(z_est, problem_vars, setup_info, θs, parameter_values;
 							kj_val = k_evals[jj]
 							for (i, el) in enumerate(vec(kj_sym))
 								el in vars_in_pi_set && (vals[el] = vec(kj_val)[i])
+							end
+						end
+					end
+
+					# Substitute offset parameters for leader info and follower outputs.
+					if !isempty(y_ref_syms)
+						y_vals = isnothing(y_ref_values) ? Dict{Int, Vector{Float64}}() : y_ref_values
+						for jj in 1:nv(graph)
+							if !isempty(y_ref_syms[jj])
+								offset_val = get(y_vals, jj, zeros(length(y_ref_syms[jj])))
+								for (i, el) in enumerate(vec(y_ref_syms[jj]))
+									el in vars_in_pi_set && (vals[el] = offset_val[i])
+								end
+							end
+						end
+					end
+					if !isempty(w_ref_syms)
+						w_vals = isnothing(w_ref_values) ? Dict{Int, Vector{Float64}}() : w_ref_values
+						for jj in 1:nv(graph)
+							if !isempty(w_ref_syms[jj])
+								offset_val = get(w_vals, jj, zeros(length(w_ref_syms[jj])))
+								for (i, el) in enumerate(vec(w_ref_syms[jj]))
+									el in vars_in_pi_set && (vals[el] = offset_val[i])
+								end
 							end
 						end
 					end
@@ -386,6 +453,10 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		out_all_augment_variables, setup_info = setup_approximate_kkt_solver(graph, Js, zs, λs, μs, gs, ws, ys, θs, all_variables, backend; to = TimerOutput(), verbose = false)
 		K_syms = setup_info.K_syms
 		k_syms = setup_info.k_syms
+		y_ref_syms = get(setup_info, :y_ref_syms, Dict{Int, Any}())
+		w_ref_syms = get(setup_info, :w_ref_syms, Dict{Int, Any}())
+		y_ref_indices = [ii for ii in 1:nv(graph) if !isempty(get(y_ref_syms, ii, Symbolics.Num[]))]
+		w_ref_indices = [ii for ii in 1:nv(graph) if !isempty(get(w_ref_syms, ii, Symbolics.Num[]))]
 		πs = setup_info.πs
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
@@ -395,12 +466,21 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
 		θ_syms_flat = vcat([θs[i] for i in θ_order]...)
 		all_k_syms_vec = vcat(map(ii -> reshape(@something(k_syms[ii], Symbolics.Num[]), :), 1:N)...)
-		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec, all_k_syms_vec)
+		all_y_ref_syms_vec = vcat(map(ii -> reshape(@something(y_ref_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		all_w_ref_syms_vec = vcat(map(ii -> reshape(@something(w_ref_syms[ii], Symbolics.Num[]), :), 1:N)...)
+		all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec, all_k_syms_vec, all_y_ref_syms_vec, all_w_ref_syms_vec)
 		θ_placeholder_vals = [zeros(length(θs[i])) for i in θ_order]
+		y_ref_placeholders = Dict(ii => zeros(length(@something(y_ref_syms[ii], Symbolics.Num[]))) for ii in 1:N)
+		w_ref_placeholders = Dict(ii => zeros(length(@something(w_ref_syms[ii], Symbolics.Num[]))) for ii in 1:N)
 
 		# Set up a function to evaluate the K matrices using only z.
 		function compute_Ks_with_z(z)
-			all_K_evals_vec, (; to) = compute_K_evals(z, problem_vars, setup_info, θs, θ_placeholder_vals; to)
+			all_K_evals_vec, (; to) = compute_K_evals(
+				z, problem_vars, setup_info, θs, θ_placeholder_vals;
+				y_ref_values = y_ref_placeholders,
+				w_ref_values = w_ref_placeholders,
+				to,
+			)
 			return all_K_evals_vec
 		end
 	end
@@ -437,6 +517,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 	max_iters = 30, tol = 1e-6, verbose = false,
 	ls_α_init = 1.0, ls_β = 0.5, ls_c₁ = 1e-4, max_ls_iters = 10,
 	to = TimerOutput(), backend = SymbolicTracingUtils.SymbolicsBackend(),
+	y_ref_values = nothing,
+	w_ref_values = nothing,
 	preoptimization_info = nothing)
 	"""
 	Solves a non-LQ Stackelberg hierarchy game using a linear quasi-policy approximation approach.
@@ -496,6 +578,9 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 	reverse_topological_order = reverse(topological_sort(graph))
 
 	out_all_augmented_z_est = nothing
+	last_param_eval_vec = nothing
+	y_ref_indices = Int[]
+	w_ref_indices = Int[]
 
 	if isnothing(preoptimization_info)
 		@timeit to "[Non-LQ Solver][Preoptimization]" begin
@@ -518,12 +603,20 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		K_syms = setup_info.K_syms
 		M_fns = setup_info.M_fns
 		N_fns = setup_info.N_fns
+		y_ref_syms = get(setup_info, :y_ref_syms, Dict{Int, Any}())
+		w_ref_syms = get(setup_info, :w_ref_syms, Dict{Int, Any}())
+		y_ref_indices = [ii for ii in 1:nv(graph) if !isempty(get(y_ref_syms, ii, Symbolics.Num[]))]
+		w_ref_indices = [ii for ii in 1:nv(graph) if !isempty(get(w_ref_syms, ii, Symbolics.Num[]))]
 
 		# Set up solver objects and functions.
 		mcp_obj = preoptimization_info.mcp_obj
 		F = preoptimization_info.F_sym
 		linsolver = preoptimization_info.linsolver
-		compute_Ks_with_z = z -> compute_K_evals(z, problem_vars, setup_info, θs, parameter_values)[1]
+		compute_Ks_with_z = z -> compute_K_evals(
+			z, problem_vars, setup_info, θs, parameter_values;
+			y_ref_values = Dict{Int, Vector{Float64}}(),
+			w_ref_values = Dict{Int, Vector{Float64}}(),
+		)[1]
 
 		# Set up variables for augmented in/output.
 		out_all_augment_variables = preoptimization_info.out_all_augment_variables
@@ -551,9 +644,28 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat([parameter_values[k] for k in θ_order]...)
 
 		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
+		# Default offsets to zero if not provided.
+		# Use reference values from the previous iterate unless explicitly provided.
+		y_refs_prev = Ref{Dict{Int, Vector{Float64}}}()
+		w_refs_prev = Ref{Dict{Int, Vector{Float64}}}()
+		if isnothing(y_ref_values) || isnothing(w_ref_values)
+			y_refs_prev[] , w_refs_prev[] = compute_ref_values_from_z(z_est, problem_vars)
+		else
+			y_refs_prev[] = y_ref_values
+			w_refs_prev[] = w_ref_values
+		end
+
 		function params_for_z(z)
-			all_K_evals_vec, _ = compute_K_evals(z, problem_vars, setup_info, θs, parameter_values)
-			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec)
+			y_refs = y_refs_prev[]
+			w_refs = w_refs_prev[]
+			y_refs_flat = isempty(y_ref_indices) ? Float64[] : vcat([y_refs[ii] for ii in y_ref_indices]...)
+			w_refs_flat = isempty(w_ref_indices) ? Float64[] : vcat([w_refs[ii] for ii in w_ref_indices]...)
+			all_K_evals_vec, _ = compute_K_evals(
+				z, problem_vars, setup_info, θs, parameter_values;
+				y_ref_values = y_refs,
+				w_ref_values = w_refs,
+			)
+			param_eval_vec = vcat(θ_vals_vec, all_K_evals_vec, y_refs_flat, w_refs_flat)
 			return param_eval_vec, all_K_evals_vec
 		end
 
@@ -568,7 +680,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		@timeit to "[Non-LQ Solver][Iterative Loop]" begin
 
 			@timeit to "[Non-LQ Solver][Iterative Loop][Evaluate K Numerically]" begin
-				param_eval_vec, all_K_evals_vec = params_for_z(z_est)
+			param_eval_vec, all_K_evals_vec = params_for_z(z_est)
+			last_param_eval_vec = param_eval_vec
 			end
 
 			@timeit to "[Non-LQ Solver][Iterative Loop][Check Convergence]" begin
@@ -576,6 +689,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 				convergence_criterion = norm(F_eval)
 				@info("Iteration $num_iterations: Convergence criterion = $convergence_criterion")
 				if convergence_criterion < tol
+					# Ensure augmented output matches the converged iterate.
+					y_refs_flat_current = isempty(y_ref_indices) ? Float64[] : vcat([y_refs_prev[][ii] for ii in y_ref_indices]...)
+					w_refs_flat_current = isempty(w_ref_indices) ? Float64[] : vcat([w_refs_prev[][ii] for ii in w_ref_indices]...)
+					out_all_augmented_z_est = vcat(z_est, all_K_evals_vec, y_refs_flat_current, w_refs_flat_current)
 					nonlq_solver_status = (num_iterations > 0) ? :solved : :solver_not_run_but_z0_optimal
 					break
 				end
@@ -608,9 +725,10 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 					# Check if the merit function decreases and update K; currently, we use an outdated version of K.
 					mcp_obj.f!(F_eval, next_z_est, param_eval_vec_kp1)
 					if norm(F_eval) < norm(F_eval_linsolve)
-						param_eval_vec = param_eval_vec_kp1
-						all_K_evals_vec = all_K_evals_vec_kp1
-						break
+							param_eval_vec = param_eval_vec_kp1
+							all_K_evals_vec = all_K_evals_vec_kp1
+							last_param_eval_vec = param_eval_vec_kp1
+							break
 					else
 						α *= 0.5
 					end
@@ -623,13 +741,19 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 			# Update the current estimate.
 			z_est = next_z_est
 
+			if isnothing(y_ref_values) || isnothing(w_ref_values)
+				y_refs_prev[], w_refs_prev[] = compute_ref_values_from_z(z_est, problem_vars)
+			end
+
 			# Compile all numerical values that we used into one large vector (for this iteration only).
-			out_all_augmented_z_est = vcat(z_est, all_K_evals_vec)
+			y_refs_flat_current = isempty(y_ref_indices) ? Float64[] : vcat([y_refs_prev[][ii] for ii in y_ref_indices]...)
+			w_refs_flat_current = isempty(w_ref_indices) ? Float64[] : vcat([w_refs_prev[][ii] for ii in w_ref_indices]...)
+			out_all_augmented_z_est = vcat(z_est, all_K_evals_vec, y_refs_flat_current, w_refs_flat_current)
 		end
 	end
 
 	# TODO: Redo to add more general output.
-	info = (; num_iterations, final_convergence_criterion = convergence_criterion, to)
+	info = (; num_iterations, final_convergence_criterion = convergence_criterion, to, last_param_eval_vec)
 	z_est, nonlq_solver_status, info, all_variables, (; πs, zs, λs, μs, θs), (; out_all_augment_variables, out_all_augmented_z_est)
 end
 
@@ -687,8 +811,16 @@ function solve_nonlq_game_example(H, graph, primal_dimension_per_player, Js, gs,
 		z0 = zeros(length(preoptimization_info.all_variables))
 		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
 		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat(parameter_values...)
-		K0, _ = compute_K_evals(z0, preoptimization_info.problem_vars, preoptimization_info.setup_info, θs, parameter_values)
-		param0 = vcat(θ_vals_vec, K0)
+		K0, _ = compute_K_evals(
+			z0, preoptimization_info.problem_vars, preoptimization_info.setup_info, θs, parameter_values;
+			y_ref_values = Dict{Int, Vector{Float64}}(),
+			w_ref_values = Dict{Int, Vector{Float64}}(),
+		)
+		y_ref_syms = get(preoptimization_info.setup_info, :y_ref_syms, Dict{Int, Any}())
+		w_ref_syms = get(preoptimization_info.setup_info, :w_ref_syms, Dict{Int, Any}())
+		y_refs_flat = vcat([zeros(length(@something(y_ref_syms[ii], Symbolics.Num[]))) for ii in 1:nv(graph)]...)
+		w_refs_flat = vcat([zeros(length(@something(w_ref_syms[ii], Symbolics.Num[]))) for ii in 1:nv(graph)]...)
+		param0 = vcat(θ_vals_vec, K0, y_refs_flat, w_refs_flat)
 		mcp = preoptimization_info.mcp_obj
 		Fbuf = similar(preoptimization_info.F_sym, Float64)
 		Jbuf = mcp.jacobian_z!.result_buffer
@@ -838,6 +970,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	z_sol = z_sol_nonlq
 	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
+	θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+	θ_len = length(vcat([θs[i] for i in θ_order]...))
+	θ_vals_vec = info_nonlq.last_param_eval_vec[1:θ_len]
 
 	if show_variable_offsets
 		print_variable_offsets(vars)
@@ -860,7 +995,11 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 		evaluate_kkt_residuals(πs_eval_lq, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
 	end
 	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
-	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
+	# Evaluate using augmented variables so K/k/y_ref/w_ref are provided explicitly.
+	θ_vals_vec = vcat(x0_vecs...)
+	flush(stdout)
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, θ_vals_vec; verbose = true)
+	flush(stdout)
 
 
 	# Plot the trajectories.
@@ -975,9 +1114,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 1, 3); # P1 -> P3
 
 	# 4. Stackelberg chain
-	add_edge!(G, 1, 3); # P1 -> P3
-	add_edge!(G, 3, 2); # P3 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 3, 2); # P3 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
 
 	# 5. mixed B
 	add_edge!(G, 1, 2); # P1 -> P2
@@ -1087,7 +1226,8 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation_P2 = sum((x²[2]-R)^2 for x² in xs²) # directs the follower P1 to go straight
 		zero_heading_P2 = sum((x²[3])^2 for x² in xs²)
 
-		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)]) #+ 0.5*sum((xs³[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
+		tracking_range = 2:div(T, 2)
+		tracking = 10sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[tracking_range]; init = 0.0) #+ 0.5*sum((xs³[end][1:2] .- xs¹[end][1:2]) .^ 2) # track only the final position of the leader
 		control = sum(sum(u³ .^ 2) for u³ in us³)
 		collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
 		velocity = sum((x³[4] - 2.0)^2 for x³ in xs³) # penalize high speeds
@@ -1236,6 +1376,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	)
 	(; πs, zs, λs, μs, θs) = vars
 	(; out_all_augment_variables, out_all_augmented_z_est) = all_augmented_vars
+	θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+	θ_len = length(vcat([θs[i] for i in θ_order]...))
+	θ_vals_vec = info_nonlq.last_param_eval_vec[1:θ_len]
 
 
 	z₁ = zs[1]
@@ -1251,7 +1394,27 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol, z₄_sol]
 	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
-	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
+	# Evaluate using augmented variables so K/k/y_ref/w_ref are provided explicitly.
+	θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in sort(collect(keys(parameter_values)))]...) : vcat(parameter_values...)
+	# Debug: check initial condition mismatch directly.
+	θ_per_player = parameter_values isa AbstractDict ? [parameter_values[k] for k in sort(collect(keys(parameter_values)))] : parameter_values
+	for (i, z_sol_i) in enumerate(z_sols)
+		(; xs, us) = unflatten_trajectory(z_sol_i, state_dimension, control_dimension)
+		x1 = xs[1]
+		θi = θ_per_player[i]
+		println("IC check P$i")
+		println("  x1 = ", x1)
+		println("  θ  = ", θi)
+		println("  residual = ", x1 .- θi)
+	end
+	# Debug: check consistency between z_sol_nonlq and augmented z vector.
+	z_head = out_all_augmented_z_est[1:length(z_sol_nonlq)]
+	diff = maximum(abs.(z_head .- z_sol_nonlq))
+	println("Augmented z vs z_sol_nonlq max diff = ", diff)
+	println("θ_vals_vec[1:8] = ", θ_vals_vec[1:min(8, length(θ_vals_vec))])
+	flush(stdout)
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, θ_vals_vec; verbose = true)
+	flush(stdout)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
 	# Reconstruct trajectories from solutions

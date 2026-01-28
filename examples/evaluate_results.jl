@@ -33,17 +33,29 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	θ_vec = vcat([θs[ii] for ii in order]...)
 	all_vars_and_params = vcat(all_variables, θ_vec)
 
-	# Build the in-place version of the function.
-	π_fns! = SymbolicTracingUtils.build_function(all_πs, all_vars_and_params; in_place = true)
+	if parameter_values isa AbstractVector
+		if !isempty(parameter_values) && eltype(parameter_values) <: AbstractVector
+			param_vals_vec = vcat(parameter_values...)
+		else
+			param_vals_vec = parameter_values
+		end
+	else
+		per_player_param_vals = [parameter_values[ii] for ii in order]
+		param_vals_vec = vcat(per_player_param_vals...)
+	end
+	@assert length(z_sol) == length(all_variables) "Expected z_sol length $(length(all_variables)); got $(length(z_sol))."
+	@assert length(param_vals_vec) == length(θ_vec) "Expected θ length $(length(θ_vec)); got $(length(param_vals_vec))."
 
-	# Allocate output storage (same size as all_πs).
-	π_eval = similar(all_πs, Float64)
-
-	# Evaluate in place
-	per_player_param_vals = [parameter_values[ii] for ii in order]
-	param_vals_vec = vcat(per_player_param_vals...)
-
-	π_fns!(π_eval, vcat(z_sol, param_vals_vec))
+	# Substitute explicitly to avoid any argument-ordering mismatches.
+	vals = Dict{Any, Any}()
+	for (sym, val) in zip(all_variables, z_sol)
+		vals[sym] = val
+	end
+	for (sym, val) in zip(θ_vec, param_vals_vec)
+		vals[sym] = val
+	end
+	π_eval = Symbolics.substitute.(all_πs, Ref(vals))
+	π_eval = Float64.(Symbolics.value.(π_eval))
 
 	if verbose
 		println("\n" * "="^20 * " KKT Residuals " * "="^20)

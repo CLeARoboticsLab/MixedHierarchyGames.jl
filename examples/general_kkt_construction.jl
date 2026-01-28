@@ -8,6 +8,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	ws::Dict{Int, Any},
 	ys::Dict{Int, Any},
 	θ;
+	y_offsets = Dict{Int, Any}(),
+	w_offsets = Dict{Int, Any}(),
 	verbose = false,
 	to = TimerOutput())
 	"""
@@ -41,6 +43,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	Ns = Dict{Int, Any}()
 	Ks = Dict{Int, Any}()
 	ks = Dict{Int, Any}()
+	# Optional offsets for leader information and follower outputs.
 	πs = Dict{Int, Any}()
 	Φs = Dict{Int, Any}()
 
@@ -96,7 +99,9 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
 						# Solve Mw + Ny + π(0) = 0 using symbolic M and N.
 						kj = get(ks, jj, zeros(length(ws[jj])))
-						Φʲ = - extractor * (Ks[jj] * ys[jj] + kj)
+						yj_offset = get(y_offsets, jj, zeros(length(ys[jj])))
+						wj_offset = get(w_offsets, jj, zeros(length(ws[jj])))
+						Φʲ = - extractor * (Ks[jj] * (ys[jj] + yj_offset) + kj + wj_offset)
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
@@ -116,7 +121,9 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 					# TODO: Do we need the constant term if we add this constraint in?
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 					kj = get(ks, jj, zeros(length(ws[jj])))
-					ϕʲ = - extractor * (Ks[jj] * ys[jj] + kj)
+					yj_offset = get(y_offsets, jj, zeros(length(ys[jj])))
+					wj_offset = get(w_offsets, jj, zeros(length(ws[jj])))
+					ϕʲ = - extractor * (Ks[jj] * (ys[jj] + yj_offset) + kj + wj_offset)
 					πᵢ = vcat(πᵢ, zs[jj] - ϕʲ)
 				end
 			end
@@ -251,6 +258,8 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 
 	K_syms = Dict{Int, Any}()
 	k_syms = Dict{Int, Any}()
+	y_ref_syms = Dict{Int, Any}()
+	w_ref_syms = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 
 	M_fns = Dict{Int, Any}()
@@ -285,9 +294,21 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				make_symbolic_variable(:k, ii, H),
 				length(ws[ii]),
 			), length(ws[ii]))
+			y_ref_syms[ii] = SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:y_ref, ii, H),
+				length(ys[ii]),
+			)
+			w_ref_syms[ii] = SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:w_ref, ii, H),
+				length(ws[ii]),
+			)
 		else
 			K_syms[ii] = Symbolics.Num[]
 			k_syms[ii] = Symbolics.Num[]
+			y_ref_syms[ii] = Symbolics.Num[]
+			w_ref_syms[ii] = Symbolics.Num[]
 		end
 
 		# Build the Lagrangian using these variables.
@@ -300,7 +321,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			# To avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Φʲ = - extractor * (K_syms[jj] * ys[jj] + k_syms[jj])
+			Φʲ = extractor * (w_ref_syms[jj] - K_syms[jj] * (ys[jj] - y_ref_syms[jj]) + k_syms[jj])
 			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
@@ -315,7 +336,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				if ii != jj
 					zi_size = length(zs[ii])
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					Φʲ = - extractor * K_syms[jj] * ys[jj]
+					Φʲ = extractor * (w_ref_syms[jj] - K_syms[jj] * (ys[jj] - y_ref_syms[jj]) + k_syms[jj])
 					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
 				end
 			end
@@ -351,7 +372,9 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 		all_variables,
 		vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...,
 		vcat(map(ii -> reshape(k_syms[ii], :), 1:N))...,
+		vcat(map(ii -> reshape(y_ref_syms[ii], :), 1:N))...,
+		vcat(map(ii -> reshape(w_ref_syms[ii], :), 1:N))...,
 	)
 
-	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, k_syms=k_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, k_syms=k_syms, y_ref_syms=y_ref_syms, w_ref_syms=w_ref_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
 end
