@@ -873,9 +873,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# println("Info structure: Stackelberg chain")
 
 	# 5. mixed B
-	# add_edge!(G, 1, 2); # P1 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
-	# println("Info structure: Mixed B")
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
+	println("Info structure: Mixed B")
 
 
 
