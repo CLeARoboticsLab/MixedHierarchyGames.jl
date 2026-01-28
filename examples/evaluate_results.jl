@@ -39,9 +39,18 @@ function evaluate_kkt_residuals(πs, all_variables, z_sol, θs, parameter_values
 	# Allocate output storage (same size as all_πs).
 	π_eval = similar(all_πs, Float64)
 
-	# Evaluate in place
-	per_player_param_vals = [parameter_values[ii] for ii in order]
-	param_vals_vec = vcat(per_player_param_vals...)
+	# Evaluate in place - a guard for parameter_values being either Dict or Vector.
+	if parameter_values isa AbstractVector
+		if !isempty(parameter_values) && eltype(parameter_values) <: AbstractVector
+			param_vals_vec = vcat(parameter_values...)
+		else
+			param_vals_vec = parameter_values
+		end
+	else
+		per_player_param_vals = [parameter_values[ii] for ii in order]
+		param_vals_vec = vcat(per_player_param_vals...)
+	end
+	@assert length(param_vals_vec) == length(θ_vec) "Expected θ length $(length(θ_vec)); got $(length(param_vals_vec))."
 
 	π_fns!(π_eval, vcat(z_sol, param_vals_vec))
 
