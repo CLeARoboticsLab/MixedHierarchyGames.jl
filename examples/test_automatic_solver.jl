@@ -942,7 +942,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + 5y_deviation + zero_heading + velocity
+		control + collision + y_deviation + zero_heading
 
 	end
 
@@ -968,7 +968,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
 		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
 
-		control + collision + 5y_deviation + zero_heading + velocity
+		control + collision + y_deviation + zero_heading + velocity
 
 	end
 
@@ -993,7 +993,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		tracking + control + collision + 5y_deviation + zero_heading + velocity
+		tracking + control + collision + y_deviation + zero_heading + velocity
 
 	end
 
