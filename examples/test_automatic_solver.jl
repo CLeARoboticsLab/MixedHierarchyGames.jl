@@ -730,7 +730,7 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	end
 
 	# Set up the problem.
-	T = 3
+	T = 10
 	Δt = 0.5
 	N, G, H, problem_dims, Js, gs, θs, backend = get_three_player_openloop_lq_problem(T, Δt; verbose)
 
@@ -1161,11 +1161,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# TODO: Update this to work with the new formulation.
 	# Evaluate the KKT residuals at the solution to check solution quality.
 	z_sols = [z₁_sol, z₂_sol, z₃_sol, z₄_sol]
-<<<<<<< HEAD
-	πs_eval = strip_policy_constraints(πs, G, zs, gs)
-=======
 	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
->>>>>>> 1a2118c1146d1469a5d8839f01461a8e8705aeb4
 	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, parameter_values; verbose = true)
 	# evaluate_kkt_residuals(πs, all_variables, z_sol, θ, parameter_value; verbose = verbose)
 
