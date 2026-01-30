@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
 import numpy as np
 import math
 import time
@@ -14,15 +15,103 @@ os.environ["JULIA_SSL_LIBRARY"] = "system"
 jl = Julia(compiled_modules=False)
 from julia import Main
 import roslibpy
+from roslibpy.core import RosTimeoutError
 
 GOAL_POSITION = [0.0, 0.0]
 
 # Robot configuration - modify these for your setup
 ROBOT_CONFIGS = [
     {'ip': '192.168.131.3', 'port': 9090, 'topic': '/bluebonnet/platform/cmd_vel'},  # Robot 1
-    {'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
+    # {'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
+    {'ip': '192.168.50.2', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
     {'ip': '192.168.131.5', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},      # Robot 3 (update IP/topic as needed)
 ]
+
+
+def connect_to_robots():
+    """Connect to robots via roslibpy BEFORE Julia initialization.
+    Note: roslibpy uses Twisted reactor which can only be started once.
+    We create all clients first, then start the reactor once."""
+    print("Connecting to robots...")
+    ros_clients = []
+    ros_publishers = []
+    
+    # Step 1: Create all clients first (don't call run() yet)
+    for i, config in enumerate(ROBOT_CONFIGS):
+        try:
+            print(f"Creating client for robot {i+1} at {config['ip']}:{config['port']}...")
+            client = roslibpy.Ros(host=config['ip'], port=config['port'])
+            ros_clients.append(client)
+        except Exception as e:
+            print(f"✗ Error creating client for robot {i+1}: {e}")
+            ros_clients.append(None)
+    
+    # Step 2: Start reactor once (using the first valid client)
+    # Note: client.run() starts the Twisted reactor (can only be done once)
+    #       It may raise RosTimeoutError if connection fails, but reactor still runs
+    reactor_started = False
+    
+    for i, client in enumerate(ros_clients):
+        if client is not None:
+            try:
+                print(f"Attempting to start reactor with robot {i+1} connection...")
+                client.run()  # This starts the Twisted reactor (can only be done once)
+                # If we get here without exception, reactor started successfully
+                reactor_started = True
+                print(f"✓ Reactor started (robot {i+1} may still be connecting...)")
+                break
+            except RosTimeoutError as e:
+                # Connection timeout, but reactor might still be running
+                print(f"✗ Robot {i+1} connection timeout, but reactor may be running")
+                # Check if reactor is running by trying next client
+                reactor_started = True  # Assume reactor started (will verify with next attempt)
+                break
+            except Exception as e:
+                error_str = str(e)
+                # If it's ReactorNotRestartable, reactor is already running (good!)
+                if "ReactorNotRestartable" in error_str:
+                    reactor_started = True
+                    print(f"✓ Reactor already running (from previous attempt)")
+                    break
+                print(f"✗ Error starting reactor with robot {i+1}: {e}")
+                continue
+    
+    if not reactor_started:
+        print("✗ Failed to start reactor - no valid clients")
+        return [None] * len(ROBOT_CONFIGS), [None] * len(ROBOT_CONFIGS)
+    
+    # Step 3: Wait for connections and create publishers
+    time.sleep(0.5)  # Give connections time to establish
+    
+    for i, (client, config) in enumerate(zip(ros_clients, ROBOT_CONFIGS)):
+        if client is None:
+            ros_publishers.append(None)
+            continue
+            
+        try:
+            # Wait for connection with timeout
+            max_wait_time = 5.0
+            wait_interval = 0.1
+            waited = 0.0
+            while not client.is_connected and waited < max_wait_time:
+                time.sleep(wait_interval)
+                waited += wait_interval
+            
+            if client.is_connected:
+                print(f"✓ Connected to robot {i+1} at {config['ip']}:{config['port']}")
+                pub = roslibpy.Topic(client, config['topic'], 'geometry_msgs/msg/TwistStamped')
+                pub.advertise()
+                ros_publishers.append(pub)
+            else:
+                print(f"✗ Failed to connect to robot {i+1} at {config['ip']}:{config['port']} (timeout)")
+                ros_publishers.append(None)
+        except Exception as e:
+            print(f"✗ Error setting up robot {i+1}: {e}")
+            ros_publishers.append(None)
+    
+    print(f"Robot connection complete: {sum(1 for c in ros_clients if c is not None and c.is_connected)}/{len(ROBOT_CONFIGS)} connected")
+    return ros_clients, ros_publishers
+
 
 # Only do this once — import and include your Julia code
 def julia_init():
@@ -112,16 +201,17 @@ def ros_time():
 
 
 class PursuitEvasionController(Node):
-    def __init__(self, pre):
+    def __init__(self, pre, ros_clients, ros_publishers):
         super().__init__('pursuit_evasion_controller')
 
-        # Subscribers for odometry (ROS 2)
+        # Subscribers for pose (ROS 2) - vrpn_client_ros2 publishes PoseStamped, not Odometry
+        # Note: Fixed case mismatch - BlueBonnet (capital B)
         self.odom_sub_01 = self.create_subscription(
-            Odometry, '/vrpn_client_node/Bluebonnet/pose', self.odom_callback_01, 10)
+            PoseStamped, '/vrpn_client_node/BlueBonnet/pose', self.odom_callback_01, 10)
         self.odom_sub_02 = self.create_subscription(
-            Odometry, '/vrpn_client_node/Lonebot/pose', self.odom_callback_02, 10)
+            PoseStamped, '/vrpn_client_node/Lonebot/pose', self.odom_callback_02, 10)
         self.odom_sub_03 = self.create_subscription(
-            Odometry, '/vrpn_client_node/Husky/pose', self.odom_callback_03, 10)
+            PoseStamped, '/vrpn_client_node/Husky/pose', self.odom_callback_03, 10)
 
         # Odometry buffers
         self.latest_odom_01 = None
@@ -140,29 +230,18 @@ class PursuitEvasionController(Node):
         self.csv_output_path = Path(self.project_root) / "ros2" / "trajectory.csv"
         self._shutdown_initiated = False
 
-        # Setup roslibpy connections for each robot
-        self.ros_clients = []
-        self.ros_publishers = []
+        # Use pre-established roslibpy connections (created before Julia init)
+        self.ros_clients = ros_clients
+        self.ros_publishers = ros_publishers
         
-        for i, config in enumerate(ROBOT_CONFIGS):
-            try:
-                client = roslibpy.Ros(host=config['ip'], port=config['port'])
-                client.run()
-                
-                if client.is_connected:
-                    self.get_logger().info(f"Connected to robot {i+1} at {config['ip']}:{config['port']}")
-                    pub = roslibpy.Topic(client, config['topic'], 'geometry_msgs/msg/TwistStamped')
-                    pub.advertise()
-                    self.ros_clients.append(client)
-                    self.ros_publishers.append(pub)
-                else:
-                    self.get_logger().warn(f"Failed to connect to robot {i+1} at {config['ip']}:{config['port']}")
-                    self.ros_clients.append(None)
-                    self.ros_publishers.append(None)
-            except Exception as e:
-                self.get_logger().error(f"Error connecting to robot {i+1}: {e}")
-                self.ros_clients.append(None)
-                self.ros_publishers.append(None)
+        # Log connection status
+        connected_count = sum(1 for c in self.ros_clients if c is not None)
+        self.get_logger().info(f"Using {connected_count}/{len(ROBOT_CONFIGS)} pre-established robot connections")
+        for i, client in enumerate(self.ros_clients):
+            if client is not None and client.is_connected:
+                self.get_logger().info(f"Robot {i+1} connection active")
+            else:
+                self.get_logger().warn(f"Robot {i+1} connection not available")
 
         self.get_logger().info("PursuitEvasionController node started.")
 
@@ -176,15 +255,22 @@ class PursuitEvasionController(Node):
         self.latest_odom_03 = msg
 
     def convert_odom_to_state(self, msg):
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
-        q = msg.pose.pose.orientation
+        # Handle both Odometry and PoseStamped messages
+        if hasattr(msg, 'pose') and hasattr(msg.pose, 'pose'):  # Odometry message
+            x = msg.pose.pose.position.x
+            y = msg.pose.pose.position.y
+            q = msg.pose.pose.orientation
+            v = msg.twist.twist.linear.x
+        else:  # PoseStamped message
+            x = msg.pose.position.x
+            y = msg.pose.position.y
+            q = msg.pose.orientation
+            v = 0.0  # PoseStamped doesn't have velocity, default to 0
+        
         # Convert quaternion to yaw (theta)
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         theta = math.atan2(siny_cosp, cosy_cosp)
-
-        v = msg.twist.twist.linear.x
 
         return [x, y, theta, v]
 
@@ -259,13 +345,18 @@ class PursuitEvasionController(Node):
             self.get_logger().error(f"Failed to save trajectory CSV: {e}")
 
     def run_planner_step(self):
-        if self.latest_odom_01 is None or self.latest_odom_02 is None or self.latest_odom_03 is None:
+        # if self.latest_odom_01 is None or self.latest_odom_02 is None or self.latest_odom_03 is None:
+        if self.latest_odom_02 is None:
             self.get_logger().warn("Waiting for odometry...")
             return
 
-        state1 = self.convert_odom_to_state(self.latest_odom_01)
+        # state1 = self.convert_odom_to_state(self.latest_odom_01)
+        state1 = [-2.0, 1.0, 0.0, 0.0]
+        # state2 = [-2.0, -2.0, 0.0, 0.0]
         state2 = self.convert_odom_to_state(self.latest_odom_02)
-        state3 = self.convert_odom_to_state(self.latest_odom_03)
+        state3 = [2.0, -2.0, 0.0, 0.0]
+        # state2 = self.convert_odom_to_state(self.latest_odom_02)
+        # state3 = self.convert_odom_to_state(self.latest_odom_03)
 
         # Julia solver expects vector of vectors: [[px; py], [px; py], [px; py]]
         # Create Julia vectors explicitly to ensure correct data structure
@@ -361,9 +452,9 @@ class PursuitEvasionController(Node):
         super().destroy_node()
 
 
-def main(pre, args=None):
+def main(pre, ros_clients, ros_publishers, args=None):
     rclpy.init(args=args)
-    node = PursuitEvasionController(pre)
+    node = PursuitEvasionController(pre, ros_clients, ros_publishers)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -374,6 +465,12 @@ def main(pre, args=None):
 
 
 if __name__ == '__main__':
+    # Connect to robots FIRST (before Julia initialization)
+    ros_clients, ros_publishers = connect_to_robots()
+    
+    # Then initialize Julia (takes a long time)
     pre = julia_init()
-    main(pre)
+    
+    # Start the controller with pre-established connections
+    main(pre, ros_clients, ros_publishers)
 
