@@ -861,10 +861,10 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# println("Info structure: Shallow-tree")
 
 	# 3. mixed A
-	# add_edge!(G, 1, 2); # P1 -> P2
-	# add_edge!(G, 2, 4); # P2 -> P4
-	# add_edge!(G, 1, 3); # P1 -> P3
-	# println("Info structure: Mixed A")
+	add_edge!(G, 1, 2); # P1 -> P2
+	add_edge!(G, 2, 4); # P2 -> P4
+	add_edge!(G, 1, 3); # P1 -> P3
+	println("Info structure: Mixed A")
 
 	# 4. Stackelberg chain
 	# add_edge!(G, 1, 3); # P1 -> P3
@@ -937,7 +937,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + collision + y_deviation + zero_heading
+		control + collision + y_deviation + zero_heading + velocity
 
 	end
 
@@ -963,7 +963,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
 		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
 
-		control + collision + y_deviation + zero_heading + velocity
+		control + collision + 2y_deviation + zero_heading + 0.3velocity
 
 	end
 
@@ -988,7 +988,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		tracking + control + collision + y_deviation + zero_heading + velocity
+		tracking + control + collision + 2y_deviation + zero_heading + 0.5velocity
 
 	end
 
@@ -1011,7 +1011,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # penalize y deviation from R
 		zero_heading = sum((x⁴[3])^2 for x⁴ in xs⁴) # penalize heading away from 0
 
-		control + collision + y_deviation + zero_heading + velocity
+		control + collision + 2y_deviation + zero_heading + 0.5velocity
 	end
 
 	Js = Dict{Int, Any}(
