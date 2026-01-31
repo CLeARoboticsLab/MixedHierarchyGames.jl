@@ -14,7 +14,7 @@ x0 = [
 	[-1.5R; R; 0.0; 2.0], # P1 (LEADER)
 	[-2.0R; R; 0.0; 2.0], # P2 (FOLLOWER)
 	[-R; 0.0; pi/2; 1.523], # P3 (LANE MERGER)
-    [-2.5R; R; 0.0; 2.0], # P4 (EXTRA PLAYER BEHIND P2)
+	[-2.5R; R; 0.0; 2.0], # P4 (EXTRA PLAYER BEHIND P2)
 ]
 
 R = 6.0  # turning radius
@@ -113,14 +113,6 @@ function make_unicycle_traj(
     return xs, us
 end
 
-
-# Initial guess for all players
-z0_guess_1_2 = zeros(6*(T+1) * 2) # for players 1 and 2
-x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split=0.5, x0 = x0[3])
-z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T]...)
-z0_guess_4 = zeros(6*(T+1)) # for player 4
-z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
-
 """
 	make_straight_traj(T, Δt; x0)
 
@@ -163,19 +155,30 @@ function make_straight_traj(
 end
 
 
+
 # Initial guess for all players
-# z0_guess_1_2 = zeros(6 * (T+1) * 2) # for players 1 and 2
-x0_1, u0_1 = make_straight_traj(T, Δt; x0 = x0[1])
-z0_guess_1 = vcat([vcat(x0_1[t], u0_1[t]) for t in 1:T+1]...)
-x0_2, u0_2 = make_straight_traj(T, Δt; x0 = x0[2])
-z0_guess_2 = vcat([vcat(x0_2[t], u0_2[t]) for t in 1:T+1]...)
-x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split = 0.5, x0 = x0[3])
-z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T+1]...)
-# z0_guess_4 = zeros(6*(T+1)) # for player 4
-x0_4, u0_4 = make_straight_traj(T, Δt; x0 = x0[4])
-z0_guess_4 = vcat([vcat(x0_4[t], u0_4[t]) for t in 1:T+1]...)
-# z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
-z0_guess = vcat(z0_guess_1, z0_guess_2, z0_guess_3, z0_guess_4)
+z0_guess_1_2 = zeros(6*(T+1) * 2) # for players 1 and 2
+x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split=0.5, x0 = x0[3])
+z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T]...)
+z0_guess_4 = zeros(6*(T+1)) # for player 4
+z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
+
+
+
+
+# # Initial guess for all players
+# # z0_guess_1_2 = zeros(6 * (T+1) * 2) # for players 1 and 2
+# x0_1, u0_1 = make_straight_traj(T, Δt; x0 = x0[1])
+# z0_guess_1 = vcat([vcat(x0_1[t], u0_1[t]) for t in 1:T+1]...)
+# x0_2, u0_2 = make_straight_traj(T, Δt; x0 = x0[2])
+# z0_guess_2 = vcat([vcat(x0_2[t], u0_2[t]) for t in 1:T+1]...)
+# x0_3, u0_3 = make_unicycle_traj(T, Δt; R, split = 0.5, x0 = x0[3])
+# z0_guess_3 = vcat([vcat(x0_3[t], u0_3[t]) for t in 1:T+1]...)
+# # z0_guess_4 = zeros(6*(T+1)) # for player 4
+# x0_4, u0_4 = make_straight_traj(T, Δt; x0 = x0[4])
+# z0_guess_4 = vcat([vcat(x0_4[t], u0_4[t]) for t in 1:T+1]...)
+# # z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
+# z0_guess = vcat(z0_guess_1, z0_guess_2, z0_guess_3, z0_guess_4)
 
 ###############################################################
 # load warmstart data 

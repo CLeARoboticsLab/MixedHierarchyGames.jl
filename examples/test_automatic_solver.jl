@@ -952,9 +952,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		# control + collision + y_deviation + zero_heading +
-		# y_deviation_P2 + zero_heading_P2
-		control + collision + 5y_deviation + zero_heading + velocity
+		control + 2collision + 2y_deviation + 2zero_heading + velocity
 	end
 
 	# Player 2's objective function: 
@@ -979,9 +977,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x²[2]-R)^2 for x² in xs²) # penalize y deviation from R
 		zero_heading = sum((x²[3])^2 for x² in xs²) # penalize heading away from 0
 
-		# control + collision + y_deviation + zero_heading + velocity +
-		# y_deviation_P4 + zero_heading_P4
-		control + collision + 5y_deviation + zero_heading + velocity
+		control + collision + 2y_deviation + zero_heading + velocity
 	end
 
 	# Player 3's objective function: P3 wants to get close to P2's final position + stay on the circular track for the first half
@@ -1005,8 +1001,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation = sum((x³[2]-R)^2 for x³ in xs³[div(T, 2):T])
 		zero_heading = sum((x³[3])^2 for x³ in xs³[div(T, 2):T])
 
-		# tracking + control + collision + y_deviation + zero_heading + velocity
-		tracking + control + collision + 5y_deviation + zero_heading + velocity
+		tracking + control + collision + 2y_deviation + zero_heading + velocity
 	end
 
 	# Player 4's objective function: 
