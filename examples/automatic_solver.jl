@@ -391,9 +391,9 @@ function plot_player_trajectories(z_sols, T, Δt, problem_dims)
 	plt = plot(; xlabel = "x₁", ylabel = "x₂", title = "Player Trajectories (T=$(T), Δt=$(Δt))",
 		legend = :bottomright, aspect_ratio = :equal, grid = true)
 
-	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 2, label = "P1")
-	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 2, label = "P2")
-	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 2, label = "P3")
+	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 2, label = "R1")
+	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 2, label = "R2")
+	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 2, label = "R3")
 
 	# Mark start (t=0) and end (t=T) points
 	scatter!(plt, [X1[1, 1], X2[1, 1], X3[1, 1]], [X1[2, 1], X2[2, 1], X3[2, 1]];
@@ -459,42 +459,42 @@ function plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose = false
 	# ------------------------------------------------------------------
 
 	# Player trajectories
-	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 4, label = "P1", color = :red)
-	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "P2", color = :green)
-	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "P3", color = :blue)
-	plot!(plt, X4[1, :], X4[2, :]; lw = 2, marker = :star, ms = 4, label = "P4", color = :orange)
+	plot!(plt, X1[1, :], X1[2, :]; lw = 2, marker = :circle, ms = 4, label = "R1", color = :red)
+	plot!(plt, X2[1, :], X2[2, :]; lw = 2, marker = :diamond, ms = 4, label = "R2", color = :green)
+	plot!(plt, X3[1, :], X3[2, :]; lw = 2, marker = :utriangle, ms = 4, label = "R3", color = :blue)
+	plot!(plt, X4[1, :], X4[2, :]; lw = 2, marker = :star, ms = 4, label = "R4", color = :orange)
 
 	# Start and end points
 	scatter!(plt,
 		[X1[1, 1]], [X1[2, 1]];
-		markershape = :star5, ms = 8, label = "P1 start", color = :red)
+		markershape = :star5, ms = 8, label = "R1 start", color = :red)
 
 	scatter!(plt,
 		[X2[1, 1]], [X2[2, 1]];
-		markershape = :star5, ms = 8, label = "P2 start", color = :green)
+		markershape = :star5, ms = 8, label = "R2 start", color = :green)
 
 	scatter!(plt,
 		[X3[1, 1]], [X3[2, 1]];
-		markershape = :star5, ms = 8, label = "P3 start", color = :blue)
+		markershape = :star5, ms = 8, label = "R3 start", color = :blue)
 
 	scatter!(plt,
 		[X4[1, 1]], [X4[2, 1]];
-		markershape = :star5, ms = 8, label = "P4 start", color = :orange)
+		markershape = :star5, ms = 8, label = "R4 start", color = :orange)
 
 	scatter!(plt,
 		[X1[1, end]], [X1[2, end]];
-		markershape = :hexagon, ms = 8, label = "P1 end", color = :red)
+		markershape = :hexagon, ms = 8, label = "R1 end", color = :red)
 
 	scatter!(plt,
 		[X2[1, end]], [X2[2, end]];
-		markershape = :hexagon, ms = 8, label = "P2 end", color = :green)
+		markershape = :hexagon, ms = 8, label = "R2 end", color = :green)
 	scatter!(plt,
 		[X3[1, end]], [X3[2, end]];
-		markershape = :hexagon, ms = 8, label = "P3 end", color = :blue)
+		markershape = :hexagon, ms = 8, label = "R3 end", color = :blue)
 
 	scatter!(plt,
 		[X4[1, end]], [X4[2, end]];
-		markershape = :hexagon, ms = 8, label = "P4 end", color = :orange)
+		markershape = :hexagon, ms = 8, label = "R4 end", color = :orange)
 
 
 	if show
@@ -524,13 +524,14 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose = fa
 	time = collect(0:T) .* Δt
 
 	plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
-		label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
+		label = "d(R1, R2)", xlabel = "time (s)", ylabel = "distance",
 		title = "Pairwise player distances", grid = true)
-	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
-	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
-	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "‖P1 - P4‖₂")
-	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "‖P2 - P4‖₂")
-	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "‖P3 - P4‖₂")
+	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "d(R1, R3)")
+	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "d(R2, R3)")
+	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "d(R1, R4)")
+	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "d(R2, R4)")
+	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "d(R3, R4)")
+	ylims!(plt, 0, 11.0)
 
 	if savepath !== nothing
 		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"

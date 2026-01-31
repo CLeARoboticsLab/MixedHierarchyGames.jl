@@ -852,7 +852,7 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	G = SimpleDiGraph(N);
 
 	# 1. Comment all below for all-Nash baseline
-	# println("Info structure: All Nash")
+	println("Info structure: All Nash")
 
 	# 2. Shallow-tree
 	# add_edge!(G, 1, 2); # P1 -> P2
