@@ -527,13 +527,14 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose = fa
 	time = collect(0:T) .* Δt
 
 	plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
-		label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
+		label = "d(R1, R2)", xlabel = "time (s)", ylabel = "distance",
 		title = "Pairwise player distances", grid = true)
-	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
-	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
-	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "‖P1 - P4‖₂")
-	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "‖P2 - P4‖₂")
-	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "‖P3 - P4‖₂")
+	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "d(R1, R3)")
+	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "d(R2, R3)")
+	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "d(R1, R4)")
+	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "d(R2, R4)")
+	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "d(R3, R4)")
+	ylims!(0., 11.)
 
 	if savepath !== nothing
 		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
