@@ -455,8 +455,8 @@ function plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose = false
 	plot!(plt, x_outer, y_outer; lw = 1.0, linestyle = :solid, label = "", color = :black)
 
 	# Horizontal highway track: y = R ± 0.5, from x = -12 to x = 4
-	hline_upper = R + 0.5
-	hline_lower = R - 0.5
+	hline_upper = R + 1.0
+	hline_lower = R - 1.0
 	plot!(plt, [-16, 4], [hline_upper, hline_upper]; lw = 1.0, linestyle = :solid, label = "", color = :black)
 	plot!(plt, [-16, 4], [hline_lower, hline_lower]; lw = 1.0, linestyle = :solid, label = "", color = :black)
 	# ------------------------------------------------------------------
@@ -527,13 +527,14 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose = fa
 	time = collect(0:T) .* Δt
 
 	plt = plot(time, d12; lw = 2, marker = :circle, ms = 3,
-		label = "‖P1 - P2‖₂", xlabel = "time (s)", ylabel = "distance",
+		label = "d(R1, R2)", xlabel = "time (s)", ylabel = "distance",
 		title = "Pairwise player distances", grid = true)
-	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "‖P1 - P3‖₂")
-	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "‖P2 - P3‖₂")
-	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "‖P1 - P4‖₂")
-	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "‖P2 - P4‖₂")
-	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "‖P3 - P4‖₂")
+	plot!(plt, time, d13; lw = 2, marker = :diamond, ms = 3, label = "d(R1, R3)")
+	plot!(plt, time, d23; lw = 2, marker = :utriangle, ms = 3, label = "d(R2, R3)")
+	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "d(R1, R4)")
+	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "d(R2, R4)")
+	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "d(R3, R4)")
+	ylims!(plt, 0, 11.0)
 
 	if savepath !== nothing
 		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
