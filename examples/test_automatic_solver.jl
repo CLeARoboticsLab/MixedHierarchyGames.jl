@@ -886,9 +886,9 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 	# add_edge!(G, 1, 3); # P1 -> P3
 
 	# 4. Stackelberg chain
-	add_edge!(G, 1, 3); # P1 -> P3
-	add_edge!(G, 3, 2); # P3 -> P2
-	add_edge!(G, 2, 4); # P2 -> P4
+	# add_edge!(G, 1, 3); # P1 -> P3
+	# add_edge!(G, 3, 2); # P3 -> P2
+	# add_edge!(G, 2, 4); # P2 -> P4
 
 	# 5. mixed B
 	# add_edge!(G, 1, 2); # P1 -> P2
@@ -949,10 +949,13 @@ function nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R
 		y_deviation_P4 = sum((x⁴[2]-R)^2 for x⁴ in xs⁴) # directs the follower P4 to go straight
 		zero_heading_P4 = sum((x⁴[3])^2 for x⁴ in xs⁴)
 
+		# new cost term for leader
+		priority = sum((xs¹[t][1]-xs³[t][1]-1)^2 for t in 1:T)
+
 
 		# sum((0.5*((xs¹[end] .- x_goal)) .^ 2)) + 0.05*sum(sum(u .^ 2) for u in us²)
 
-		control + 2collision + 2y_deviation + 2zero_heading + velocity
+		control + 2collision + 2y_deviation + 2zero_heading + velocity + priority
 	end
 
 	# Player 2's objective function: 

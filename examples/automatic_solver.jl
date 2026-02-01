@@ -455,8 +455,8 @@ function plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose = false
 	plot!(plt, x_outer, y_outer; lw = 1.0, linestyle = :solid, label = "", color = :black)
 
 	# Horizontal highway track: y = R ± 0.5, from x = -12 to x = 4
-	hline_upper = R + 0.5
-	hline_lower = R - 0.5
+	hline_upper = R + 1.0
+	hline_lower = R - 1.0
 	plot!(plt, [-16, 4], [hline_upper, hline_upper]; lw = 1.0, linestyle = :solid, label = "", color = :black)
 	plot!(plt, [-16, 4], [hline_lower, hline_lower]; lw = 1.0, linestyle = :solid, label = "", color = :black)
 	# ------------------------------------------------------------------
