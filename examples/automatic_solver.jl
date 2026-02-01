@@ -434,8 +434,9 @@ function plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose = false
 	θ = range(π, π/2; length = 300)
 
 	r_main  = R
-	r_inner = R - 0.5   # padded inward (starts at (-R + 0.5, 0))
-	r_outer = R + 0.5   # padded outward (starts at (-R - 0.5, 0))
+	offsets = range(0.5, 1.0; length = length(θ)) # vary offset along the arc
+	r_inner = R .- offsets   # padded inward: offset grows 0.5 -> 1.0 along the arc
+	r_outer = R .+ offsets   # padded outward: offset grows 0.5 -> 1.0 along the arc
 
 	x_main = r_main .* cos.(θ)
 	y_main = r_main .* sin.(θ)
@@ -534,7 +535,7 @@ function plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose = fa
 	plot!(plt, time, d14; lw = 2, marker = :star, ms = 3, label = "d(R1, R4)")
 	plot!(plt, time, d24; lw = 2, marker = :hexagon, ms = 3, label = "d(R2, R4)")
 	plot!(plt, time, d34; lw = 2, marker = :cross, ms = 3, label = "d(R3, R4)")
-	ylims!(0., 11.)
+	ylims!(plt, 0., 11.)
 
 	if savepath !== nothing
 		savefile = endswith(lowercase(String(savepath)), ".pdf") ? String(savepath) : String(savepath) * ".pdf"
