@@ -9,7 +9,9 @@ using MixedHierarchyGames:
     setup_problem_variables,
     setup_problem_parameter_variables,
     solve_with_path,
+    solve_qp_linear,
     qp_game_linsolve,
+    run_qp_solver,
     make_symbolic_vector
 
 @testset "QP Solver - solve_with_path" begin
@@ -118,5 +120,97 @@ end
         # Evaluate KKT residual at solution
         # The residual should be near zero
         @test status == PATHSolver.MCP_Solved
+    end
+end
+
+@testset "QP Solver - run_qp_solver (linear)" begin
+    @testset "Solves single player problem" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+
+        gs = [z -> z - θ_vec]
+
+        # Cost: minimize z²
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        parameter_values = Dict(1 => [1.0, 2.0])
+
+        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
+
+        @test result.status == :solved
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+    end
+
+    @testset "Solves 2-player Stackelberg" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [2, 2]
+
+        @variables θ1[1:2] θ2[1:2]
+        θ1_vec = collect(θ1)
+        θ2_vec = collect(θ2)
+        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+
+        gs = [
+            z -> z - θ1_vec,
+            z -> z - θ2_vec,
+        ]
+
+        # Each player minimizes own z²
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        parameter_values = Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0])
+
+        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
+
+        @test result.status == :solved
+        # Check that solution satisfies constraints
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result.z_sol[3:4], [3.0, 4.0], atol=1e-6)
+    end
+
+    @testset "Returns vars and kkt_result" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+        parameter_values = Dict(1 => [1.0, 2.0])
+
+        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values)
+
+        @test haskey(result.vars, :zs)
+        @test haskey(result.vars, :λs)
+        @test haskey(result.kkt_result, :πs)
+    end
+end
+
+@testset "QP Solver - run_qp_solver (PATH)" begin
+    @testset "Solves with PATH solver" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+        parameter_values = Dict(1 => [1.0, 2.0])
+
+        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:path)
+
+        @test result.status == PATHSolver.MCP_Solved
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
     end
 end

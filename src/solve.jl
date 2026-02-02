@@ -166,6 +166,75 @@ function qp_game_linsolve(A, b; kwargs...)
     return A \ b
 end
 
+"""
+    solve_qp_linear(πs::Dict, variables::Vector, θs::Dict, parameter_values::Dict; kwargs...)
+
+Solve LQ game KKT system using direct linear solve.
+
+For LQ games with only equality constraints, the KKT system is linear: Jz = -F
+where J is the Jacobian and F is the KKT residual.
+
+# Arguments
+- `πs::Dict` - KKT conditions per player
+- `variables::Vector` - All symbolic variables
+- `θs::Dict` - Symbolic parameter variables per player
+- `parameter_values::Dict` - Numerical parameter values per player
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print solver output
+
+# Returns
+Tuple of:
+- `z_sol::Vector` - Solution vector
+- `status::Symbol` - Solver status (:solved or :failed)
+"""
+function solve_qp_linear(
+    πs::Dict,
+    variables::Vector,
+    θs::Dict,
+    parameter_values::Dict;
+    verbose::Bool = false
+)
+    symbolic_type = eltype(variables)
+
+    # Build KKT vector from all players
+    F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
+
+    # Order parameters by player index
+    order = sort(collect(keys(πs)))
+    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+
+    # Build parametric MCP to get compiled functions
+    z_lower = fill(-Inf, length(F_sym))
+    z_upper = fill(Inf, length(F_sym))
+
+    parametric_mcp = ParametricMCPs.ParametricMCP(
+        F_sym, variables, all_θ_vec, z_lower, z_upper;
+        compute_sensitivities = false
+    )
+
+    # Get Jacobian buffer from MCP (handles sparse structure correctly)
+    n = length(variables)
+    J = parametric_mcp.jacobian_z!.result_buffer
+    F = zeros(n)
+
+    # Evaluate at zero (for LQ, any point works since system is linear)
+    z0 = zeros(n)
+    parametric_mcp.f!(F, z0, all_param_vals_vec)
+    parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
+
+    # Solve Jz = -F
+    try
+        z_sol = qp_game_linsolve(Matrix(J), -F)  # Convert sparse to dense if needed
+        verbose && println("Linear solve successful")
+        return z_sol, :solved
+    catch e
+        verbose && @warn "Linear solve failed: $e"
+        return zeros(n), :failed
+    end
+end
+
 #=
     Solution extraction utilities
 =#

@@ -45,7 +45,7 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 
 # Solvers
 include("solve.jl")
-export solve_with_path, run_qp_solver, run_nonlinear_solver
+export solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
 
 # Utilities
 include("utils.jl")

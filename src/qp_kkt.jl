@@ -183,47 +183,68 @@ end
 """
     run_qp_solver(
         hierarchy_graph::SimpleDiGraph,
-        costs::Dict,
-        dynamics,
-        T::Int,
-        state_dims::Vector{Int},
-        control_dims::Vector{Int},
-        initial_states::Dict;
-        kwargs...
+        Js::Dict,
+        gs::Vector,
+        primal_dims::Vector{Int},
+        θs::Dict,
+        parameter_values::Dict;
+        solver::Symbol = :linear,
+        verbose::Bool = false
     )
 
-Main QP solver that orchestrates KKT construction and solving using PATH solver.
+Main QP solver that orchestrates KKT construction and solving.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
-- `costs::Dict` - Cost functions
-- `dynamics` - System dynamics
-- `T::Int` - Time horizon
-- `state_dims::Vector{Int}` - State dimensions
-- `control_dims::Vector{Int}` - Control dimensions
-- `initial_states::Dict` - Initial state for each player
+- `Js::Dict` - Cost functions per player: Js[i](zs...; θ) → scalar
+- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `primal_dims::Vector{Int}` - Primal variable dimension per player
+- `θs::Dict` - Symbolic parameter variables per player
+- `parameter_values::Dict` - Numerical parameter values per player
 
 # Keyword Arguments
-- `inequality_constraints::Dict` - Inequality constraints
+- `solver::Symbol=:linear` - Solver to use: `:linear` (direct) or `:path` (MCP)
 - `verbose::Bool=false` - Print debug info
 
 # Returns
 Named tuple containing:
 - `z_sol::Vector` - Solution vector
-- `xs::Dict` - State trajectories per player
-- `us::Dict` - Control trajectories per player
-- `info::NamedTuple` - Additional solver info
+- `status` - Solver status
+- `info` - Additional solver info
+- `vars` - Problem variables (zs, λs, μs, etc.)
 """
 function run_qp_solver(
     hierarchy_graph::SimpleDiGraph,
-    costs::Dict,
-    dynamics,
-    T::Int,
-    state_dims::Vector{Int},
-    control_dims::Vector{Int},
-    initial_states::Dict;
-    kwargs...
+    Js::Dict,
+    gs::Vector,
+    primal_dims::Vector{Int},
+    θs::Dict,
+    parameter_values::Dict;
+    solver::Symbol = :linear,
+    verbose::Bool = false
 )
-    # TODO: Implement
-    error("Not implemented: run_qp_solver")
+    # Setup symbolic variables
+    vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
+
+    # Build KKT conditions
+    θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
+    result = get_qp_kkt_conditions(
+        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys;
+        θ = θ_all, verbose = verbose
+    )
+
+    # Strip policy constraints for solving
+    πs_solve = strip_policy_constraints(result.πs, hierarchy_graph, vars.zs, gs)
+
+    # Solve based on selected method
+    if solver == :linear
+        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
+        info = nothing
+    elseif solver == :path
+        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
+    else
+        error("Unknown solver: $solver. Use :linear or :path")
+    end
+
+    return (; z_sol, status, info, vars, kkt_result = result)
 end
