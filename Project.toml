@@ -1,6 +1,6 @@
-name = "iLQGames_discrete_time"
+name = "MixedHierarchyGames"
 uuid = "2c5427dc-d4e3-4e25-9a5a-dc7bf2e50c4c"
-authors = ["jamesjingqili <james.jingqi.li@gmail.com>"]
+authors = ["hmzh-khn", "jamesjingqili", "leedh0124"]
 version = "0.1.0"
 
 [deps]
