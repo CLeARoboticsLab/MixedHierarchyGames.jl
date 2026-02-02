@@ -21,12 +21,12 @@ using TrajectoryGamesBase:
     control_dim,
     horizon
 
-using Graphs: SimpleDiGraph, vertices, edges, inneighbors, outneighbors, topological_sort_by_dfs
+using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, topological_sort_by_dfs
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks
-using LinearAlgebra: norm
+using LinearAlgebra: norm, I
 
 # Types
 include("types.jl")

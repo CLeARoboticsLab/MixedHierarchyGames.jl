@@ -137,8 +137,30 @@ Extract state and control trajectories from flattened solution vector.
 - `us::Dict{Int, Vector{Vector}}` - Control trajectories per player
 """
 function extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
-    # TODO: Implement
-    error("Not implemented: extract_trajectories")
+    xs = Dict{Int, Vector{Vector{Float64}}}()
+    us = Dict{Int, Vector{Vector{Float64}}}()
+
+    idx = 1
+    for i in 1:n_players
+        state_dim = dims.state_dims[i]
+        control_dim = dims.control_dims[i]
+
+        # Extract states: T+1 states (t=0 to t=T)
+        xs[i] = Vector{Vector{Float64}}()
+        for t in 1:(T+1)
+            push!(xs[i], z_sol[idx:idx+state_dim-1])
+            idx += state_dim
+        end
+
+        # Extract controls: T controls (t=0 to t=T-1)
+        us[i] = Vector{Vector{Float64}}()
+        for t in 1:T
+            push!(us[i], z_sol[idx:idx+control_dim-1])
+            idx += control_dim
+        end
+    end
+
+    return xs, us
 end
 
 """
@@ -155,8 +177,6 @@ Convert trajectory dictionaries to JointStrategy of OpenLoopStrategys.
 - `JointStrategy` over `OpenLoopStrategy`s
 """
 function solution_to_joint_strategy(xs::Dict, us::Dict, n_players::Int)
-    # TODO: Implement
-    # substrategies = [OpenLoopStrategy(xs[i], us[i]) for i in 1:n_players]
-    # return JointStrategy(substrategies)
-    error("Not implemented: solution_to_joint_strategy")
+    substrategies = [OpenLoopStrategy(xs[i], us[i]) for i in 1:n_players]
+    return JointStrategy(substrategies)
 end

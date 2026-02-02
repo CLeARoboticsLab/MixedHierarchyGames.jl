@@ -201,6 +201,28 @@ function armijo_backtracking_linesearch(
     σ::Float64 = 1e-4,
     max_iters::Int = 20
 )
-    # TODO: Implement
-    error("Not implemented: armijo_backtracking_linesearch")
+    # Merit function: ϕ(z) = ||f(z)||²
+    ϕ_0 = norm(f_z)^2
+
+    # For Newton-like methods, the directional derivative is approximately -2*||f||²
+    # Armijo condition: ϕ(z + αδz) ≤ ϕ(z) + σ * α * ∇ϕ'δz
+    # With ∇ϕ'δz ≈ -2*||f||², condition becomes: ϕ_new ≤ ϕ_0 * (1 - 2*σ*α)
+
+    α = α_init
+    for _ in 1:max_iters
+        z_new = z .+ α .* δz
+        f_new = f_eval(z_new)
+        ϕ_new = norm(f_new)^2
+
+        # Sufficient decrease condition
+        if ϕ_new <= ϕ_0 + σ * α * (-2 * ϕ_0)
+            return α
+        end
+
+        # Backtrack
+        α *= β
+    end
+
+    # Return smallest step if no sufficient decrease found
+    return α
 end
