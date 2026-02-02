@@ -4,7 +4,8 @@ warmstart/*.jld2
 
 # Generated outputs
 *.pdf
+*.gif
 data/*
 !data/.gitkeep
-examples/*.png
+*.png
 .DS_Store
