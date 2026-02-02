@@ -116,6 +116,25 @@ function make_symbolic_vector(name::Symbol, player::Int, dim::Int; start_idx::In
 end
 
 """
+    make_symbolic_vector(name::Symbol, leader::Int, follower::Int, dim::Int; start_idx::Int=1)
+
+Create a vector of symbolic variables with leader-follower indexing.
+Creates variables like μ_1_2_1, μ_1_2_2, ... for leader=1, follower=2.
+
+# Arguments
+- `name::Symbol` - Variable type
+- `leader::Int` - Leader player index
+- `follower::Int` - Follower player index
+- `dim::Int` - Vector dimension
+
+# Returns
+- `Vector{Symbolics.Num}` - Vector of symbolic variables
+"""
+function make_symbolic_vector(name::Symbol, leader::Int, follower::Int, dim::Int; start_idx::Int=1)
+    return [make_symbolic_variable(name, leader, follower, i) for i in start_idx:(start_idx + dim - 1)]
+end
+
+"""
     make_symbolic_matrix(name::Symbol, player::Int, rows::Int, cols::Int)
 
 Create a matrix of symbolic variables.

@@ -69,7 +69,7 @@ function setup_problem_variables(
     for i in 1:N
         followers = get_all_followers(graph, i)
         for j in followers
-            μs[(i, j)] = make_symbolic_vector(:μ, i * 10 + j, primal_dims[j])
+            μs[(i, j)] = make_symbolic_vector(:μ, i, j, primal_dims[j])
         end
     end
 
