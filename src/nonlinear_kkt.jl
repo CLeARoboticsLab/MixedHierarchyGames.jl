@@ -14,7 +14,7 @@
         kwargs...
     )
 
-Precompute symbolic KKT conditions and M/N matrix evaluation functions for non-LQ solver.
+Precompute symbolic KKT conditions and M/N matrix evaluation functions for nonlinear solver.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
@@ -46,7 +46,7 @@ function setup_approximate_kkt_solver(
 end
 
 """
-    preoptimize_nonlq_solver(
+    preoptimize_nonlinear_solver(
         hierarchy_graph::SimpleDiGraph,
         costs::Dict,
         dynamics,
@@ -56,7 +56,7 @@ end
         kwargs...
     )
 
-Precompute all symbolic components for non-LQ solver.
+Precompute all symbolic components for nonlinear solver.
 
 This is called once before solving to build all the symbolic expressions
 and compile them to efficient numerical functions.
@@ -70,9 +70,9 @@ and compile them to efficient numerical functions.
 - `control_dims::Vector{Int}` - Control dimensions
 
 # Returns
-Named tuple containing all precomputed components needed by `run_nonlq_solver`
+Named tuple containing all precomputed components needed by `run_nonlinear_solver`
 """
-function preoptimize_nonlq_solver(
+function preoptimize_nonlinear_solver(
     hierarchy_graph::SimpleDiGraph,
     costs::Dict,
     dynamics,
@@ -82,7 +82,7 @@ function preoptimize_nonlq_solver(
     kwargs...
 )
     # TODO: Implement
-    error("Not implemented: preoptimize_nonlq_solver")
+    error("Not implemented: preoptimize_nonlinear_solver")
 end
 
 """
@@ -112,7 +112,7 @@ function compute_K_evals(
 end
 
 """
-    run_nonlq_solver(
+    run_nonlinear_solver(
         precomputed::NamedTuple,
         initial_states::Dict,
         hierarchy_graph::SimpleDiGraph;
@@ -123,12 +123,12 @@ end
         use_armijo::Bool = true
     )
 
-Iterative non-LQ solver using quasi-linear policy approximation.
+Iterative nonlinear solver using quasi-linear policy approximation.
 
 Uses Armijo backtracking line search for step size selection.
 
 # Arguments
-- `precomputed::NamedTuple` - Precomputed symbolic components from `preoptimize_nonlq_solver`
+- `precomputed::NamedTuple` - Precomputed symbolic components from `preoptimize_nonlinear_solver`
 - `initial_states::Dict` - Initial state for each player
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
 
@@ -148,7 +148,7 @@ Named tuple containing:
 - `iterations::Int` - Number of iterations taken
 - `residual::Float64` - Final KKT residual norm
 """
-function run_nonlq_solver(
+function run_nonlinear_solver(
     precomputed::NamedTuple,
     initial_states::Dict,
     hierarchy_graph::SimpleDiGraph;
@@ -159,7 +159,7 @@ function run_nonlq_solver(
     use_armijo::Bool = true
 )
     # TODO: Implement
-    error("Not implemented: run_nonlq_solver")
+    error("Not implemented: run_nonlinear_solver")
 end
 
 """

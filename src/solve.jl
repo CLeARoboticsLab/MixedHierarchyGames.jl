@@ -32,7 +32,7 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 )
     # TODO: Implement
     # 1. Extract initial states per player from initial_state
-    # 2. Call run_lq_solver with game parameters
+    # 2. Call run_qp_solver with game parameters
     # 3. Convert solution to JointStrategy of OpenLoopStrategys
     error("Not implemented: solve_trajectory_game! for QPSolver")
 end
@@ -69,7 +69,7 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 )
     # TODO: Implement
     # 1. Extract initial states per player from initial_state
-    # 2. Call run_nonlq_solver with precomputed components
+    # 2. Call run_nonlinear_solver with precomputed components
     # 3. Convert solution to JointStrategy of OpenLoopStrategys
     error("Not implemented: solve_trajectory_game! for NonlinearSolver")
 end
@@ -101,9 +101,9 @@ function solve_with_path(mcp_problem, θ_values; initial_guess = nothing, kwargs
 end
 
 """
-    lq_game_linsolve(M, b; kwargs...)
+    qp_game_linsolve(M, b; kwargs...)
 
-Custom linear solver for LQ games using Newton step ∇F(z)δz = -F(z).
+Custom linear solver for QP games using Newton step ∇F(z)δz = -F(z).
 
 # Arguments
 - `M` - System matrix (Jacobian)
@@ -112,9 +112,9 @@ Custom linear solver for LQ games using Newton step ∇F(z)δz = -F(z).
 # Returns
 - `δz::Vector` - Newton step
 """
-function lq_game_linsolve(M, b; kwargs...)
+function qp_game_linsolve(M, b; kwargs...)
     # TODO: Implement
-    error("Not implemented: lq_game_linsolve")
+    error("Not implemented: qp_game_linsolve")
 end
 
 #=

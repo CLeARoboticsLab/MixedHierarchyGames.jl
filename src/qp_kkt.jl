@@ -3,7 +3,7 @@
 =#
 
 """
-    get_lq_kkt_conditions(
+    get_qp_kkt_conditions(
         hierarchy_graph::SimpleDiGraph,
         costs::Dict,
         dynamics,
@@ -36,7 +36,7 @@ Named tuple containing:
 - `Ks::Dict` - Policy matrices per player (for non-leaf players)
 - `all_kkt::Vector` - Flattened KKT conditions
 """
-function get_lq_kkt_conditions(
+function get_qp_kkt_conditions(
     hierarchy_graph::SimpleDiGraph,
     costs::Dict,
     dynamics,
@@ -47,7 +47,7 @@ function get_lq_kkt_conditions(
     inequality_constraints::Dict = Dict()
 )
     # TODO: Implement - build KKT conditions in reverse topological order
-    error("Not implemented: get_lq_kkt_conditions")
+    error("Not implemented: get_qp_kkt_conditions")
 end
 
 """
@@ -70,7 +70,7 @@ function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph)
 end
 
 """
-    run_lq_solver(
+    run_qp_solver(
         hierarchy_graph::SimpleDiGraph,
         costs::Dict,
         dynamics,
@@ -81,7 +81,7 @@ end
         kwargs...
     )
 
-Main LQ solver that orchestrates KKT construction and solving using PATH solver.
+Main QP solver that orchestrates KKT construction and solving using PATH solver.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
@@ -103,7 +103,7 @@ Named tuple containing:
 - `us::Dict` - Control trajectories per player
 - `info::NamedTuple` - Additional solver info
 """
-function run_lq_solver(
+function run_qp_solver(
     hierarchy_graph::SimpleDiGraph,
     costs::Dict,
     dynamics,
@@ -114,5 +114,5 @@ function run_lq_solver(
     kwargs...
 )
     # TODO: Implement
-    error("Not implemented: run_lq_solver")
+    error("Not implemented: run_qp_solver")
 end

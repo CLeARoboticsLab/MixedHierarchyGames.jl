@@ -38,14 +38,14 @@ export setup_problem_variables, setup_problem_parameter_variables
 
 # KKT construction
 include("qp_kkt.jl")
-export get_lq_kkt_conditions, strip_policy_constraints
+export get_qp_kkt_conditions, strip_policy_constraints
 
 include("nonlinear_kkt.jl")
-export setup_approximate_kkt_solver, preoptimize_nonlq_solver, compute_K_evals
+export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals
 
 # Solvers
 include("solve.jl")
-export solve_with_path, run_lq_solver, run_nonlq_solver
+export solve_with_path, run_qp_solver, run_nonlinear_solver
 
 # Utilities
 include("utils.jl")
