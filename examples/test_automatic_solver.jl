@@ -305,6 +305,7 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		- F_sym: Symbolic representation of the MCP function vector.
 		- all_variables: A vector of all symbolic variables used in the problem.
 		- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+		- π_sizes_trimmed: A dictionary mapping each player to the size of their trimmed KKT condition vector.
 		- to: TimerOutput object used for profiling.
 		- backend: The symbolic backend used for preoptimization.
 	"""
@@ -341,18 +342,14 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		end
 	end
 
-	@timeit to "Linear Solver Initialization" begin
-		F_size = sum(values(π_sizes))
-		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
-		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
-	end
-
 	symbolic_type = eltype(all_variables)
 
 	@timeit to "[Linear Solve] Setup ParametricMCP" begin
 		# Final MCP vector: leader stationarity + leader constraints + follower KKT
-		π_order = sort(collect(keys(πs)))
-		F_sym = Symbolics.Num.(vcat([πs[i] for i in π_order]...))  # flattened in deterministic order
+		πs_solve = strip_policy_constraints(πs, graph, zs, gs)
+		π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
+		π_order = sort(collect(keys(πs_solve)))
+		F_sym = Symbolics.Num.(vcat([πs_solve[i] for i in π_order]...))  # flattened in deterministic order
 
 		z̲ = fill(-Inf, length(F_sym));
 		z̅ = fill(Inf, length(F_sym))
@@ -363,7 +360,13 @@ function preoptimize_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs,
 		mcp_obj = ParametricMCPs.ParametricMCP(F_sym, all_variables, params_syms_vec, z̲, z̅; compute_sensitivities = false)
 	end
 
-	return (;problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, to, backend)
+	@timeit to "Linear Solver Initialization" begin
+		F_size = length(F_sym)
+		linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+		linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
+	end
+
+	return (; problem_vars, setup_info, mcp_obj, F_sym, linsolver, compute_Ks_with_z, all_variables, out_all_augment_variables, π_sizes_trimmed, to, backend)
 end
 
 
@@ -408,6 +411,7 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 												- F_sym: Symbolic representation of the MCP function vector.
 												- all_variables: A vector of all symbolic variables used in the problem.
 												- out_all_augment_variables: A named tuple containing additional symbolic variables used in the linearized approximation for each player.
+												- π_sizes_trimmed: A dictionary mapping each player to the size of their trimmed KKT condition vector.
 												- to: TimerOutput object used for profiling.
 												- backend: The symbolic backend used for preoptimization.
 
@@ -473,8 +477,8 @@ function run_nonlq_solver(H, graph, primal_dimension_per_player, Js, gs, θs, pa
 		nonlq_solver_status = :BUG_unspecified
 		F_eval = similar(F, Float64)
 
-		θ_order = 1:length(θs)
-		θ_vals_vec = vcat([parameter_values[k] for k in θ_order]...)
+		θ_order = θs isa AbstractDict ? sort(collect(keys(θs))) : 1:length(θs)
+		θ_vals_vec = parameter_values isa AbstractDict ? vcat([parameter_values[k] for k in θ_order]...) : vcat([parameter_values[k] for k in θ_order]...)
 
 		# Helper to compute the parameter values (θ, K) for a given z to pass into ParametricMCPs.
 		function params_for_z(z)
@@ -667,7 +671,8 @@ function compare_lq_and_nonlq_solver(H, graph, primal_dimension_per_player, Js, 
 		lq_πs, lq_Ms, lq_Ns, _ = get_lq_kkt_conditions(graph, Js, lq_zs, lq_λs, lq_μs, gs, lq_ws, lq_ys, θs)
 	end
 	@timeit to1 "LQ KKT Condition Solve" begin
-		z_sol_lq, status_lq = lq_game_linsolve(lq_πs, all_lq_variables, θs, parameter_values; verbose)
+		lq_πs_solve = strip_policy_constraints(lq_πs, graph, lq_zs, gs)
+		z_sol_lq, status_lq = lq_game_linsolve(lq_πs_solve, all_lq_variables, θs, parameter_values; verbose)
 	end
 	info_lq = (; πs = lq_πs)
 	if verbose
@@ -697,7 +702,7 @@ x0 = [
 ###############################################################
 
 # Main body of algorithm implementation for hardware. Will restructure as needed.
-function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false)
+function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timing_info=false, strip_policy_constraints_eval=true)
 	"""
 	Navigation function for a multi-player hierarchy game. Players are modeled as double integrators in 2D space, 
 		with objectives to reach certain sets of game states.
@@ -804,6 +809,9 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 	parameter_values = x0_vecs
 	if run_lq
 		z_sol_nonlq, status_nonlq, z_sol_lq, status_lq, info_nonlq, info_lq, all_variables, vars, all_augmented_vars = compare_lq_and_nonlq_solver(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values, backend; verbose)
+		if show_timing_info
+			show(info_nonlq.to)
+		end
 	else
 		z_sol_nonlq, status_nonlq, info_nonlq, all_variables, vars, all_augmented_vars = solve_nonlq_game_example(H, G, primal_dimension_per_player, Js, gs, θs, parameter_values; verbose)
 		println("Non-LQ solver status after $(info_nonlq.num_iterations) iterations: $(status_nonlq)")
@@ -828,9 +836,11 @@ function nplayer_hierarchy_navigation(x0; run_lq=false, verbose=false, show_timi
 
 	# Evaluate the solution against the KKT conditions (or approximate KKT conditions for non-LQ).
 	if run_lq
-		evaluate_kkt_residuals(info_lq.πs, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
+		πs_eval_lq = strip_policy_constraints_eval ? strip_policy_constraints(info_lq.πs, G, zs, gs) : info_lq.πs
+		evaluate_kkt_residuals(πs_eval_lq, all_variables, z_sol_lq, θs, x0_vecs; verbose = true)
 	end
-	evaluate_kkt_residuals(πs, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
+	πs_eval = strip_policy_constraints_eval ? strip_policy_constraints(πs, G, zs, gs) : πs
+	evaluate_kkt_residuals(πs_eval, out_all_augment_variables, out_all_augmented_z_est, θs, x0_vecs; verbose = true)
 
 
 	# Plot the trajectories.
