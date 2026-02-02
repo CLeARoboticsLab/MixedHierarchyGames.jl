@@ -1,9 +1,6 @@
 name: CI
 on:
-  workflow_dispatch:  # Manual trigger
-  pull_request:       # Run on PRs (can be required for merge)
-    branches:
-      - main
+  workflow_dispatch:  # Manual trigger only - run when ready to merge
 
 jobs:
   test:
