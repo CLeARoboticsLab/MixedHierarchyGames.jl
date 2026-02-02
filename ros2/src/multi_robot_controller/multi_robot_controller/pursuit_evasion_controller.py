@@ -21,10 +21,10 @@ GOAL_POSITION = [0.0, 0.0]
 
 # Robot configuration - modify these for your setup
 ROBOT_CONFIGS = [
-    {'ip': '192.168.131.3', 'port': 9090, 'topic': '/bluebonnet/platform/cmd_vel'},  # Robot 1
+    {'ip': '192.168.50.25', 'port': 9090, 'topic': '/bluebonnet/platform/cmd_vel'},  # Robot 1
     # {'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
     {'ip': '192.168.50.2', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
-    {'ip': '192.168.131.5', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},      # Robot 3 (update IP/topic as needed)
+    {'ip': '192.168.50.49', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},      # Robot 3 (update IP/topic as needed)
 ]
 
 
@@ -218,8 +218,15 @@ class PursuitEvasionController(Node):
         self.latest_odom_02 = None
         self.latest_odom_03 = None
 
-        # Timer to run planner at 10 Hz
+        # Current commands to publish (updated by planner, published at high rate)
+        self.current_commands = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]  # [(v1, omega1), (v2, omega2), (v3, omega3)]
+
+        # Timer to run planner at 10 Hz (computes new commands)
         self.timer = self.create_timer(0.1, self.run_planner_step)
+        
+        # High-rate publisher timer at 20 Hz (0.05s) for smoother movement
+        # This publishes the current commands repeatedly during each 0.1s planner step
+        self.publisher_timer = self.create_timer(0.05, self._publish_current_commands)
 
         self.pre = pre
         self.z_guess = None  # optional warm-start guess for internal solver variables
@@ -318,6 +325,26 @@ class PursuitEvasionController(Node):
         except Exception as e:
             self.get_logger().error(f"Error sending command to robot {robot_idx+1}: {e}")
 
+    def _publish_current_commands(self):
+        """High-rate publisher that sends current commands repeatedly for smoother movement.
+        Runs at 20 Hz (every 0.05s) to publish commands multiple times during each 0.1s planner step."""
+        if self._shutdown_initiated:
+            return
+        
+        for i, (vx, omega) in enumerate(self.current_commands):
+            if i < len(self.ros_publishers) and self.ros_publishers[i] is not None:
+                try:
+                    msg = {
+                        'header': {'stamp': ros_time(), 'frame_id': 'teleop_twist_joy'},
+                        'twist': {
+                            'linear':  {'x': float(vx), 'y': 0.0, 'z': 0.0},
+                            'angular': {'x': 0.0, 'y': 0.0, 'z': float(omega)}
+                        }
+                    }
+                    self.ros_publishers[i].publish(roslibpy.Message(msg))
+                except Exception as e:
+                    self.get_logger().error(f"Error publishing to robot {i+1}: {e}")
+
     def _save_trajectory_csv(self):
         """Save trajectory data to CSV file."""
         if len(self.trajectory) == 0:
@@ -406,15 +433,17 @@ class PursuitEvasionController(Node):
         self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 
         if not goal_reached(state3[:2], GOAL_POSITION):
-            # Send commands to robots via roslibpy
-            self._send_command(0, v1, omega1)  # Robot 1
-            self._send_command(1, v2, omega2)  # Robot 2
-            self._send_command(2, v3, omega3)  # Robot 3
+            # Update current commands (will be published at high rate by publisher_timer)
+            self.current_commands = [(v1, omega1), (v2, omega2), (v3, omega3)]
+            # Commands are now published continuously at 20 Hz by _publish_current_commands()
         else:
             if not self._shutdown_initiated:
                 self.get_logger().info("Goal reached for robot 3, stopping.")
-                # Stop timer and publish zero velocities
+                # Stop timers and publish zero velocities
                 self.timer.cancel()
+                self.publisher_timer.cancel()
+                # Set commands to zero and publish stop
+                self.current_commands = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]
                 self._publish_stop()
                 # Save trajectory CSV and shutdown
                 self._save_trajectory_csv()
