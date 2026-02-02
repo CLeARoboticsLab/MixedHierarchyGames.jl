@@ -42,9 +42,103 @@ Note that parameters of the PDIP algorithm, dynamics, costs, and constraints cou
 2. In the current implementation, we assume each player has the same state, control, and constraint dimension. However, it should be relaxed in the future.
 
 
-## Running on Ubuntu 24.04 with ROS 2 Jazzy (Docker)
+## ROS Package (Tested on Foxy and HUmble, Ideally works for Jazzy)
 
-This repository includes a Docker setup to run an Ubuntu 24.04 + ROS 2 Jazzy environment with Julia. See `docker/README.md` for details and quick-start scripts.
+This repository includes a ROS 2 Python node that integrates the Julia solver for a multi-robot pursuit–evasion game. It subscribes to odometry for three agents and publishes velocity commands while logging trajectories and optionally saving plots.
+
+### Quick start
+- Prerequisites:
+  - ROS 2 (tested on Foxy and Humble; expected to work on Jazzy)
+  - Python 3.10+
+  - Julia as specified above with project dependencies
+- Run the node:
+  1) Open a terminal at the ROS workspace:
+     ```bash
+     cd ros2
+     bash run_node.sh
+     ```
+     This builds the package, sources the environment, and runs the controller node.
+  2) On first run, Julia will activate and instantiate the project; this can take a while. Subsequent runs will be faster. The node logs when preoptimization is ready and starts processing odometry.
+
+### What the node does
+- Subscribes:
+  - `/odom_01`, `/odom_02`, `/odom_03` (nav_msgs/Odometry)
+- Publishes:
+  - `/cmd_vel_01`, `/cmd_vel_02`, `/cmd_vel_03` (geometry_msgs/Twist)
+- Outputs:
+  - `ros2/trajectory_log.csv` per 0.1s step by default
+  - `ros2/trajectory.gif` animated trajectory when the goal is reached (if enabled)
+  - `ros2/trajectory.png` final static figure (if enabled)
+
+### Runtime parameters
+These parameters can be adjusted at runtime using ROS 2 parameters. Defaults are shown.
+
+| Name               | Type    | Default | Description |
+|--------------------|---------|---------|-------------|
+| `dt`               | double  | 0.1     | Timer period (s) |
+| `max_linear_speed` | double  | 0.2     | Clamp for `Twist.linear.x` (m/s) |
+| `max_angular_speed`| double  | 0.3     | Clamp for `Twist.angular.z` (rad/s) |
+| `k_omega`          | double  | 1.0     | Proportional gain for heading control |
+| `omega_lpf_alpha`  | double  | 0.5     | Low-pass filter alpha for angular velocity |
+| `max_omega_local`  | double  | 1.0     | Local clamp in heading controller |
+| `goal_position`    | double[2] | [0.0, 0.0] | Evader goal [x, y] |
+| `enable_plotting`  | bool    | true    | Save GIF/PNG on completion |
+| `solver_verbose`   | bool    | false   | Show verbose logs from Julia solver |
+
+Notes:
+- The Julia preoptimization horizon currently defaults to 10 in the Python entrypoint. Adjust in code or wrap with your own launcher if needed.
+- The node terminates automatically on goal reach and after saving outputs.
+
+#### Overriding parameters at launch
+If you need to pass parameters at startup, run the node directly with ROS arguments:
+
+```bash
+cd ros2
+source install/setup.bash
+python3 src/mixed_hierarchy_games/mixed_hierarchy_games/controller_node.py \
+  --ros-args -p max_linear_speed:=0.25 -p max_angular_speed:=0.4 -p enable_plotting:=false \
+  -p goal_position:="[0.5, -0.5]"
+```
+
+Or create a `params.yaml`:
+
+```yaml
+mixed_hierarchy_games_controller:
+  ros__parameters:
+    dt: 0.1
+    max_linear_speed: 0.2
+    max_angular_speed: 0.3
+    k_omega: 1.0
+    omega_lpf_alpha: 0.5
+    max_omega_local: 1.0
+    goal_position: [0.0, 0.0]
+    enable_plotting: true
+    solver_verbose: false
+```
+
+Launch with:
+
+```bash
+cd ros2
+source install/setup.bash
+python3 src/mixed_hierarchy_games/mixed_hierarchy_games/controller_node.py \
+  --ros-args --params-file params.yaml
+```
+
+You can also change parameters at runtime:
+```bash
+ros2 param set /mixed_hierarchy_games_controller max_linear_speed 0.25
+```
+
+### Coordinate frames and controls
+- Odometry messages are assumed to provide planar pose and linear velocity.
+- Controller converts 2D solver velocities [vx, vy] into a forward speed and yaw rate (v, omega), aligning heading to the next target pose with smoothing and clamps for safety.
+
+### Troubleshooting
+- “Waiting for odometry…”: Ensure your simulator or robots publish `/odom_01`, `/odom_02`, `/odom_03`.
+- First-run delays: Julia `Pkg.instantiate()` and preoptimization may take minutes on first run, depending on the device.
+- No plots saved: Set `enable_plotting:=true`. Files save under `ros2/trajectory.gif` and `ros2/trajectory.png`.
+
 
 
 
