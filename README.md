@@ -42,7 +42,7 @@ Note that parameters of the PDIP algorithm, dynamics, costs, and constraints cou
 2. In the current implementation, we assume each player has the same state, control, and constraint dimension. However, it should be relaxed in the future.
 
 
-## ROS Package (Tested on Foxy and HUmble, Ideally works for Jazzy)
+## ROS Package (Tested on Foxy and Humble, Ideally works for Jazzy)
 
 This repository includes a ROS 2 Python node that integrates the Julia solver for a multi-robot pursuit–evasion game. It subscribes to odometry for three agents and publishes velocity commands while logging trajectories and optionally saving plots.
 
