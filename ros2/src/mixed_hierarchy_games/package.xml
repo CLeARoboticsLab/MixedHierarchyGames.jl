@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>multi_robot_controller</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="tianyuqiu@utexas.edu">tq877</maintainer>
-  <license>TODO: License declaration</license>
+  <name>mixed_hierarchy_games</name>
+  <version>0.1.0</version>
+  <description>Mixed hierarchy games controller for multi-robot systems.</description>
+  <maintainer email="tianyuqiu@utexas.edu">Tianyu Qiu</maintainer>
+  <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>nav_msgs</depend>

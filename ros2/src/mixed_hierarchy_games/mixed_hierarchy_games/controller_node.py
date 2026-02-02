@@ -22,7 +22,7 @@ GOAL_POSITION = [0.0, 0.0]
 
 # Only do this once — import and include your Julia code
 def julia_init():
-    # Go up to the main project root: ros2/src/multi_robot_controller/multi_robot_controller -> main project
+    # Go up to the main project root: ros2/src/mixed_hierarchy_games/mixed_hierarchy_games -> main project
     project_root = str(Path(__file__).resolve().parents[4])
     time_start = time.perf_counter()
     
@@ -83,7 +83,7 @@ def goal_reached(posittion, goal_position, threshold=0.3):
 
 class MultiRobotController(Node):
     def __init__(self, pre):
-        super().__init__('multi_robot_controller')
+        super().__init__('mixed_hierarchy_games_controller')
 
         # Publishers
         self.cmd_pub_01 = self.create_publisher(Twist, '/cmd_vel_01', 10)
