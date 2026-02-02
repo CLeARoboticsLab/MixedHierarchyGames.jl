@@ -7,5 +7,9 @@ ros2/resource/
 ros2/*.png
 ros2/*.gif
 ros2/*.csv
+ros2/script/*.png
+ros2/scenario/*.usd
+
+ros2/src/multi_robot_description/
 
 *.pyc

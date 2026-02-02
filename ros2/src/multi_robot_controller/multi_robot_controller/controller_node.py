@@ -146,8 +146,8 @@ class MultiRobotController(Node):
     def convert_to_cmd_vel(self, vx, vy, pose, target_pose, current_theta):
         v = math.hypot(vx, vy)
         target_theta = math.atan2(target_pose[1] - pose[1], target_pose[0] - pose[0])
-        print("target_theta:", target_theta)
-        print("current_theta:", current_theta)
+        # print("target_theta:", target_theta)
+        # print("current_theta:", current_theta)
 
         # Wrap angle error to [-pi, pi] to avoid discontinuities around the boundary
         def _wrap_to_pi(angle):
@@ -208,13 +208,13 @@ class MultiRobotController(Node):
         ax.grid(True, linestyle='--', alpha=0.4)
         ax.set_title("Agent Trajectories")
 
-        line1, = ax.plot([], [], 'r-', lw=2, label='Agent 1')
-        line2, = ax.plot([], [], 'g-', lw=2, label='Agent 2')
-        line3, = ax.plot([], [], 'b-', lw=2, label='Agent 3')
+        line1, = ax.plot([], [], 'r-', lw=2, label='Pursuer')
+        line2, = ax.plot([], [], 'g-', lw=2, label='Guard')
+        line3, = ax.plot([], [], 'b-', lw=2, label='Evader')
         pt1, = ax.plot([], [], 'ro', ms=5)
         pt2, = ax.plot([], [], 'go', ms=5)
         pt3, = ax.plot([], [], 'bo', ms=5)
-        goal_label = f'Goal ({gx:.2f}, {gy:.2f})'
+        goal_label = f'Evader Goal'
         goal_pt, = ax.plot([gx], [gy], 'k*', ms=10, label=goal_label)
         ax.legend(loc='upper right')
 
@@ -252,14 +252,14 @@ class MultiRobotController(Node):
         ax2.set_xlim(xmin, xmax)
         ax2.set_ylim(ymin, ymax)
         ax2.grid(True, linestyle='--', alpha=0.4)
-        ax2.set_title("Final Agent Trajectories")
-        ax2.plot(x1, y1, 'r-', lw=2, label='Agent 1')
-        ax2.plot(x2, y2, 'g-', lw=2, label='Agent 2')
-        ax2.plot(x3, y3, 'b-', lw=2, label='Agent 3')
+        ax2.set_title("Final Pursuit-Evasion Trajectories")
+        ax2.plot(x1, y1, 'r-', lw=2, label='Pursuer')
+        ax2.plot(x2, y2, 'g-', lw=2, label='Guard')
+        ax2.plot(x3, y3, 'b-', lw=2, label='Evader')
         ax2.plot([x1[-1]], [y1[-1]], 'ro', ms=5)
         ax2.plot([x2[-1]], [y2[-1]], 'go', ms=5)
         ax2.plot([x3[-1]], [y3[-1]], 'bo', ms=5)
-        goal_label2 = f'Goal ({gx:.2f}, {gy:.2f})'
+        goal_label2 = f'Evader Goal'
         ax2.plot([gx], [gy], 'k*', ms=10, label=goal_label2)
         ax2.legend(loc='upper right')
         fig2.savefig(str(self.png_output_path), dpi=150, bbox_inches='tight')
@@ -279,6 +279,7 @@ class MultiRobotController(Node):
             "v1", "omega1",
             "v2", "omega2",
             "v3", "omega3",
+            "plan_time_ms",
         ])
         self.csv_file.flush()
 
@@ -323,7 +324,11 @@ class MultiRobotController(Node):
             # print("self.z_guess:", self.z_guess)
             # print("self.pre:", self.pre)
             # input("Press Enter to continue...")
+            time_plan_start = time.perf_counter()
             result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(self.pre, initial_state, self.z_guess, silence_logs=False)
+            time_plan_end = time.perf_counter()
+            plan_time_ms = (time_plan_end - time_plan_start) * 1000.0
+            # self.get_logger().info(f"Planning time: {plan_time_ms:.1f} ms")
 
             # print("result:", result)
             # input("Press Enter to continue...")
@@ -337,9 +342,9 @@ class MultiRobotController(Node):
             self.z_guess = z_sol
             
             # Debug logging
-            self.get_logger().info(f"Robot positions: P1=[{state1[0]:.3f}, {state1[1]:.3f}], P2=[{state2[0]:.3f}, {state2[1]:.3f}], P3=[{state3[0]:.3f}, {state3[1]:.3f}]")
-            self.get_logger().info(f"Next states: {next_states}")
-            self.get_logger().info(f"Controls: {curr_controls}")
+            # self.get_logger().info(f"Robot positions: P1=[{state1[0]:.3f}, {state1[1]:.3f}], P2=[{state2[0]:.3f}, {state2[1]:.3f}], P3=[{state3[0]:.3f}, {state3[1]:.3f}]")
+            # self.get_logger().info(f"Next states: {next_states}")
+            # self.get_logger().info(f"Controls: {curr_controls}")
             
             # Extract control commands [vx, vy] for each robot
             u1 = curr_controls[0]  # [vx1, vy1]
@@ -364,7 +369,7 @@ class MultiRobotController(Node):
             v2 = np.clip(v2, -0.2, 0.2)
             v3 = np.clip(v3, -0.2, 0.2)
             
-            self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
+            # self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 
             twist1 = Twist()
             twist1.linear.x = v1
@@ -389,6 +394,7 @@ class MultiRobotController(Node):
                     v1, omega1,
                     v2, omega2,
                     v3, omega3,
+                    f"{plan_time_ms:.1f}",
                 ])
             if hasattr(self, "csv_file"):
                 self.csv_file.flush()
@@ -400,7 +406,7 @@ class MultiRobotController(Node):
                 self.cmd_pub_03.publish(twist3)
             else:
                 if not self._shutdown_initiated:
-                    self.get_logger().info("Goal reached for robot 3, stopping.")
+                    self.get_logger().info("Goal reached for evader, stopping.")
                     # Stop timer and publish zero velocities
                     self.timer.cancel()
                     self._publish_stop()
