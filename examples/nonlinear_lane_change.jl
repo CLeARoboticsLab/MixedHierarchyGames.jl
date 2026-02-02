@@ -188,4 +188,4 @@ z0_guess = vcat(z0_guess_1_2, z0_guess_3, z0_guess_4)
 # σ = 1e-2
 # z0_guess .+= σ * randn(length(z0_guess))
 
-nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 2000, strip_policy_constraints_eval = true)
+nplayer_hierarchy_navigation_nonlinear_dynamics(x0, x_goal, z0_guess, R, T, Δt; max_iters = 5000, strip_policy_constraints_eval = true)
