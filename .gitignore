@@ -1,3 +1,10 @@
 Manifest.toml
 warmstart/*.jld2
 *.jld2
+
+# Generated outputs
+*.pdf
+data/*
+!data/.gitkeep
+examples/*.png
+.DS_Store

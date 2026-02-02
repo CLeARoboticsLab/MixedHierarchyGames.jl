@@ -549,9 +549,9 @@ end
 function plot_trajectories_and_distances(
 	xs1, xs2, xs3, xs4, R, T, Δt, verbose = false;
 	layout = (1, 2), size = (1100, 550),
-	savepath_traj::Union{Nothing, AbstractString} = "player_trajectories",
-	savepath_dist::Union{Nothing, AbstractString} = "pairwise_distances",
-	savepath_combined::Union{Nothing, AbstractString} = "combined_plots",
+	savepath_traj::Union{Nothing, AbstractString} = "data/player_trajectories",
+	savepath_dist::Union{Nothing, AbstractString} = "data/pairwise_distances",
+	savepath_combined::Union{Nothing, AbstractString} = "data/combined_plots",
 )
 	plt1 = plot_player_trajectories(xs1, xs2, xs3, xs4, R, T, Δt, verbose; show = false, savepath = savepath_traj)
 	plt2 = plot_pairwise_player_distances(xs1, xs2, xs3, xs4, T, Δt, verbose; show = false, savepath = savepath_dist)
