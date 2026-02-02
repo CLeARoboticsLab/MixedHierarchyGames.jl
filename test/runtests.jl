@@ -12,6 +12,9 @@ using MixedHierarchyGames
     # Phase C: QP KKT Construction (TDD)
     include("test_qp_kkt.jl")
 
+    # Phase D: QP Solver (TDD)
+    include("test_qp_solver.jl")
+
     # Phase E: Linesearch (TDD)
     include("test_linesearch.jl")
 

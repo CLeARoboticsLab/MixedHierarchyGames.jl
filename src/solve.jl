@@ -79,42 +79,91 @@ end
 =#
 
 """
-    solve_with_path(mcp_problem, θ_values; kwargs...)
+    solve_with_path(πs::Dict, variables::Vector, θs::Dict, parameter_values::Dict; kwargs...)
 
 Solve KKT system using PATH solver via ParametricMCPs.jl.
 
 # Arguments
-- `mcp_problem` - The parametric MCP problem
-- `θ_values::Vector` - Parameter values (initial states)
+- `πs::Dict` - KKT conditions per player
+- `variables::Vector` - All symbolic variables
+- `θs::Dict` - Symbolic parameter variables per player
+- `parameter_values::Dict` - Numerical parameter values per player
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
+- `verbose::Bool=false` - Print solver output
 
 # Returns
-Named tuple with:
-- `z::Vector` - Solution
+Tuple of:
+- `z_sol::Vector` - Solution vector
+- `status::Symbol` - Solver status (:solved, :failed, etc.)
 - `info` - PATH solver info
 """
-function solve_with_path(mcp_problem, θ_values; initial_guess = nothing, kwargs...)
-    # TODO: Implement - wrap ParametricMCPs.solve
-    error("Not implemented: solve_with_path")
+function solve_with_path(
+    πs::Dict,
+    variables::Vector,
+    θs::Dict,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    verbose::Bool = false,
+    kwargs...
+)
+    symbolic_type = eltype(variables)
+
+    # Build KKT vector from all players
+    F = Vector{symbolic_type}(vcat(collect(values(πs))...))
+
+    # Bounds: unconstrained (MCP with -∞ to ∞)
+    z_lower = fill(-Inf, length(F))
+    z_upper = fill(Inf, length(F))
+
+    # Order parameters by player index
+    order = sort(collect(keys(πs)))
+    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+
+    # Build parametric MCP
+    parametric_mcp = ParametricMCPs.ParametricMCP(
+        F, variables, all_θ_vec, z_lower, z_upper;
+        compute_sensitivities = false
+    )
+
+    # Initial guess
+    z0 = initial_guess !== nothing ? initial_guess : zeros(length(variables))
+
+    # Solve
+    z_sol, status, info = ParametricMCPs.solve(
+        parametric_mcp,
+        all_param_vals_vec;
+        initial_guess = z0,
+        verbose = verbose,
+        cumulative_iteration_limit = 100000,
+        proximal_perturbation = 1e-2,
+        use_basics = true,
+        use_start = true,
+    )
+
+    return z_sol, status, info
 end
 
 """
-    qp_game_linsolve(M, b; kwargs...)
+    qp_game_linsolve(A, b; kwargs...)
 
-Custom linear solver for QP games using Newton step ∇F(z)δz = -F(z).
+Solve linear system Ax = b for QP games.
+
+For LQ games, the KKT system is linear so this directly solves for the solution.
 
 # Arguments
-- `M` - System matrix (Jacobian)
-- `b` - Right-hand side (-F(z))
+- `A` - System matrix (Jacobian of KKT conditions)
+- `b` - Right-hand side
 
 # Returns
-- `δz::Vector` - Newton step
+- `x::Vector` - Solution vector
 """
-function qp_game_linsolve(M, b; kwargs...)
-    # TODO: Implement
-    error("Not implemented: qp_game_linsolve")
+function qp_game_linsolve(A, b; kwargs...)
+    # Use backslash operator for direct solve
+    # For larger systems, could use LinearSolve.jl with specific factorization
+    return A \ b
 end
 
 #=
