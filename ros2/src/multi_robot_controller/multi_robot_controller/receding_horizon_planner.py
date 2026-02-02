@@ -25,7 +25,7 @@ DT = 0.1  # Time step (seconds)
 # Initial positions for the three robots (can be modified)
 # Format: [x, y, theta] where theta is initial orientation in radians
 INITIAL_STATES = [
-    [-3.0, 1.0, 0.0],   # Robot 1: [x, y, theta]
+    [-2.0, 1.0, 0.0],   # Robot 1: [x, y, theta]
     [-2.0, -2.0, 0.0],  # Robot 2: [x, y, theta]
     [3.0, -3.0, 3.14],   # Robot 3: [x, y, theta]
 ]
