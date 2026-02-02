@@ -138,7 +138,3 @@ ros2 param set /mixed_hierarchy_games_controller max_linear_speed 0.25
 - “Waiting for odometry…”: Ensure your simulator or robots publish `/odom_01`, `/odom_02`, `/odom_03`.
 - First-run delays: Julia `Pkg.instantiate()` and preoptimization may take minutes on first run, depending on the device.
 - No plots saved: Set `enable_plotting:=true`. Files save under `ros2/trajectory.gif` and `ros2/trajectory.png`.
-
-
-
-
