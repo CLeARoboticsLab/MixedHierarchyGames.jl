@@ -1,9 +1,7 @@
 name: CI
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:  # Manual trigger
+  pull_request:       # Run on PRs (can be required for merge)
     branches:
       - main
 
