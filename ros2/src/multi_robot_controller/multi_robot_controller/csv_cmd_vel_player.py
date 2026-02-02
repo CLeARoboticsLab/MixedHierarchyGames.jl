@@ -10,7 +10,7 @@ import roslibpy
 ROBOT_CONFIGS = [
     {'ip': '192.168.131.3', 'port': 9090, 'topic': '/bluebonnet/platform/cmd_vel'},
     {'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},
-    {'ip': '192.168.131.5', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},
+    {'ip': '192.168.131.1', 'port': 9090, 'topic': '/hookem/platform/cmd_vel'},
 ]
 
 
@@ -29,13 +29,17 @@ class CsvCmdVelPlayer(Node):
         self.declare_parameter('csv_path', str(csv_path))
         csv_param = self.get_parameter('csv_path').get_parameter_value().string_value
         resolved_csv = Path(csv_param).expanduser().resolve()
+        
+        self.ros_clients = []
+        self.ros_publishers = []
+        
+        # Initialize ROS connections first (before loading CSV to avoid memory issues)
+        self._init_roslibpy_publishers()
+        
+        # Load CSV after connections are established
         self.controls = self._load_controls(resolved_csv)
         self.index = 0
         self._shutdown = False
-
-        self.ros_clients = []
-        self.ros_publishers = []
-        self._init_roslibpy_publishers()
 
         self.timer = self.create_timer(self.dt, self._tick)
         self.get_logger().info(f"Loaded {len(self.controls)} control steps from {resolved_csv}")
@@ -61,16 +65,18 @@ class CsvCmdVelPlayer(Node):
     def _init_roslibpy_publishers(self):
         for i, config in enumerate(ROBOT_CONFIGS):
             try:
+                self.get_logger().info(f"Connecting to robot {i+1} at {config['ip']}:{config['port']}...")
                 client = roslibpy.Ros(host=config['ip'], port=config['port'])
                 client.run()
+                
                 if client.is_connected:
                     pub = roslibpy.Topic(client, config['topic'], 'geometry_msgs/msg/TwistStamped')
                     pub.advertise()
                     self.ros_clients.append(client)
                     self.ros_publishers.append(pub)
-                    self.get_logger().info(f"Connected to robot {i+1} at {config['ip']}:{config['port']} → {config['topic']}")
+                    self.get_logger().info(f"  ✓ Connected to robot {i+1} at {config['ip']}:{config['port']} → {config['topic']}")
                 else:
-                    self.get_logger().warn(f"Failed to connect to robot {i+1} at {config['ip']}:{config['port']}")
+                    self.get_logger().warn(f"  ✗ Failed to connect to robot {i+1} at {config['ip']}:{config['port']}")
                     self.ros_clients.append(None)
                     self.ros_publishers.append(None)
             except Exception as e:
@@ -130,6 +136,7 @@ class CsvCmdVelPlayer(Node):
         self.index += 1
 
     def _cleanup(self):
+        """Clean up connections - using safe pattern from test2robot.py"""
         for pub in self.ros_publishers:
             if pub is not None:
                 try:
@@ -137,11 +144,22 @@ class CsvCmdVelPlayer(Node):
                 except Exception:
                     pass
         for client in self.ros_clients:
-            if client is not None:
-                try:
-                    client.terminate()
-                except Exception:
-                    pass
+            if client is not None and client.is_connected:
+                # Check internal structure to avoid AttributeError in terminate()
+                # The terminate() method checks for _thread attribute which may not exist
+                factory = getattr(client, 'factory', None)
+                if factory is not None:
+                    manager = getattr(factory, 'manager', None)
+                    if manager is not None:
+                        # Only terminate if manager has _thread attribute
+                        # This prevents AttributeError when terminate() tries to access it
+                        thread = getattr(manager, '_thread', None)
+                        if thread is not None:
+                            try:
+                                client.terminate()
+                            except Exception:
+                                pass
+        self.get_logger().info("Disconnected from all robots")
 
 
 def main(args=None):

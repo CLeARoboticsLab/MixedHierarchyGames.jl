@@ -27,7 +27,7 @@ DT = 0.1  # Time step (seconds)
 INITIAL_STATES = [
     [-2.0, 1.0, 0.0],   # Robot 1: [x, y, theta]
     [-2.0, -2.0, 0.0],  # Robot 2: [x, y, theta]
-    [2.0, -2.0, 0.0],   # Robot 3: [x, y, theta]
+    [3.0, -3.0, 3.14],   # Robot 3: [x, y, theta]
 ]
 
 
@@ -294,12 +294,12 @@ def run_receding_horizon_planning(pre, initial_states, goal_position, dt=DT, max
         )
         
         # Clip velocities for safety
-        v1 = np.clip(v1, -0.3, 0.3)
-        v2 = np.clip(v2, -0.3, 0.3)
-        v3 = np.clip(v3, -0.3, 0.3)
-        omega1 = np.clip(omega1, -0.6, 0.6)
-        omega2 = np.clip(omega2, -0.6, 0.6)
-        omega3 = np.clip(omega3, -0.6, 0.6)
+        v1 = np.clip(v1, -0.4, 0.4)
+        v2 = np.clip(v2, -0.4, 0.4)
+        v3 = np.clip(v3, -0.4, 0.4)
+        omega1 = np.clip(omega1, -0.5, 0.5)
+        omega2 = np.clip(omega2, -0.5, 0.5)
+        omega3 = np.clip(omega3, -0.5, 0.5)
         
         # Record diff-drive controls
         controls.append((
