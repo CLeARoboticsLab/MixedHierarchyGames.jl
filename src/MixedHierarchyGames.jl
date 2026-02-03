@@ -19,7 +19,8 @@ using TrajectoryGamesBase:
     num_players,
     state_dim,
     control_dim,
-    horizon
+    horizon,
+    unflatten_trajectory
 
 using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, topological_sort_by_dfs
 using Symbolics: Symbolics, @variables
@@ -45,7 +46,7 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 
 # Solvers
 include("solve.jl")
-export solve, solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
+export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
 
 # Utilities
 include("utils.jl")

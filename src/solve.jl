@@ -17,12 +17,49 @@ Uses precomputed symbolic KKT conditions for efficiency.
 - `verbose::Bool=false` - Print debug info
 
 # Returns
-Named tuple containing:
-- `z_sol::Vector` - Solution vector
-- `status` - Solver status
-- `info` - Additional solver info
+- `JointStrategy` containing `OpenLoopStrategy` for each player
 """
 function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
+    (; problem, solver_type, precomputed) = solver
+    (; vars, πs_solve) = precomputed
+    (; θs, primal_dims, state_dim, control_dim) = problem
+
+    if solver_type == :linear
+        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+    elseif solver_type == :path
+        z_sol, status, _ = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+    else
+        error("Unknown solver type: $solver_type. Use :linear or :path")
+    end
+
+    # Extract per-player trajectories and build JointStrategy
+    N = length(primal_dims)
+    substrategies = Vector{OpenLoopStrategy}(undef, N)
+
+    offset = 1
+    for i in 1:N
+        # Extract player i's portion of z_sol
+        zi = z_sol[offset:(offset + primal_dims[i] - 1)]
+        offset += primal_dims[i]
+
+        # Unflatten into states and controls
+        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
+
+        substrategies[i] = OpenLoopStrategy(xs, us)
+    end
+
+    return JointStrategy(substrategies)
+end
+
+"""
+    solve_raw(solver::QPSolver, parameter_values::Dict; verbose=false)
+
+Solve and return raw solution vector (for debugging/analysis).
+
+# Returns
+Named tuple with z_sol, status, info, vars
+"""
+function solve_raw(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve) = precomputed
     (; θs) = problem
@@ -58,11 +95,7 @@ Solve a QP (linear-quadratic) hierarchy game.
 - `verbose::Bool=false` - Print debug info
 
 # Returns
-Named tuple with:
-- `z_sol::Vector` - Raw solution vector
-- `status` - Solver status
-- `info` - Additional solver info
-- `vars` - Problem variables
+- `JointStrategy` containing `OpenLoopStrategy` for each player
 """
 function TrajectoryGamesBase.solve_trajectory_game!(
     solver::QPSolver,

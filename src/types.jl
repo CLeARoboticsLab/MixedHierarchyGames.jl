@@ -29,6 +29,8 @@ Stores cost functions, constraints, and symbolic variables.
 - `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
+- `state_dim::Int` - State dimension per player (for trajectory extraction)
+- `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
 struct QPProblem{TG<:SimpleDiGraph, TJ, TC, TP}
     hierarchy_graph::TG
@@ -36,6 +38,8 @@ struct QPProblem{TG<:SimpleDiGraph, TJ, TC, TP}
     gs::TC
     primal_dims::Vector{Int}
     θs::TP
+    state_dim::Int
+    control_dim::Int
 end
 
 """
@@ -55,7 +59,7 @@ struct QPSolver{TP<:QPProblem, TC}
 end
 
 """
-    QPSolver(hierarchy_graph, Js, gs, primal_dims, θs; solver=:linear)
+    QPSolver(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 
 Construct a QPSolver from low-level problem components (matches original interface).
 
@@ -65,6 +69,8 @@ Construct a QPSolver from low-level problem components (matches original interfa
 - `gs::Vector` - Constraint functions per player
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
+- `state_dim::Int` - State dimension per player
+- `control_dim::Int` - Control dimension per player
 
 # Keyword Arguments
 - `solver::Symbol=:linear` - Solver backend (:linear or :path)
@@ -74,10 +80,12 @@ function QPSolver(
     Js::Dict,
     gs::Vector,
     primal_dims::Vector{Int},
-    θs::Dict;
+    θs::Dict,
+    state_dim::Int,
+    control_dim::Int;
     solver::Symbol = :linear
 )
-    problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs)
+    problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
     # Precompute symbolic variables and KKT conditions
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
@@ -94,7 +102,7 @@ function QPSolver(
 end
 
 """
-    QPSolver(game::HierarchyGame, Js, gs, primal_dims, θs; solver=:linear)
+    QPSolver(game::HierarchyGame, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 
 Construct a QPSolver from a HierarchyGame with explicit cost/constraint functions.
 
@@ -105,10 +113,12 @@ function QPSolver(
     Js::Dict,
     gs::Vector,
     primal_dims::Vector{Int},
-    θs::Dict;
+    θs::Dict,
+    state_dim::Int,
+    control_dim::Int;
     solver::Symbol = :linear
 )
-    return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs; solver)
+    return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver)
 end
 
 """

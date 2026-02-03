@@ -214,14 +214,5 @@ function flatten_trajectory(xs::Vector{Vector{T}}, us::Vector{Vector{T}}) where 
     return vcat(vcat(xs...), vcat(us...))
 end
 
-"""
-    unflatten_trajectory(z::Vector, state_dim::Int, control_dim::Int, T::Int)
-
-Unflatten a vector into state and control trajectories.
-"""
-function unflatten_trajectory(z::Vector, state_dim::Int, control_dim::Int, T::Int)
-    n_state = state_dim * T
-    xs = [z[(i-1)*state_dim + 1 : i*state_dim] for i in 1:T]
-    us = [z[n_state + (i-1)*control_dim + 1 : n_state + i*control_dim] for i in 1:T]
-    return (; xs, us)
-end
+# Note: unflatten_trajectory is imported from TrajectoryGamesBase
+# It uses interleaved format: [x0, u0, x1, u1, ...]

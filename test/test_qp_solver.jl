@@ -3,6 +3,7 @@ using Graphs: SimpleDiGraph, add_edge!, nv
 using LinearAlgebra: norm, I
 using Symbolics
 using PATHSolver: PATHSolver
+using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy
 using MixedHierarchyGames:
     get_qp_kkt_conditions,
     strip_policy_constraints,
@@ -219,15 +220,17 @@ end
 @testset "QPSolver struct interface" begin
     @testset "Constructor precomputes KKT" begin
         G = SimpleDiGraph(1)
-        primal_dims = [2]
+        primal_dims = [4]  # 2 timesteps * (state_dim + control_dim) = 2 * (1+1) = 4
+        state_dim = 1
+        control_dim = 1
 
-        @variables θ[1:2]
+        @variables θ[1:1]
         θ_vec = collect(θ)
         θs = Dict(1 => θ_vec)
-        gs = [z -> z - θ_vec]
+        gs = [z -> [z[1] - θ_vec[1]]]  # IC constraint: x0 = θ
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
 
-        solver = QPSolver(G, Js, gs, primal_dims, θs)
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
 
         @test solver.problem isa MixedHierarchyGames.QPProblem
         @test solver.solver_type == :linear
@@ -235,57 +238,85 @@ end
         @test haskey(solver.precomputed, :πs_solve)
     end
 
-    @testset "solve() uses precomputed components" begin
+    @testset "solve_raw() returns raw solution" begin
         G = SimpleDiGraph(1)
-        primal_dims = [2]
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
 
-        @variables θ[1:2]
+        @variables θ[1:1]
         θ_vec = collect(θ)
         θs = Dict(1 => θ_vec)
-        gs = [z -> z - θ_vec]
+        gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
 
-        solver = QPSolver(G, Js, gs, primal_dims, θs)
-        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        result = MixedHierarchyGames.solve_raw(solver, Dict(1 => [1.0]))
 
         @test result.status == :solved
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test result.z_sol[1] ≈ 1.0 atol=1e-6  # x0 = θ = 1.0
+    end
+
+    @testset "solve() returns JointStrategy" begin
+        G = SimpleDiGraph(1)
+        # T=2 timesteps: primal_dim = (state_dim + control_dim) * T = (1+1)*2 = 4
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
+
+        @variables θ[1:1]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> [z[1] - θ_vec[1]]]  # IC: x0 = θ
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        strategy = MixedHierarchyGames.solve(solver, Dict(1 => [1.0]))
+
+        @test strategy isa JointStrategy
+        @test length(strategy.substrategies) == 1
+        @test strategy.substrategies[1] isa OpenLoopStrategy
+        @test strategy.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6  # x0 = θ
     end
 
     @testset "solve() with different parameter values" begin
         G = SimpleDiGraph(1)
-        primal_dims = [2]
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
 
-        @variables θ[1:2]
+        @variables θ[1:1]
         θ_vec = collect(θ)
         θs = Dict(1 => θ_vec)
-        gs = [z -> z - θ_vec]
+        gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
 
-        solver = QPSolver(G, Js, gs, primal_dims, θs)
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
 
         # Solve with different initial states
-        result1 = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
-        result2 = MixedHierarchyGames.solve(solver, Dict(1 => [5.0, 6.0]))
+        strategy1 = MixedHierarchyGames.solve(solver, Dict(1 => [1.0]))
+        strategy2 = MixedHierarchyGames.solve(solver, Dict(1 => [5.0]))
 
-        @test isapprox(result1.z_sol[1:2], [1.0, 2.0], atol=1e-6)
-        @test isapprox(result2.z_sol[1:2], [5.0, 6.0], atol=1e-6)
+        @test strategy1.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6
+        @test strategy2.substrategies[1].xs[1][1] ≈ 5.0 atol=1e-6
     end
 
     @testset "2-player Stackelberg with QPSolver struct" begin
         G = SimpleDiGraph(2)
         add_edge!(G, 1, 2)
 
-        primal_dims = [2, 2]
+        primal_dims = [4, 4]
+        state_dim = 1
+        control_dim = 1
 
-        @variables θ1[1:2] θ2[1:2]
+        @variables θ1[1:1] θ2[1:1]
         θ1_vec = collect(θ1)
         θ2_vec = collect(θ2)
         θs = Dict(1 => θ1_vec, 2 => θ2_vec)
 
         gs = [
-            z -> z - θ1_vec,
-            z -> z - θ2_vec,
+            z -> [z[1] - θ1_vec[1]],
+            z -> [z[1] - θ2_vec[1]],
         ]
 
         Js = Dict(
@@ -293,28 +324,31 @@ end
             2 => (z1, z2; θ=nothing) -> sum(z2.^2),
         )
 
-        solver = QPSolver(G, Js, gs, primal_dims, θs)
-        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0]))
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        strategy = MixedHierarchyGames.solve(solver, Dict(1 => [1.0], 2 => [3.0]))
 
-        @test result.status == :solved
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
-        @test isapprox(result.z_sol[3:4], [3.0, 4.0], atol=1e-6)
+        @test strategy isa JointStrategy
+        @test length(strategy.substrategies) == 2
+        @test strategy.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6
+        @test strategy.substrategies[2].xs[1][1] ≈ 3.0 atol=1e-6
     end
 
     @testset "PATH solver option" begin
         G = SimpleDiGraph(1)
-        primal_dims = [2]
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
 
-        @variables θ[1:2]
+        @variables θ[1:1]
         θ_vec = collect(θ)
         θs = Dict(1 => θ_vec)
-        gs = [z -> z - θ_vec]
+        gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
 
-        solver = QPSolver(G, Js, gs, primal_dims, θs; solver=:path)
-        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:path)
+        strategy = MixedHierarchyGames.solve(solver, Dict(1 => [1.0]))
 
-        @test result.status == PATHSolver.MCP_Solved
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test strategy isa JointStrategy
+        @test strategy.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6
     end
 end
