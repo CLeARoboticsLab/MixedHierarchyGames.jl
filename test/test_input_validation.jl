@@ -83,6 +83,39 @@ end
             @test !timed_out  # Fails if validation didn't catch the self-loop
             @test result isa ArgumentError
         end
+
+        @testset "Rejects multiple leaders (single-parent violation)" begin
+            # Player 3 has two leaders (1 and 2) - violates single-parent assumption
+            G = SimpleDiGraph(3)
+            add_edge!(G, 1, 3)  # 1 leads 3
+            add_edge!(G, 2, 3)  # 2 also leads 3 - violation!
+
+            primal_dims = [2, 2, 2]
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θ3_vec = make_θ(3, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec, 3 => θ3_vec)
+            gs = [z -> [z[1] - θ1_vec[1]], z -> [z[1] - θ2_vec[1]], z -> [z[1] - θ3_vec[1]]]
+            Js = Dict(
+                1 => (z1, z2, z3; θ=nothing) -> sum(z1.^2),
+                2 => (z1, z2, z3; θ=nothing) -> sum(z2.^2),
+                3 => (z1, z2, z3; θ=nothing) -> sum(z3.^2),
+            )
+
+            # Use timeout to prevent hanging if validation fails
+            (result, timed_out) = with_timeout(5.0) do
+                try
+                    QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+                    return :no_error
+                catch e
+                    return e
+                end
+            end
+
+            @test !timed_out  # Fails if validation didn't catch the multi-parent violation
+            @test result isa ArgumentError
+            @test occursin("multiple leaders", result.msg) || occursin("single parent", lowercase(result.msg))
+        end
     end
 
     @testset "Dimension consistency validation" begin

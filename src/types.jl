@@ -104,6 +104,19 @@ function _validate_qpsolver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs:
         ))
     end
 
+    # Single-parent validation: each player can have at most one leader
+    for v in 1:N
+        num_leaders = indegree(hierarchy_graph, v)
+        if num_leaders > 1
+            leaders = inneighbors(hierarchy_graph, v)
+            throw(ArgumentError(
+                "Player $v has multiple leaders ($(collect(leaders))). " *
+                "The current implementation assumes each player has at most one parent in the hierarchy. " *
+                "Consider restructuring your hierarchy graph."
+            ))
+        end
+    end
+
     # Dimension consistency validation
     if length(primal_dims) != N
         throw(ArgumentError("Length of primal_dims ($(length(primal_dims))) must match number of players ($N)."))

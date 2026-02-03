@@ -22,7 +22,7 @@ using TrajectoryGamesBase:
     horizon,
     unflatten_trajectory
 
-using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, topological_sort_by_dfs, is_cyclic, has_self_loops
+using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, indegree, topological_sort_by_dfs, is_cyclic, has_self_loops
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
