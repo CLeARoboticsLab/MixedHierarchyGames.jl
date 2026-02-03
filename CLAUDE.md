@@ -35,3 +35,32 @@ Before closing a task:
 - Summarize what was accomplished
 - List any follow-up items or remaining concerns
 - Wait for user confirmation before marking complete
+
+## Code Reviews
+
+When requested, perform code reviews from the perspective of specific expert roles. Available roles:
+
+### Engineering Roles
+- **Master Software Engineer**: Architecture, design patterns, code quality, maintainability, SOLID principles
+- **Performance Engineer**: Algorithmic complexity, memory usage, profiling, optimization opportunities
+- **Test Engineer**: Test coverage, edge cases, test design, mocking strategies
+
+### Infrastructure & Operations
+- **DevOps Engineer**: CI/CD, automation, deployment, monitoring, logging
+- **Infrastructure Engineer**: Containerization, orchestration, resource management, scalability
+- **Site Reliability Engineer (SRE)**: Reliability, observability, incident response, SLOs
+
+### Security
+- **Security Engineer**: Vulnerabilities, authentication, authorization, secrets management, OWASP
+- **Penetration Tester**: Attack vectors, exploit potential, hardening recommendations
+
+### Domain-Specific
+- **Numerical Computing Expert**: Numerical stability, precision, algorithm correctness
+- **Game Theory Expert**: Equilibrium concepts, solution quality, mathematical correctness
+- **Julia Expert**: Idiomatic Julia, type stability, performance patterns, package conventions
+
+### Documentation & UX
+- **Technical Writer**: Documentation clarity, examples, API documentation
+- **Developer Experience (DX)**: Onboarding, ergonomics, error messages, discoverability
+
+When reviewing, clearly separate issues by severity (Critical, High, Medium, Low) and provide actionable recommendations.
