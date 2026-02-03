@@ -41,5 +41,62 @@ Note that parameters of the PDIP algorithm, dynamics, costs, and constraints cou
 1. The KKT conditions construction process (, e.g., in /src/lq_solvers/constrained_fbst_lq_solver.jl) has not been optimized. We can speed it up by using StaticArray.jl and automatically constructing the first-order KKT conditions approximation using automatic differentiation. However, in the current implementation, we manually programmed the       KKT conditions. 
 2. In the current implementation, we assume each player has the same state, control, and constraint dimension. However, it should be relaxed in the future.
 
+## Docker Development Environment
 
+A Docker container is provided for a consistent development environment with all dependencies pre-installed.
 
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- GitHub CLI authenticated on host (`gh auth login`)
+- Claude Code API key (set `ANTHROPIC_API_KEY` environment variable or authenticate via `claude` CLI)
+
+### Quick Start
+
+```bash
+# Build and start development container
+docker compose run --rm dev
+
+# Inside container, you have access to:
+julia --project=.     # Julia with all dependencies
+git                   # Version control
+gh                    # GitHub CLI
+claude                # Claude Code CLI
+```
+
+### Running Tests
+
+```bash
+# Run tests in container
+docker compose run --rm test
+
+# Or interactively
+docker compose run --rm dev
+julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+### Development Workflow
+
+The container mounts your local source code at `/workspace`, so changes are reflected immediately:
+
+```bash
+# Start development session
+docker compose run --rm dev
+
+# Edit code on host, run in container
+julia --project=. -e 'using MixedHierarchyGames'
+
+# Use Claude Code for AI-assisted development
+claude
+
+# Use GitHub CLI for PR management
+gh pr create
+```
+
+### Rebuilding the Container
+
+After changing `Project.toml` or `Manifest.toml`:
+
+```bash
+docker compose build --no-cache dev
+```

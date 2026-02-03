@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Julia artifacts
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+Manifest.toml.bak
+
+# IDE
+.vscode
+.idea
+
+# Beads tracking
+.beads
+
+# Claude
+.claude
+
+# Data and experiments (large files)
+data/
+experiments/
+reference_archive/
+
+# Documentation artifacts
+docs/build/
