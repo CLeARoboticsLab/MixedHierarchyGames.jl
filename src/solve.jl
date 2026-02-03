@@ -24,6 +24,9 @@ function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
     (; vars, πs_solve) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
 
+    # Validate parameter_values
+    _validate_parameter_values(parameter_values, θs)
+
     if solver_type == :linear
         z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose)
     elseif solver_type == :path
@@ -191,6 +194,9 @@ function solve_with_path(
     symbolic_type = eltype(variables)
 
     # Build KKT vector from all players
+    # Note: Dict iteration order doesn't matter here - the symbolic expressions
+    # encode the mathematical relationships, so F(z)=0 has the same solution
+    # regardless of equation ordering
     F = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Bounds: unconstrained (MCP with -∞ to ∞)
@@ -278,6 +284,9 @@ function solve_qp_linear(
     symbolic_type = eltype(variables)
 
     # Build KKT vector from all players
+    # Note: Dict iteration order doesn't matter here - the symbolic expressions
+    # encode the mathematical relationships, so F(z)=0 has the same solution
+    # regardless of equation ordering
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index
@@ -310,8 +319,34 @@ function solve_qp_linear(
         verbose && println("Linear solve successful")
         return z_sol, :solved
     catch e
-        verbose && @warn "Linear solve failed: $e"
-        return zeros(n), :failed
+        # Only catch expected linear algebra failures; rethrow programming errors
+        if e isa SingularException || e isa LAPACKException
+            verbose && @warn "Linear solve failed: $e"
+            return zeros(n), :failed
+        end
+        rethrow()
+    end
+end
+
+#=
+    Input validation utilities
+=#
+
+"""
+    _validate_parameter_values(parameter_values::Dict, θs::Dict)
+
+Validate parameter_values against expected θs structure. Throws ArgumentError on mismatch.
+"""
+function _validate_parameter_values(parameter_values::Dict, θs::Dict)
+    for (player, θ) in θs
+        if !haskey(parameter_values, player)
+            throw(ArgumentError("parameter_values is missing entry for player $player."))
+        end
+        expected_len = length(θ)
+        actual_len = length(parameter_values[player])
+        if actual_len != expected_len
+            throw(ArgumentError("parameter_values[$player] has length $actual_len, expected $expected_len."))
+        end
     end
 end
 

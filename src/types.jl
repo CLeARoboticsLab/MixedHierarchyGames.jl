@@ -59,6 +59,45 @@ struct QPSolver{TP<:QPProblem, TC}
 end
 
 """
+    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+
+Validate inputs for QPSolver constructor. Throws ArgumentError on invalid input.
+"""
+function _validate_qpsolver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs::Vector, primal_dims::Vector{Int}, θs::Dict)
+    N = nv(hierarchy_graph)
+
+    # Graph structure validation
+    if has_self_loops(hierarchy_graph)
+        throw(ArgumentError("Hierarchy graph contains self-loops. Each player cannot be their own leader."))
+    end
+    if is_cyclic(hierarchy_graph)
+        throw(ArgumentError("Hierarchy graph contains cycles. The hierarchy must be a DAG (directed acyclic graph)."))
+    end
+
+    # Dimension consistency validation
+    if length(primal_dims) != N
+        throw(ArgumentError("Length of primal_dims ($(length(primal_dims))) must match number of players ($N)."))
+    end
+    if length(gs) != N
+        throw(ArgumentError("Length of gs ($(length(gs))) must match number of players ($N)."))
+    end
+
+    # Check Js has all players
+    for i in 1:N
+        if !haskey(Js, i)
+            throw(ArgumentError("Js is missing cost function for player $i."))
+        end
+    end
+
+    # Check θs has all players
+    for i in 1:N
+        if !haskey(θs, i)
+            throw(ArgumentError("θs is missing parameter variables for player $i."))
+        end
+    end
+end
+
+"""
     QPSolver(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 
 Construct a QPSolver from low-level problem components (matches original interface).
@@ -85,6 +124,9 @@ function QPSolver(
     control_dim::Int;
     solver::Symbol = :linear
 )
+    # Validate inputs
+    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+
     problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
     # Precompute symbolic variables and KKT conditions

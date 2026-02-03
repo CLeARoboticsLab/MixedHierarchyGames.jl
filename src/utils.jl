@@ -197,8 +197,8 @@ function evaluate_kkt_residuals(
     verbose::Bool = false,
     should_enforce::Bool = false
 )
-    # TODO: Implement - evaluate KKT conditions at solution
-    error("Not implemented: evaluate_kkt_residuals")
+    # TODO(Phase F): Implement for nonlinear solver debugging/validation
+    error("evaluate_kkt_residuals is not yet implemented. Planned for nonlinear solver phase.")
 end
 
 #=

@@ -23,4 +23,10 @@ using MixedHierarchyGames
 
     # Phase G: Interface (TDD)
     include("test_interface.jl")
+
+    # Input Validation
+    include("test_input_validation.jl")
+
+    # OLSE Validation (QP solver correctness)
+    include("test_qp_olse_validation.jl")
 end

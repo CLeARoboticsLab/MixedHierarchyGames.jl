@@ -133,6 +133,6 @@ Build augmented variable list including symbolic K matrices for optimized solvin
 - `augmented_vars::Vector` - Variables augmented with K matrix entries
 """
 function construct_augmented_variables(zs, Ks, hierarchy_graph)
-    # TODO: Implement
-    error("Not implemented: construct_augmented_variables")
+    # TODO(Phase F): Implement for nonlinear solver K matrix handling
+    error("construct_augmented_variables is not yet implemented. Planned for nonlinear solver phase.")
 end
