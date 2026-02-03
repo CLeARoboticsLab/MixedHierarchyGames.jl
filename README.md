@@ -100,7 +100,7 @@ For linear-quadratic games with equality constraints. Supports two backends:
 - `:linear` (default) - Direct linear solve of KKT system
 - `:path` - PATH solver via ParametricMCPs.jl
 
-**Which solver to use:** Use `:linear` for all current use cases. It is faster and more reliable for equality-constrained problems. The `:path` backend exists for future inequality constraint support (not yet implemented) and as a fallback for numerically difficult problems.
+**Which solver to use:** Use `:linear` for all current use cases. Both backends solve the same linear KKT system; `:linear` uses direct factorization while `:path` uses the PATH complementarity solver. The `:linear` backend is faster and recommended. The `:path` backend may help with numerically difficult problems.
 
 ```julia
 solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
