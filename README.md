@@ -40,7 +40,9 @@ control_dim = 1
 T = 3  # horizon
 primal_dims = [(state_dim + control_dim) * T, (state_dim + control_dim) * T]
 
-# Symbolic parameters (initial states)
+# Symbolic parameters (θs) - user-defined parameters of arbitrary size per player.
+# Common uses: initial states, reference trajectories, obstacle positions.
+# These become inputs to solve() and allow the same solver to handle different scenarios.
 @variables θ1[1:state_dim] θ2[1:state_dim]
 θs = Dict(1 => collect(θ1), 2 => collect(θ2))
 
@@ -98,6 +100,8 @@ For linear-quadratic games with equality constraints. Supports two backends:
 - `:linear` (default) - Direct linear solve of KKT system
 - `:path` - PATH solver via ParametricMCPs.jl
 
+**Which solver to use:** Use `:linear` for all current use cases. It is faster and more reliable for equality-constrained problems. The `:path` backend exists for future inequality constraint support (not yet implemented) and as a fallback for numerically difficult problems.
+
 ```julia
 solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 ```
@@ -105,6 +109,29 @@ solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:l
 ### NonlinearSolver (planned)
 
 For general nonlinear games using iterative quasi-linear policy approximation.
+
+## Equilibrium Concept
+
+This solver computes an **Open-Loop Mixed-Hierarchy Equilibrium (OLMHE)**, where:
+- Hierarchy structure is defined by a directed acyclic graph following certain assumptions
+- Leaders commit to their full trajectory upfront
+- Followers observe leader trajectories and respond optimally
+- Agents without leader-follower relationships have Nash relationships
+- The hierarchy is enforced through KKT conditions with policy constraints
+
+The same mathematical structure can represent feedback Stackelberg equilibrium under appropriate problem formulations. Details on feedback formulations are forthcoming.
+
+## Solver Assumptions
+
+The current implementation makes the following assumptions:
+
+1. **Equality constraints only**: All constraints `g(z) = 0` are equality constraints. Inequality constraints are not yet supported.
+
+2. **Decoupled constraints**: Each player's constraints depend only on their own decision variables: `gs[i](zs[i])`. Coupled constraints (e.g., collision avoidance between players) are not yet supported.
+
+3. **DAG hierarchy**: The leader-follower structure must be a directed acyclic graph (DAG). Cyclic dependencies and self-loops are not allowed.
+
+4. **Hierarchy structure assumption**: We assume, for now, that any node has at most one parent. This may change in future versions of the software.
 
 ## Requirements
 
