@@ -154,6 +154,118 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 end
 
 """
+    solve(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+
+Solve the nonlinear hierarchy game with given parameter values (typically initial states).
+
+Uses precomputed symbolic components for efficiency.
+
+# Arguments
+- `solver::NonlinearSolver` - The nonlinear solver with precomputed components
+- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+
+# Keyword Arguments
+- `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- Additional options override solver.options
+
+# Returns
+- `JointStrategy` containing `OpenLoopStrategy` for each player
+"""
+function solve(
+    solver::NonlinearSolver,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    max_iters::Union{Nothing, Int} = nothing,
+    tol::Union{Nothing, Float64} = nothing,
+    verbose::Union{Nothing, Bool} = nothing,
+    use_armijo::Union{Nothing, Bool} = nothing
+)
+    (; problem, precomputed, options) = solver
+    (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
+
+    # Validate parameter_values
+    _validate_parameter_values(parameter_values, θs)
+
+    # Use options from solver unless overridden
+    actual_max_iters = something(max_iters, options.max_iters)
+    actual_tol = something(tol, options.tol)
+    actual_verbose = something(verbose, options.verbose)
+    actual_use_armijo = something(use_armijo, options.use_armijo)
+
+    # Run the nonlinear solver
+    result = run_nonlinear_solver(
+        precomputed,
+        parameter_values,
+        hierarchy_graph;
+        initial_guess = initial_guess,
+        max_iters = actual_max_iters,
+        tol = actual_tol,
+        verbose = actual_verbose,
+        use_armijo = actual_use_armijo
+    )
+
+    # Extract per-player trajectories and build JointStrategy
+    z_sol = result.z_sol
+    N = length(primal_dims)
+    substrategies = Vector{OpenLoopStrategy}(undef, N)
+
+    offset = 1
+    for i in 1:N
+        # Extract player i's portion of z_sol
+        zi = z_sol[offset:(offset + primal_dims[i] - 1)]
+        offset += primal_dims[i]
+
+        # Unflatten into states and controls
+        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
+
+        substrategies[i] = OpenLoopStrategy(xs, us)
+    end
+
+    return JointStrategy(substrategies)
+end
+
+"""
+    solve_raw(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+
+Solve and return raw solution with convergence info (for debugging/analysis).
+
+# Returns
+Named tuple with z_sol, converged, iterations, residual, status
+"""
+function solve_raw(
+    solver::NonlinearSolver,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    max_iters::Union{Nothing, Int} = nothing,
+    tol::Union{Nothing, Float64} = nothing,
+    verbose::Union{Nothing, Bool} = nothing,
+    use_armijo::Union{Nothing, Bool} = nothing
+)
+    (; problem, precomputed, options) = solver
+    (; hierarchy_graph) = problem
+
+    # Use options from solver unless overridden
+    actual_max_iters = something(max_iters, options.max_iters)
+    actual_tol = something(tol, options.tol)
+    actual_verbose = something(verbose, options.verbose)
+    actual_use_armijo = something(use_armijo, options.use_armijo)
+
+    # Run the nonlinear solver
+    result = run_nonlinear_solver(
+        precomputed,
+        parameter_values,
+        hierarchy_graph;
+        initial_guess = initial_guess,
+        max_iters = actual_max_iters,
+        tol = actual_tol,
+        verbose = actual_verbose,
+        use_armijo = actual_use_armijo
+    )
+
+    return result
+end
+
+"""
     TrajectoryGamesBase.solve_trajectory_game!(
         solver::NonlinearSolver,
         game::HierarchyGame,
@@ -166,7 +278,7 @@ Solve a nonlinear hierarchy game.
 # Arguments
 - `solver::NonlinearSolver` - The nonlinear solver instance
 - `game::HierarchyGame` - The hierarchy game to solve
-- `initial_state` - Initial state (BlockVector or Vector)
+- `initial_state` - Initial state per player (Dict{Int, Vector} or Vector of Vectors)
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
@@ -183,11 +295,17 @@ function TrajectoryGamesBase.solve_trajectory_game!(
     verbose::Bool = false,
     kwargs...
 )
-    # TODO: Implement
-    # 1. Extract initial states per player from initial_state
-    # 2. Call run_nonlinear_solver with precomputed components
-    # 3. Convert solution to JointStrategy of OpenLoopStrategys
-    error("Not implemented: solve_trajectory_game! for NonlinearSolver")
+    # Convert initial_state to parameter_values Dict
+    if initial_state isa Dict
+        parameter_values = initial_state
+    elseif initial_state isa AbstractVector && eltype(initial_state) <: AbstractVector
+        # Vector of vectors → Dict
+        parameter_values = Dict(i => initial_state[i] for i in 1:length(initial_state))
+    else
+        error("initial_state must be Dict{Int, Vector} or Vector of Vectors")
+    end
+
+    return solve(solver, parameter_values; initial_guess, verbose)
 end
 
 #=

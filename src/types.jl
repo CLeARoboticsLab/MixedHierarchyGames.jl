@@ -287,6 +287,31 @@ function QPSolver(
 end
 
 """
+    NonlinearProblem
+
+Low-level problem specification for nonlinear hierarchy games.
+Similar to QPProblem but for general nonlinear costs/dynamics.
+
+# Fields
+- `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
+- `Js::Dict` - Cost functions per player: Js[i](zs..., θ) → scalar
+- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `primal_dims::Vector{Int}` - Decision variable dimension per player
+- `θs::Dict` - Symbolic parameter variables per player
+- `state_dim::Int` - State dimension per player
+- `control_dim::Int` - Control dimension per player
+"""
+struct NonlinearProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+    hierarchy_graph::TG
+    Js::TJ
+    gs::TC
+    primal_dims::Vector{Int}
+    θs::TP
+    state_dim::Int
+    control_dim::Int
+end
+
+"""
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
@@ -294,22 +319,29 @@ Solver for general nonlinear hierarchy games.
 Uses iterative quasi-linear policy approximation with Armijo line search.
 
 # Fields
-- `horizon::Int` - Time horizon
-- `dims::NamedTuple` - Problem dimensions per player
-- `precomputed::Any` - Precomputed symbolic components (or nothing if not yet set up)
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, etc.)
+- `problem::NonlinearProblem` - The problem specification
+- `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
 """
-struct NonlinearSolver{T}
-    horizon::Int
-    dims::NamedTuple
-    precomputed::T
+struct NonlinearSolver{TP<:NonlinearProblem, TC}
+    problem::TP
+    precomputed::TC
     options::NamedTuple
 end
 
 """
-    NonlinearSolver(game::HierarchyGame, horizon::Int; kwargs...)
+    NonlinearSolver(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; kwargs...)
 
-Construct a NonlinearSolver for the given hierarchy game.
+Construct a NonlinearSolver from low-level problem components.
+
+# Arguments
+- `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
+- `Js::Dict` - Cost functions per player (signature: Js[i](z1, z2, ..., zN, θ) → scalar)
+- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `primal_dims::Vector{Int}` - Decision variable dimension per player
+- `θs::Dict` - Symbolic parameter variables per player
+- `state_dim::Int` - State dimension per player
+- `control_dim::Int` - Control dimension per player
 
 # Keyword Arguments
 - `max_iters::Int=100` - Maximum iterations
@@ -317,7 +349,53 @@ Construct a NonlinearSolver for the given hierarchy game.
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
 """
-function NonlinearSolver(game::HierarchyGame, horizon::Int; kwargs...)
-    # TODO: Implement - extract dimensions, preoptimize symbolic components
-    error("Not implemented: NonlinearSolver constructor")
+function NonlinearSolver(
+    hierarchy_graph::SimpleDiGraph,
+    Js::Dict,
+    gs::Vector,
+    primal_dims::Vector{Int},
+    θs::Dict,
+    state_dim::Int,
+    control_dim::Int;
+    max_iters::Int = 100,
+    tol::Float64 = 1e-6,
+    verbose::Bool = false,
+    use_armijo::Bool = true
+)
+    # Validate inputs (reuse QPSolver validation)
+    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+
+    # Create problem specification
+    problem = NonlinearProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
+
+    # Precompute symbolic components
+    precomputed = preoptimize_nonlinear_solver(
+        hierarchy_graph, Js, gs, primal_dims, θs;
+        state_dim = state_dim,
+        control_dim = control_dim,
+        verbose = verbose
+    )
+
+    # Store solver options
+    options = (; max_iters, tol, verbose, use_armijo)
+
+    return NonlinearSolver(problem, precomputed, options)
+end
+
+"""
+    NonlinearSolver(game::HierarchyGame, Js, gs, primal_dims, θs, state_dim, control_dim; kwargs...)
+
+Construct a NonlinearSolver from a HierarchyGame with explicit cost/constraint functions.
+"""
+function NonlinearSolver(
+    game::HierarchyGame,
+    Js::Dict,
+    gs::Vector,
+    primal_dims::Vector{Int},
+    θs::Dict,
+    state_dim::Int,
+    control_dim::Int;
+    kwargs...
+)
+    return NonlinearSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; kwargs...)
 end
