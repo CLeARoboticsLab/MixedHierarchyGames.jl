@@ -113,4 +113,26 @@ end
         # Leaf (P2) should be unchanged
         @test length(πs_stripped[2]) == length(result.πs[2])
     end
+
+    @testset "Throws error on malformed πs" begin
+        # Setup 2-player game
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [2, 2]
+        gs = [z -> [z[1]], z -> [z[1]]]
+
+        vars = setup_problem_variables(G, primal_dims, gs)
+
+        # Manually construct malformed πs with wrong length for leader
+        # Leader π should have: grad_self(2) + grad_follower(2) + policy(2) + constraints(1) = 7
+        # We give it 5 elements (missing policy constraint rows)
+        malformed_πs = Dict(
+            1 => make_symbolic_vector(:z, 99, 5),  # Wrong: should be 7
+            2 => make_symbolic_vector(:z, 98, 3),  # Correct for leaf
+        )
+
+        # Should throw either BoundsError (from indexing) or DimensionMismatch (from length check)
+        @test_throws Union{BoundsError, DimensionMismatch} strip_policy_constraints(malformed_πs, G, vars.zs, gs)
+    end
 end

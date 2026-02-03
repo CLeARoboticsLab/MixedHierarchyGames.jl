@@ -42,7 +42,7 @@ export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
-export QPSolver, NonlinearSolver, HierarchyGame, QPProblem
+export QPSolver, NonlinearSolver, HierarchyGame, QPProblem, QPPrecomputed
 
 # KKT construction
 include("qp_kkt.jl")
@@ -53,7 +53,7 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 
 # Solvers
 include("solve.jl")
-export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
+export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_nonlinear_solver
 export extract_trajectories, solution_to_joint_strategy
 
 end # module

@@ -3,7 +3,7 @@
 =#
 
 """
-    solve(solver::QPSolver, parameter_values::Dict; verbose=false)
+    solve(solver::QPSolver, parameter_values::Dict; kwargs...)
 
 Solve the QP hierarchy game with given parameter values (typically initial states).
 
@@ -15,11 +15,23 @@ Uses precomputed symbolic KKT conditions for efficiency.
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
+- `iteration_limit::Int=100000` - Maximum iterations for PATH solver (only used with :path)
+- `proximal_perturbation::Float64=1e-2` - Proximal perturbation parameter (only used with :path)
+- `use_basics::Bool=true` - Use basic solution from PATH (only used with :path)
+- `use_start::Bool=true` - Use starting point from PATH (only used with :path)
 
 # Returns
 - `JointStrategy` containing `OpenLoopStrategy` for each player
 """
-function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
+function solve(
+    solver::QPSolver,
+    parameter_values::Dict;
+    verbose::Bool = false,
+    iteration_limit::Int = 100000,
+    proximal_perturbation::Float64 = 1e-2,
+    use_basics::Bool = true,
+    use_start::Bool = true,
+)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
@@ -30,7 +42,10 @@ function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
     if solver_type == :linear
         z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
     elseif solver_type == :path
-        z_sol, status, _ = solve_with_path(parametric_mcp, θs, parameter_values; verbose)
+        z_sol, status, _ = solve_with_path(
+            parametric_mcp, θs, parameter_values;
+            verbose, iteration_limit, proximal_perturbation, use_basics, use_start
+        )
     else
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
@@ -55,14 +70,29 @@ function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
 end
 
 """
-    solve_raw(solver::QPSolver, parameter_values::Dict; verbose=false)
+    solve_raw(solver::QPSolver, parameter_values::Dict; kwargs...)
 
 Solve and return raw solution vector (for debugging/analysis).
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print debug info
+- `iteration_limit::Int=100000` - Maximum iterations for PATH solver (only used with :path)
+- `proximal_perturbation::Float64=1e-2` - Proximal perturbation parameter (only used with :path)
+- `use_basics::Bool=true` - Use basic solution from PATH (only used with :path)
+- `use_start::Bool=true` - Use starting point from PATH (only used with :path)
 
 # Returns
 Named tuple with z_sol, status, info, vars
 """
-function solve_raw(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
+function solve_raw(
+    solver::QPSolver,
+    parameter_values::Dict;
+    verbose::Bool = false,
+    iteration_limit::Int = 100000,
+    proximal_perturbation::Float64 = 1e-2,
+    use_basics::Bool = true,
+    use_start::Bool = true,
+)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp) = precomputed
     (; θs) = problem
@@ -71,7 +101,10 @@ function solve_raw(solver::QPSolver, parameter_values::Dict; verbose::Bool = fal
         z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
         info = nothing
     elseif solver_type == :path
-        z_sol, status, info = solve_with_path(parametric_mcp, θs, parameter_values; verbose)
+        z_sol, status, info = solve_with_path(
+            parametric_mcp, θs, parameter_values;
+            verbose, iteration_limit, proximal_perturbation, use_basics, use_start
+        )
     else
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
@@ -174,6 +207,10 @@ Solve KKT system using PATH solver via ParametricMCPs.jl with cached MCP.
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
 - `verbose::Bool=false` - Print solver output
+- `iteration_limit::Int=100000` - Maximum iterations for PATH solver
+- `proximal_perturbation::Float64=1e-2` - Proximal perturbation parameter
+- `use_basics::Bool=true` - Use basic solution from PATH
+- `use_start::Bool=true` - Use starting point from PATH
 
 # Returns
 Tuple of:
@@ -187,7 +224,10 @@ function solve_with_path(
     parameter_values::Dict;
     initial_guess::Union{Nothing, Vector} = nothing,
     verbose::Bool = false,
-    kwargs...
+    iteration_limit::Int = 100000,
+    proximal_perturbation::Float64 = 1e-2,
+    use_basics::Bool = true,
+    use_start::Bool = true,
 )
     # Order parameters by player index
     order = sort(collect(keys(θs)))
@@ -203,10 +243,10 @@ function solve_with_path(
         all_param_vals_vec;
         initial_guess = z0,
         verbose = verbose,
-        cumulative_iteration_limit = 100000,
-        proximal_perturbation = 1e-2,
-        use_basics = true,
-        use_start = true,
+        cumulative_iteration_limit = iteration_limit,
+        proximal_perturbation = proximal_perturbation,
+        use_basics = use_basics,
+        use_start = use_start,
     )
 
     return z_sol, status, info
@@ -226,6 +266,10 @@ Solve KKT system using PATH solver via ParametricMCPs.jl (builds MCP internally)
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
 - `verbose::Bool=false` - Print solver output
+- `iteration_limit::Int=100000` - Maximum iterations for PATH solver
+- `proximal_perturbation::Float64=1e-2` - Proximal perturbation parameter
+- `use_basics::Bool=true` - Use basic solution from PATH
+- `use_start::Bool=true` - Use starting point from PATH
 
 # Returns
 Tuple of:
@@ -240,7 +284,10 @@ function solve_with_path(
     parameter_values::Dict;
     initial_guess::Union{Nothing, Vector} = nothing,
     verbose::Bool = false,
-    kwargs...
+    iteration_limit::Int = 100000,
+    proximal_perturbation::Float64 = 1e-2,
+    use_basics::Bool = true,
+    use_start::Bool = true,
 )
     symbolic_type = eltype(variables)
 
@@ -262,7 +309,10 @@ function solve_with_path(
     )
 
     # Delegate to cached version
-    return solve_with_path(parametric_mcp, θs, parameter_values; initial_guess, verbose, kwargs...)
+    return solve_with_path(
+        parametric_mcp, θs, parameter_values;
+        initial_guess, verbose, iteration_limit, proximal_perturbation, use_basics, use_start
+    )
 end
 
 """

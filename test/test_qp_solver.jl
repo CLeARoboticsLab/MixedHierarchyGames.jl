@@ -11,8 +11,9 @@ using MixedHierarchyGames:
     solve_with_path,
     solve_qp_linear,
     qp_game_linsolve,
-    run_qp_solver,
-    QPSolver
+    _run_qp_solver,
+    QPSolver,
+    QPPrecomputed
 
 # make_θ helper is provided by testing_utils.jl (included in runtests.jl)
 
@@ -122,7 +123,7 @@ end
     end
 end
 
-@testset "QP Solver - run_qp_solver (linear)" begin
+@testset "QP Solver - _run_qp_solver (linear)" begin
     @testset "Solves single player problem" begin
         G = SimpleDiGraph(1)
         primal_dims = [2]
@@ -137,7 +138,7 @@ end
 
         parameter_values = Dict(1 => [1.0, 2.0])
 
-        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
+        result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
 
         @test result.status == :solved
         @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
@@ -166,7 +167,7 @@ end
 
         parameter_values = Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0])
 
-        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
+        result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
 
         @test result.status == :solved
         # Check that solution satisfies constraints
@@ -184,15 +185,15 @@ end
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
         parameter_values = Dict(1 => [1.0, 2.0])
 
-        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values)
+        result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values)
 
-        @test haskey(result.vars, :zs)
-        @test haskey(result.vars, :λs)
-        @test haskey(result.kkt_result, :πs)
+        @test hasproperty(result.vars, :zs)
+        @test hasproperty(result.vars, :λs)
+        @test hasproperty(result.kkt_result, :πs)
     end
 end
 
-@testset "QP Solver - run_qp_solver (PATH)" begin
+@testset "QP Solver - _run_qp_solver (PATH)" begin
     @testset "Solves with PATH solver" begin
         G = SimpleDiGraph(1)
         primal_dims = [2]
@@ -203,7 +204,7 @@ end
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
         parameter_values = Dict(1 => [1.0, 2.0])
 
-        result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:path)
+        result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:path)
 
         @test result.status == PATHSolver.MCP_Solved
         @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
@@ -226,8 +227,9 @@ end
 
         @test solver.problem isa MixedHierarchyGames.QPProblem
         @test solver.solver_type == :linear
-        @test haskey(solver.precomputed, :vars)
-        @test haskey(solver.precomputed, :πs_solve)
+        @test solver.precomputed isa QPPrecomputed
+        @test hasproperty(solver.precomputed, :vars)
+        @test hasproperty(solver.precomputed, :πs_solve)
     end
 
     @testset "solve_raw() returns raw solution" begin
@@ -337,5 +339,55 @@ end
 
         @test strategy isa JointStrategy
         @test strategy.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6
+    end
+
+    @testset "Configurable solver parameters" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
+
+        θ_vec = make_θ(1, 1)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> [z[1] - θ_vec[1]]]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:path)
+
+        # Test that custom parameters are accepted and produce valid results
+        strategy = MixedHierarchyGames.solve(
+            solver,
+            Dict(1 => [1.0]);
+            iteration_limit = 50000,
+            proximal_perturbation = 1e-3,
+            use_basics = false,
+            use_start = false
+        )
+
+        @test strategy isa JointStrategy
+        @test strategy.substrategies[1].xs[1][1] ≈ 1.0 atol=1e-6
+    end
+
+    @testset "solve_raw with configurable parameters" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [4]
+        state_dim = 1
+        control_dim = 1
+
+        θ_vec = make_θ(1, 1)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> [z[1] - θ_vec[1]]]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:path)
+
+        result = MixedHierarchyGames.solve_raw(
+            solver,
+            Dict(1 => [1.0]);
+            iteration_limit = 50000,
+            proximal_perturbation = 1e-3
+        )
+
+        @test result.z_sol[1] ≈ 1.0 atol=1e-6
     end
 end

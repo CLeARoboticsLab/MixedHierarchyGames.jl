@@ -43,6 +43,30 @@ struct QPProblem{TG<:SimpleDiGraph, TJ, TC, TP}
 end
 
 """
+    QPPrecomputed
+
+Precomputed components for QPSolver, cached during construction for efficient repeated solves.
+
+# Type Parameters
+- `TV` - Type of problem variables (from setup_problem_variables)
+- `TK` - Type of KKT conditions result (from get_qp_kkt_conditions)
+- `TP` - Type of stripped policy constraints (Dict)
+- `TM` - Type of parametric MCP (ParametricMCP)
+
+# Fields
+- `vars::TV` - Problem variables from setup_problem_variables
+- `kkt_result::TK` - KKT conditions from get_qp_kkt_conditions
+- `πs_solve::TP` - Stripped policy constraints for solving
+- `parametric_mcp::TM` - Cached ParametricMCP for solving
+"""
+struct QPPrecomputed{TV, TK, TP, TM}
+    vars::TV
+    kkt_result::TK
+    πs_solve::TP
+    parametric_mcp::TM
+end
+
+"""
     QPSolver
 
 Solver for quadratic programming hierarchy games (linear dynamics, quadratic costs).
@@ -50,9 +74,9 @@ Solver for quadratic programming hierarchy games (linear dynamics, quadratic cos
 # Fields
 - `problem::QPProblem` - The problem specification
 - `solver_type::Symbol` - Solver backend (:linear or :path)
-- `precomputed::Any` - Precomputed symbolic components (variables, KKT conditions)
+- `precomputed::QPPrecomputed` - Precomputed symbolic components (variables, KKT conditions)
 """
-struct QPSolver{TP<:QPProblem, TC}
+struct QPSolver{TP<:QPProblem, TC<:QPPrecomputed}
     problem::TP
     solver_type::Symbol
     precomputed::TC
@@ -141,6 +165,12 @@ This check evaluates the Jacobian at two random points during construction. If t
 differ, a warning is issued. The check runs once at construction time, not at solve time.
 """
 function _verify_linear_system(mcp, n::Int, θs::Dict)
+    # Check if jacobian buffer is available (defensive check)
+    if !hasproperty(mcp.jacobian_z!, :result_buffer)
+        @warn "Cannot verify linearity: jacobian buffer not available"
+        return
+    end
+
     # Generate random test points
     z1, z2 = randn(n), randn(n)
 
@@ -196,7 +226,9 @@ function QPSolver(
     problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
     # Precompute symbolic variables and KKT conditions
+    # Note: setup_problem_variables validates constraint function signatures internally
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
+
     θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
     kkt_result = get_qp_kkt_conditions(
         hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
@@ -210,7 +242,7 @@ function QPSolver(
     # Verify the system is linear (QP assumption) during construction
     _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
 
-    precomputed = (; vars, kkt_result, πs_solve, parametric_mcp)
+    precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp)
 
     return QPSolver(problem, solver, precomputed)
 end

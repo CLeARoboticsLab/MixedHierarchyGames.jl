@@ -1,6 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, add_vertex!
-using MixedHierarchyGames: QPSolver, solve
+using MixedHierarchyGames: QPSolver, solve, QPPrecomputed
 
 # make_θ helper is provided by testing_utils.jl (included in runtests.jl)
 
@@ -179,6 +179,77 @@ end
         @testset "Rejects wrong parameter dimension" begin
             parameter_values = Dict(1 => [1.0, 2.0], 2 => [3.0])  # Player 1 has wrong dim
             @test_throws ArgumentError solve(solver, parameter_values)
+        end
+    end
+
+    @testset "Constraint function validation" begin
+        @testset "Rejects constraint function with wrong signature" begin
+            G = SimpleDiGraph(1)
+            primal_dims = [2]
+            θ_vec = make_θ(1, 1)
+            θs = Dict(1 => θ_vec)
+            # Wrong signature: takes two arguments instead of one
+            gs = [(z, extra) -> [z[1]]]
+            Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+            @test_throws ArgumentError QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+        end
+
+        @testset "Rejects constraint function returning scalar" begin
+            G = SimpleDiGraph(1)
+            primal_dims = [2]
+            θ_vec = make_θ(1, 1)
+            θs = Dict(1 => θ_vec)
+            # Returns scalar instead of Vector
+            gs = [z -> z[1]]
+            Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+            @test_throws ArgumentError QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+        end
+
+        @testset "Accepts valid constraint function" begin
+            G = SimpleDiGraph(1)
+            primal_dims = [4]
+            θ_vec = make_θ(1, 1)
+            θs = Dict(1 => θ_vec)
+            # Valid: takes one argument, returns Vector
+            gs = [z -> [z[1] - θ_vec[1]]]
+            Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+            solver = QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+            @test solver isa QPSolver
+        end
+    end
+
+    @testset "QPPrecomputed struct" begin
+        @testset "Solver precomputed field is QPPrecomputed type" begin
+            G = SimpleDiGraph(1)
+            primal_dims = [4]
+            θ_vec = make_θ(1, 1)
+            θs = Dict(1 => θ_vec)
+            gs = [z -> [z[1] - θ_vec[1]]]
+            Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+            solver = QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+
+            @test solver.precomputed isa QPPrecomputed
+        end
+
+        @testset "QPPrecomputed has required fields" begin
+            G = SimpleDiGraph(1)
+            primal_dims = [4]
+            θ_vec = make_θ(1, 1)
+            θs = Dict(1 => θ_vec)
+            gs = [z -> [z[1] - θ_vec[1]]]
+            Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+            solver = QPSolver(G, Js, gs, primal_dims, θs, 1, 1)
+            precomputed = solver.precomputed
+
+            @test hasproperty(precomputed, :vars)
+            @test hasproperty(precomputed, :kkt_result)
+            @test hasproperty(precomputed, :πs_solve)
+            @test hasproperty(precomputed, :parametric_mcp)
         end
     end
 end

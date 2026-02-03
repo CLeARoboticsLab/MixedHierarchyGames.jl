@@ -173,6 +173,15 @@ Used for solving the reduced KKT system.
 
 # Returns
 - `πs_stripped::Dict` - KKT conditions without policy constraint rows
+
+# Notes
+The KKT conditions from `get_qp_kkt_conditions` have an **interleaved** structure:
+```
+[grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | ... | own_constraints]
+```
+
+This function iterates through in the same order and extracts only the gradient
+and constraint rows, skipping the policy constraint blocks.
 """
 function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph, zs::Dict, gs)
     N = nv(hierarchy_graph)
@@ -183,28 +192,40 @@ function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph, zs:
             # Leaf players: KKT unchanged (stationarity + constraints)
             πs_stripped[ii] = πs[ii]
         else
-            # Leader: KKT has stationarity (own + followers) + policy constraints + own constraints
-            # We need to strip the policy constraint rows
+            # Leader: KKT has interleaved structure from get_qp_kkt_conditions:
+            # [grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | ... | own_constraints]
+            #
+            # We extract gradient rows and skip policy constraint rows for each follower.
 
-            zi_size = length(zs[ii])
-            constraint_size = length(gs[ii](zs[ii]))
+            πᵢ = πs[ii]
+            parts = Any[]
+            idx = 1
+
+            # First: self gradient (no policy constraint for self)
+            len_zi = length(zs[ii])
+            push!(parts, πᵢ[idx:(idx + len_zi - 1)])
+            idx += len_zi
+
+            # Then: for each follower, gradient followed by policy constraint
             followers = get_all_followers(hierarchy_graph, ii)
+            for jj in followers
+                len_zj = length(zs[jj])
+                # Keep: gradient w.r.t. follower variables
+                push!(parts, πᵢ[idx:(idx + len_zj - 1)])
+                idx += len_zj
+                # Skip: policy constraint block
+                idx += len_zj
+            end
 
-            # Count follower variable dimensions and policy constraint rows
-            follower_var_dims = sum(length(zs[jj]) for jj in followers; init=0)
-            policy_constraint_rows = sum(length(zs[jj]) for jj in followers; init=0)
+            # Finally: own constraints
+            len_g = length(gs[ii](zs[ii]))
+            push!(parts, πᵢ[idx:(idx + len_g - 1)])
+            idx += len_g
 
-            # Original structure: [stationarity_own, stationarity_followers, policy_constraints, own_constraints]
-            # Sizes: [zi_size, follower_var_dims, policy_constraint_rows, constraint_size]
-
-            stationarity_rows = zi_size + follower_var_dims
-
-            # Keep: stationarity rows + own constraints
-            # Strip: policy constraint rows (in the middle)
-            keep_front = 1:stationarity_rows
-            keep_back = (stationarity_rows + policy_constraint_rows + 1):length(πs[ii])
-
-            πs_stripped[ii] = vcat(πs[ii][keep_front], πs[ii][keep_back])
+            if idx - 1 != length(πᵢ)
+                throw(DimensionMismatch("strip_policy_constraints: expected $(idx-1) rows, got $(length(πᵢ)) for player $ii"))
+            end
+            πs_stripped[ii] = vcat(parts...)
         end
     end
 
@@ -212,7 +233,7 @@ function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph, zs:
 end
 
 """
-    run_qp_solver(
+    _run_qp_solver(
         hierarchy_graph::SimpleDiGraph,
         Js::Dict,
         gs::Vector,
@@ -223,7 +244,11 @@ end
         verbose::Bool = false
     )
 
-Main QP solver that orchestrates KKT construction and solving.
+Internal QP solver that orchestrates KKT construction and solving.
+
+Note: This is an internal function. Users should prefer `QPSolver` + `solve()` for
+better performance (the MCP is cached in QPSolver.precomputed.parametric_mcp).
+This function rebuilds the MCP on every call, which is inefficient for repeated solves.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
@@ -244,7 +269,7 @@ Named tuple containing:
 - `info` - Additional solver info
 - `vars` - Problem variables (zs, λs, μs, etc.)
 """
-function run_qp_solver(
+function _run_qp_solver(
     hierarchy_graph::SimpleDiGraph,
     Js::Dict,
     gs::Vector,

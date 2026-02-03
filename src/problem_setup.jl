@@ -106,6 +106,36 @@ function setup_problem_parameter_variables(num_params_per_player::Vector{Int}; b
 end
 
 """
+    _validate_constraint_functions(gs::Vector, zs::Dict)
+
+Validate that constraint functions have correct signatures and return Vectors.
+
+Called during problem setup to catch signature errors early with clear messages.
+
+# Arguments
+- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `zs::Dict` - Decision variables per player (used to test function signatures)
+
+# Throws
+- `ArgumentError` if gs[i] has wrong signature or doesn't return AbstractVector
+"""
+function _validate_constraint_functions(gs::Vector, zs::Dict)
+    for (i, g) in enumerate(gs)
+        try
+            result = g(zs[i])
+            if !(result isa AbstractVector)
+                throw(ArgumentError("gs[$i] must return a Vector, got $(typeof(result))"))
+            end
+        catch e
+            if e isa MethodError
+                throw(ArgumentError("gs[$i] has wrong signature. Expected gs[$i](z::Vector). Error: $e"))
+            end
+            rethrow()
+        end
+    end
+end
+
+"""
     setup_problem_variables(
         graph::SimpleDiGraph,
         primal_dims::Vector{Int},
@@ -141,6 +171,9 @@ function setup_problem_variables(
 
     # Create decision variables for each player
     zs = Dict(i => make_symbolic_vector(:z, i, primal_dims[i]; backend) for i in 1:N)
+
+    # Validate constraint function signatures before using them
+    _validate_constraint_functions(gs, zs)
 
     # Create Lagrange multipliers based on constraint dimensions
     λs = Dict(i => make_symbolic_vector(:λ, i, length(gs[i](zs[i])); backend) for i in 1:N)
