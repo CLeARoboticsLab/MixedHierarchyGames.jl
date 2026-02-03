@@ -1,9 +1,10 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!
-using Symbolics: @variables
 using MixedHierarchyGames: QPSolver, NonlinearSolver, HierarchyGame
 using MixedHierarchyGames: extract_trajectories, solution_to_joint_strategy, solve
 using TrajectoryGamesBase: solve_trajectory_game!, JointStrategy, OpenLoopStrategy
+
+# make_θ helper is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "Solution Extraction" begin
     @testset "extract_trajectories reshapes correctly" begin
@@ -75,8 +76,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -99,8 +99,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]  # IC constraint: x0 = θ
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -123,9 +122,8 @@ end
         T = 3  # timesteps
         primal_dims = [(state_dim + control_dim) * T, (state_dim + control_dim) * T]
 
-        @variables θ1[1:state_dim] θ2[1:state_dim]
-        θ1_vec = collect(θ1)
-        θ2_vec = collect(θ2)
+        θ1_vec = make_θ(1, state_dim)
+        θ2_vec = make_θ(2, state_dim)
         θs = Dict(1 => θ1_vec, 2 => θ2_vec)
 
         # IC constraints

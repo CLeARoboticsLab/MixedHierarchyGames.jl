@@ -1,8 +1,7 @@
 using Test
 using LinearAlgebra
 using Graphs: SimpleDiGraph, add_edge!
-using Symbolics: @variables
-using MixedHierarchyGames: QPSolver, solve_raw
+using MixedHierarchyGames: QPSolver, solve_raw, make_symbolic_vector
 
 """
 Compute analytical OLSE solution for 2-player LQ Stackelberg game.
@@ -161,9 +160,9 @@ function solve_with_qpsolver(; T=2, x0=[1.0, 2.0, 2.0, 1.0])
 
     primal_dim = m * T
 
-    @variables θ1[1:nx] θ2[1:nx]
-    θ1_vec = collect(θ1)
-    θ2_vec = collect(θ2)
+    # Use SymbolicTracingUtils via MixedHierarchyGames interface
+    θ1_vec = make_symbolic_vector(:θ, 1, nx)
+    θ2_vec = make_symbolic_vector(:θ, 2, nx)
     θs = Dict(1 => θ1_vec, 2 => θ2_vec)
 
     function unpack_u(z)
@@ -236,5 +235,68 @@ end
             @test norm(qp.u1 - olse.u1) < 1e-10
             @test norm(qp.u2 - olse.u2) < 1e-10
         end
+    end
+
+    # NOTE: 3-player chain test skipped - requires investigation into why the
+    # control-only formulation (without explicit dynamics constraints) creates
+    # singular KKT systems. The reference implementation in
+    # reference_archive/old_examples/stackelberg_validation_examples/
+    # uses full state+control trajectories with explicit dynamics constraints,
+    # which works correctly with PATH solver.
+
+    @testset "Nash game (no hierarchy edges)" begin
+        # 2-player Nash game: no edges, players optimize simultaneously
+        G = SimpleDiGraph(2)  # No edges
+
+        T = 2
+        m = 2
+        nx = 4
+        primal_dim = m * T
+
+        # Use SymbolicTracingUtils via MixedHierarchyGames interface
+        θ1_vec = make_symbolic_vector(:θ, 1, nx)
+        θ2_vec = make_symbolic_vector(:θ, 2, nx)
+        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+
+        A = Matrix(1.0 * I(nx))
+        B1, B2 = 0.1 * I(nx)[:, 1:2], 0.1 * I(nx)[:, 3:4]
+        Q, R = 2.0 * Matrix(I(nx)), Matrix(I(m))
+
+        function unpack_u(z)
+            return [z[(m * (t - 1) + 1):(m * t)] for t in 1:T]
+        end
+
+        function rollout_x(u1, u2, x0_val)
+            xs = Vector{typeof(x0_val)}(undef, T + 1)
+            xs[1] = x0_val
+            for t in 1:T
+                xs[t + 1] = A * xs[t] + B1 * u1[t] + B2 * u2[t]
+            end
+            return xs
+        end
+
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> begin
+                u1, u2 = unpack_u(z1), unpack_u(z2)
+                xs = rollout_x(u1, u2, θ1_vec)
+                sum(xs[t+1]' * Q * xs[t+1] for t in 1:T) + sum(u1[t]' * R * u1[t] for t in 1:T)
+            end,
+            2 => (z1, z2; θ=nothing) -> begin
+                u1, u2 = unpack_u(z1), unpack_u(z2)
+                xs = rollout_x(u1, u2, θ2_vec)
+                sum(xs[t+1]' * Q * xs[t+1] for t in 1:T) + sum(u2[t]' * R * u2[t] for t in 1:T)
+            end,
+        )
+
+        gs = [z -> eltype(z)[] for _ in 1:2]
+
+        solver = QPSolver(G, Js, gs, fill(primal_dim, 2), θs, 1, 1)
+
+        x0 = [1.0, 2.0, -1.0, -2.0]
+        parameter_values = Dict(1 => x0, 2 => x0)
+        result = solve_raw(solver, parameter_values)
+
+        @test result.status == :solved
+        @test all(isfinite, result.z_sol)
     end
 end

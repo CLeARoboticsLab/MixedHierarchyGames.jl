@@ -1,6 +1,9 @@
 using Test
 using MixedHierarchyGames
 
+# Include shared testing utilities
+include("testing_utils.jl")
+
 @testset "MixedHierarchyGames.jl" begin
     # Phase A: Utilities (implemented)
     include("test_graph_utils.jl")

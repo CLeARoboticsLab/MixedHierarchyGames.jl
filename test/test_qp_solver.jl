@@ -1,7 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv
 using LinearAlgebra: norm, I
-using Symbolics
 using PATHSolver: PATHSolver
 using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy
 using MixedHierarchyGames:
@@ -13,8 +12,9 @@ using MixedHierarchyGames:
     solve_qp_linear,
     qp_game_linsolve,
     run_qp_solver,
-    make_symbolic_vector,
     QPSolver
+
+# make_θ helper is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "QP Solver - solve_with_path" begin
     @testset "Solves simple 1-player QP" begin
@@ -23,15 +23,14 @@ using MixedHierarchyGames:
         G = SimpleDiGraph(1)
 
         primal_dims = [2]
-        @variables θ[1:2]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 2)
 
         gs = [z -> z - θ_vec]  # z = θ constraint
 
         vars = setup_problem_variables(G, primal_dims, gs)
         Js = Dict(1 => (zs...; θ=nothing) -> sum(vars.zs[1].^2))
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys; θ=θ_vec)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices; θ=θ_vec)
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
         # Build MCP and solve
@@ -48,9 +47,8 @@ using MixedHierarchyGames:
         add_edge!(G, 1, 2)
 
         primal_dims = [2, 2]
-        @variables θ1[1:2] θ2[1:2]
-        θ1_vec = collect(θ1)
-        θ2_vec = collect(θ2)
+        θ1_vec = make_θ(1, 2)
+        θ2_vec = make_θ(2, 2)
 
         # Constraints: initial state
         gs = [
@@ -67,7 +65,7 @@ using MixedHierarchyGames:
         )
 
         θs = Dict(1 => θ1_vec, 2 => θ2_vec)
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys; θ=vcat(θ1_vec, θ2_vec))
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices; θ=vcat(θ1_vec, θ2_vec))
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
         param_values = Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0])
@@ -107,14 +105,13 @@ end
         G = SimpleDiGraph(1)
         primal_dims = [2]
 
-        @variables θ[1:2]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 2)
 
         gs = [z -> z - θ_vec]
         vars = setup_problem_variables(G, primal_dims, gs)
         Js = Dict(1 => (zs...; θ=nothing) -> sum(vars.zs[1].^2))
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys; θ=θ_vec)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices; θ=θ_vec)
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
         z_sol, status, _ = solve_with_path(πs_solve, vars.all_variables, Dict(1 => θ_vec), Dict(1 => [1.0, 2.0]))
@@ -130,8 +127,7 @@ end
         G = SimpleDiGraph(1)
         primal_dims = [2]
 
-        @variables θ[1:2]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 2)
         θs = Dict(1 => θ_vec)
 
         gs = [z -> z - θ_vec]
@@ -153,9 +149,8 @@ end
 
         primal_dims = [2, 2]
 
-        @variables θ1[1:2] θ2[1:2]
-        θ1_vec = collect(θ1)
-        θ2_vec = collect(θ2)
+        θ1_vec = make_θ(1, 2)
+        θ2_vec = make_θ(2, 2)
         θs = Dict(1 => θ1_vec, 2 => θ2_vec)
 
         gs = [
@@ -183,8 +178,7 @@ end
         G = SimpleDiGraph(1)
         primal_dims = [2]
 
-        @variables θ[1:2]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 2)
         θs = Dict(1 => θ_vec)
         gs = [z -> z - θ_vec]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -203,8 +197,7 @@ end
         G = SimpleDiGraph(1)
         primal_dims = [2]
 
-        @variables θ[1:2]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 2)
         θs = Dict(1 => θ_vec)
         gs = [z -> z - θ_vec]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -224,8 +217,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]  # IC constraint: x0 = θ
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -244,8 +236,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -264,8 +255,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]  # IC: x0 = θ
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -285,8 +275,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
@@ -309,9 +298,8 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ1[1:1] θ2[1:1]
-        θ1_vec = collect(θ1)
-        θ2_vec = collect(θ2)
+        θ1_vec = make_θ(1, 1)
+        θ2_vec = make_θ(2, 1)
         θs = Dict(1 => θ1_vec, 2 => θ2_vec)
 
         gs = [
@@ -339,8 +327,7 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ[1:1]
-        θ_vec = collect(θ)
+        θ_vec = make_θ(1, 1)
         θs = Dict(1 => θ_vec)
         gs = [z -> [z[1] - θ_vec[1]]]
         Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))

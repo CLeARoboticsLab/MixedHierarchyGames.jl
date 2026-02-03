@@ -1,6 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv
-using Symbolics
+using Symbolics: Num  # Only for type checking
 using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_variables
 
 @testset "Problem Setup" begin
@@ -21,7 +21,7 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         @test length(θs[3]) == 4
 
         # Should be symbolic variables
-        @test all(x -> x isa Symbolics.Num, θs[1])
+        @test all(x -> x isa Num, θs[1])
     end
 
     @testset "setup_problem_variables structure" begin
@@ -34,8 +34,8 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
 
         # Simple constraint functions (dynamics placeholder)
         gs = [
-            z -> zeros(Symbolics.Num, 2),  # P1: 2 constraints
-            z -> zeros(Symbolics.Num, 2),  # P2: 2 constraints
+            z -> zeros(Num, 2),  # P1: 2 constraints
+            z -> zeros(Num, 2),  # P2: 2 constraints
         ]
 
         result = setup_problem_variables(G, primal_dims, gs)
@@ -57,7 +57,7 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         constraint_dims = [2, 2, 2]
 
         gs = [
-            z -> zeros(Symbolics.Num, constraint_dims[i]) for i in 1:3
+            z -> zeros(Num, constraint_dims[i]) for i in 1:3
         ]
 
         result = setup_problem_variables(G, primal_dims, gs)
@@ -83,7 +83,7 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         add_edge!(G, 2, 3)
 
         primal_dims = [4, 4, 4]
-        gs = [z -> zeros(Symbolics.Num, 2) for _ in 1:3]
+        gs = [z -> zeros(Num, 2) for _ in 1:3]
 
         result = setup_problem_variables(G, primal_dims, gs)
 
@@ -103,7 +103,7 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         add_edge!(G, 2, 3)  # Only P2→P3
 
         primal_dims = [4, 4, 4]
-        gs = [z -> zeros(Symbolics.Num, 2) for _ in 1:3]
+        gs = [z -> zeros(Num, 2) for _ in 1:3]
 
         result = setup_problem_variables(G, primal_dims, gs)
 

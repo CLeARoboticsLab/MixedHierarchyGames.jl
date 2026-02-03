@@ -98,6 +98,72 @@ function _validate_qpsolver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs:
 end
 
 """
+    _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
+
+Build a ParametricMCP from KKT conditions during QPSolver construction.
+
+The MCP is cached in `precomputed` to avoid rebuilding it on each solve() call.
+This provides significant performance benefits for repeated solves with different
+parameter values (e.g., different initial states).
+
+Note: We use ParametricMCPs primarily for its compiled f! and jacobian_z! functions.
+The bounds infrastructure (-∞ to ∞) is unused since we only support equality constraints.
+See task StackelbergHierarchyGames.jl-s6u for potential future optimization.
+"""
+function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
+    symbolic_type = eltype(variables)
+    F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
+
+    # Order parameters by player index for consistency
+    order = sort(collect(keys(πs)))
+    all_θ_vec = vcat([θs[k] for k in order]...)
+
+    # Unconstrained bounds (equality-only KKT)
+    z_lower = fill(-Inf, length(F_sym))
+    z_upper = fill(Inf, length(F_sym))
+
+    return ParametricMCPs.ParametricMCP(
+        F_sym, variables, all_θ_vec, z_lower, z_upper;
+        compute_sensitivities = false
+    )
+end
+
+"""
+    _verify_linear_system(mcp, n::Int, θs::Dict)
+
+Verify that the KKT system is affine (constant Jacobian) as required for QP/LQ games.
+
+QPSolver assumes the KKT system F(z) = 0 is affine in z, i.e., F(z) = Jz + b where J
+is constant. This allows direct linear solve: z = -J⁻¹b. If the system is nonlinear,
+the linear solve will produce incorrect results.
+
+This check evaluates the Jacobian at two random points during construction. If they
+differ, a warning is issued. The check runs once at construction time, not at solve time.
+"""
+function _verify_linear_system(mcp, n::Int, θs::Dict)
+    # Generate random test points
+    z1, z2 = randn(n), randn(n)
+
+    # Create dummy parameter values (actual values don't affect linearity check)
+    order = sort(collect(keys(θs)))
+    θ_vals = vcat([zeros(length(θs[k])) for k in order]...)
+
+    # Allocate Jacobian buffers
+    J1 = copy(mcp.jacobian_z!.result_buffer)
+    J2 = copy(mcp.jacobian_z!.result_buffer)
+
+    # Evaluate Jacobians
+    mcp.jacobian_z!(J1, z1, θ_vals)
+    mcp.jacobian_z!(J2, z2, θ_vals)
+
+    # Check if Jacobians are equal (system is linear)
+    if !isapprox(J1, J2; rtol=1e-10, atol=1e-12)
+        @warn "KKT system Jacobian varies with z - system may not be linear (QP). " *
+              "QPSolver assumes linear KKT conditions. Results may be incorrect."
+    end
+end
+
+"""
     QPSolver(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 
 Construct a QPSolver from low-level problem components (matches original interface).
@@ -133,12 +199,18 @@ function QPSolver(
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
     θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
     kkt_result = get_qp_kkt_conditions(
-        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys;
+        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
         θ = θ_all, verbose = false
     )
     πs_solve = strip_policy_constraints(kkt_result.πs, hierarchy_graph, vars.zs, gs)
 
-    precomputed = (; vars, kkt_result, πs_solve)
+    # Build and cache ParametricMCP for solving
+    parametric_mcp = _build_parametric_mcp(πs_solve, vars.all_variables, θs)
+
+    # Verify the system is linear (QP assumption) during construction
+    _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
+
+    precomputed = (; vars, kkt_result, πs_solve, parametric_mcp)
 
     return QPSolver(problem, solver, precomputed)
 end

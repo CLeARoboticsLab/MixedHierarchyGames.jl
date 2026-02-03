@@ -28,14 +28,21 @@ using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks
 using LinearAlgebra: norm, I, SingularException, LAPACKException
+using SparseArrays: sparse
+
+# Graph utilities (must come first - used by problem_setup)
+include("utils.jl")
+export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
+
+# Problem setup (symbolic variable creation)
+include("problem_setup.jl")
+export setup_problem_variables, setup_problem_parameter_variables
+export make_symbolic_vector, make_symbolic_matrix, make_symbol
+export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
 export QPSolver, NonlinearSolver, HierarchyGame, QPProblem
-
-# Problem setup
-include("problem_setup.jl")
-export setup_problem_variables, setup_problem_parameter_variables
 
 # KKT construction
 include("qp_kkt.jl")
@@ -48,11 +55,5 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 include("solve.jl")
 export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
 export extract_trajectories, solution_to_joint_strategy
-
-# Utilities
-include("utils.jl")
-export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
-export make_symbolic_variable, make_symbolic_vector, make_symbolic_matrix
-# evaluate_kkt_residuals not exported - not yet implemented
 
 end # module

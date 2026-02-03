@@ -3,6 +3,28 @@
 =#
 
 """
+    _build_extractor(indices::UnitRange{Int}, total_len::Int)
+
+Build a sparse extraction matrix for policy constraints.
+
+Used to extract the follower's decision variables (zs[j]) from the full policy response
+(Ks[j] * ys[j]). The indices come from ws_z_indices, which explicitly tracks where each
+player's variables appear in the ws vector.
+
+# Example
+If ws[j] = [zs[j], zs[other], λs[j], ...] and zs[j] has dimension 3, then:
+- indices = 1:3 (from ws_z_indices[j][j])
+- extractor * (Ks[j] * ys[j]) gives the zs[j] portion of the policy response
+
+Returns a sparse matrix E such that E * v extracts v[indices].
+"""
+function _build_extractor(indices::UnitRange{Int}, total_len::Int)
+    n_extract = length(indices)
+    # Create sparse matrix: row i maps to column indices[i]
+    return sparse(1:n_extract, indices, ones(n_extract), n_extract, total_len)
+end
+
+"""
     get_qp_kkt_conditions(
         G::SimpleDiGraph,
         Js::Dict,
@@ -11,7 +33,8 @@
         μs::Dict,
         gs,
         ws::Dict,
-        ys::Dict;
+        ys::Dict,
+        ws_z_indices::Dict;
         θ = nothing,
         verbose::Bool = false
     )
@@ -31,6 +54,7 @@ Handles both leaf and non-leaf players differently:
 - `gs` - Constraint functions per player: gs[i](z) → Vector
 - `ws::Dict` - Remaining variables (for policy constraints)
 - `ys::Dict` - Information variables (leader decisions)
+- `ws_z_indices::Dict` - Index mapping: ws_z_indices[i][j] gives range where zs[j] appears in ws[i]
 - `θ` - Parameter variables (optional)
 - `verbose::Bool` - Print debug info
 
@@ -49,7 +73,8 @@ function get_qp_kkt_conditions(
     μs::Dict,
     gs,
     ws::Dict,
-    ys::Dict;
+    ys::Dict,
+    ws_z_indices::Dict;
     θ = nothing,
     verbose::Bool = false
 )
@@ -86,9 +111,11 @@ function get_qp_kkt_conditions(
             # Leader: add follower policy constraint terms to Lagrangian
             for jj in get_all_followers(G, ii)
                 if haskey(μs, (ii, jj)) && haskey(Ks, jj)
-                    # Policy constraint: zⱼ = Kⱼ * yⱼ
-                    # Extract the part of K corresponding to leader i's variables
-                    extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+                    # Policy constraint: zⱼ = -Kⱼ * yⱼ (from implicit function theorem)
+                    # Extract the zs[jj] portion from the full policy response
+                    zj_indices = ws_z_indices[jj][jj]  # Where zs[jj] appears in ws[jj]
+                    zj_size = length(zj_indices)
+                    extractor = _build_extractor(zj_indices, length(ws[jj]))
                     Φⱼ = -extractor * Ks[jj] * ys[jj]
                     Lᵢ -= μs[(ii, jj)]' * (zs_dict[jj] - Φⱼ)
                 end
@@ -103,7 +130,8 @@ function get_qp_kkt_conditions(
 
                 # Policy constraint
                 if haskey(Ks, jj)
-                    extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+                    zj_indices = ws_z_indices[jj][jj]
+                    extractor = _build_extractor(zj_indices, length(ws[jj]))
                     Φⱼ = -extractor * Ks[jj] * ys[jj]
                     πᵢ = vcat(πᵢ, zs_dict[jj] - Φⱼ)
                 end
@@ -115,6 +143,9 @@ function get_qp_kkt_conditions(
         end
 
         # Compute M, N, K for followers (players with leaders)
+        # Note: K = M \ N is computed symbolically here. For small problems this is fine,
+        # but symbolic matrix inversion can cause exponential expression growth for larger
+        # systems. The nonlinear solver defers K computation to numerical evaluation.
         if has_leader(G, ii)
             Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
             Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
@@ -229,7 +260,7 @@ function run_qp_solver(
     # Build KKT conditions
     θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
     result = get_qp_kkt_conditions(
-        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys;
+        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
         θ = θ_all, verbose = verbose
     )
 

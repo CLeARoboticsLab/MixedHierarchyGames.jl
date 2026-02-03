@@ -2,30 +2,115 @@
     Problem setup functions for constructing symbolic variables
 =#
 
+#=
+    Symbol naming utilities
+=#
+
+# Player variables:     :z, :λ, :θ, :u, :x, :M, :N, :K
+const PLAYER_SYMBOLS = (:z, :λ, :θ, :u, :x, :M, :N, :K)
+
+# Pair variables (leader-follower): :μ
+const PAIR_SYMBOLS = (:μ,)
+
+const ALL_SYMBOLS = (PLAYER_SYMBOLS..., PAIR_SYMBOLS...)
+
 """
-    setup_problem_parameter_variables(num_params_per_player::Vector{Int})
+    make_symbol(name::Symbol, player::Int)
+
+Create a symbol for a player variable. Valid names: $PLAYER_SYMBOLS
+
+Returns `Symbol("name^player")`, e.g., `Symbol("z^1")`.
+"""
+function make_symbol(name::Symbol, player::Int)
+    name in PLAYER_SYMBOLS || throw(ArgumentError(
+        "Symbol :$name is not a player variable. Use one of: $PLAYER_SYMBOLS"))
+    return Symbol(name, "^", player)
+end
+
+"""
+    make_symbol(name::Symbol, leader::Int, follower::Int)
+
+Create a symbol for a leader-follower pair variable. Valid names: $PAIR_SYMBOLS
+
+Returns `Symbol("name^(leader-follower)")`, e.g., `Symbol("μ^(1-2)")`.
+"""
+function make_symbol(name::Symbol, leader::Int, follower::Int)
+    name in PAIR_SYMBOLS || throw(ArgumentError(
+        "Symbol :$name is not a pair variable. Use one of: $PAIR_SYMBOLS"))
+    return Symbol(name, "^(", leader, "-", follower, ")")
+end
+
+#=
+    Symbolic variable creation
+=#
+
+"Return a fresh SymbolicsBackend instance for symbolic tracing."
+default_backend() = SymbolicTracingUtils.SymbolicsBackend()
+
+"""
+    make_symbolic_vector(name::Symbol, player::Int, dim::Int; backend=default_backend())
+
+Create a vector of `dim` symbolic variables for a player.
+
+Valid names: $PLAYER_SYMBOLS
+"""
+function make_symbolic_vector(name::Symbol, player::Int, dim::Int; backend=default_backend())
+    sym = make_symbol(name, player)
+    return SymbolicTracingUtils.make_variables(backend, sym, dim)
+end
+
+"""
+    make_symbolic_vector(name::Symbol, leader::Int, follower::Int, dim::Int; backend=default_backend())
+
+Create a vector of `dim` symbolic variables for a leader-follower pair.
+
+Valid names: $PAIR_SYMBOLS
+"""
+function make_symbolic_vector(name::Symbol, leader::Int, follower::Int, dim::Int; backend=default_backend())
+    sym = make_symbol(name, leader, follower)
+    return SymbolicTracingUtils.make_variables(backend, sym, dim)
+end
+
+"""
+    make_symbolic_matrix(name::Symbol, player::Int, rows::Int, cols::Int; backend=default_backend())
+
+Create a `rows × cols` matrix of symbolic variables for a player.
+
+Valid names: $PLAYER_SYMBOLS
+"""
+function make_symbolic_matrix(name::Symbol, player::Int, rows::Int, cols::Int; backend=default_backend())
+    sym = make_symbol(name, player)
+    vars = SymbolicTracingUtils.make_variables(backend, sym, rows * cols)
+    return reshape(vars, rows, cols)
+end
+
+#=
+    Problem variable setup
+=#
+
+"""
+    setup_problem_parameter_variables(num_params_per_player::Vector{Int}; backend=default_backend())
 
 Create symbolic parameter variables (θ) for each player's initial state.
 
 # Arguments
 - `num_params_per_player::Vector{Int}` - Number of parameters for each player
+- `backend` - SymbolicTracingUtils backend (default: SymbolicsBackend)
 
 # Returns
-- `θs::Dict{Int, Vector{Num}}` - Dictionary mapping player index to their parameter variables
+- `θs::Dict{Int, Vector}` - Dictionary mapping player index to their parameter variables
 """
-function setup_problem_parameter_variables(num_params_per_player::Vector{Int})
-    θs = Dict{Int, Any}()
-    for idx in 1:length(num_params_per_player)
-        θs[idx] = make_symbolic_vector(:θ, idx, num_params_per_player[idx])
-    end
-    return θs
+function setup_problem_parameter_variables(num_params_per_player::Vector{Int}; backend=default_backend())
+    return Dict(idx => make_symbolic_vector(:θ, idx, num_params_per_player[idx]; backend)
+                for idx in 1:length(num_params_per_player))
 end
 
 """
     setup_problem_variables(
         graph::SimpleDiGraph,
         primal_dims::Vector{Int},
-        gs::Vector
+        gs::Vector;
+        backend=default_backend()
     )
 
 Construct all symbolic variables needed for the KKT system.
@@ -34,6 +119,7 @@ Construct all symbolic variables needed for the KKT system.
 - `graph::SimpleDiGraph` - DAG of leader-follower relationships
 - `primal_dims::Vector{Int}` - Decision variable dimension for each player
 - `gs::Vector` - Constraint functions for each player (gs[i](z) returns constraints)
+- `backend` - SymbolicTracingUtils backend (default: SymbolicsBackend)
 
 # Returns
 Named tuple containing:
@@ -42,65 +128,73 @@ Named tuple containing:
 - `μs::Dict` - Policy constraint multipliers (leader, follower) pairs
 - `ys::Dict` - Information vectors (leader decisions visible to each player)
 - `ws::Dict` - Remaining variables for policy constraints
+- `ws_z_indices::Dict` - Index mapping: ws_z_indices[i][j] gives range where zs[j] appears in ws[i]
 - `all_variables::Vector` - Flattened vector of all variables
 """
 function setup_problem_variables(
     graph::SimpleDiGraph,
     primal_dims::Vector{Int},
-    gs::Vector
+    gs::Vector;
+    backend=default_backend()
 )
     N = nv(graph)
 
     # Create decision variables for each player
-    zs = Dict{Int, Any}()
-    for i in 1:N
-        zs[i] = make_symbolic_vector(:z, i, primal_dims[i])
-    end
+    zs = Dict(i => make_symbolic_vector(:z, i, primal_dims[i]; backend) for i in 1:N)
 
     # Create Lagrange multipliers based on constraint dimensions
-    λs = Dict{Int, Any}()
-    for i in 1:N
-        constraint_dim = length(gs[i](zs[i]))
-        λs[i] = make_symbolic_vector(:λ, i, constraint_dim)
-    end
+    λs = Dict(i => make_symbolic_vector(:λ, i, length(gs[i](zs[i])); backend) for i in 1:N)
 
     # Create policy constraint multipliers for leader-follower pairs
-    μs = Dict{Tuple{Int, Int}, Any}()
-    for i in 1:N
-        followers = get_all_followers(graph, i)
-        for j in followers
-            μs[(i, j)] = make_symbolic_vector(:μ, i, j, primal_dims[j])
-        end
-    end
+    μs = Dict((i, j) => make_symbolic_vector(:μ, i, j, primal_dims[j]; backend)
+              for i in 1:N for j in get_all_followers(graph, i))
 
     # Information vectors: ys[i] contains decisions of all leaders of i
     ys = Dict{Int, Any}()
     for i in 1:N
         leaders = get_all_leaders(graph, i)
-        if isempty(leaders)
-            ys[i] = Symbolics.Num[]
-        else
-            ys[i] = vcat([zs[l] for l in leaders]...)
-        end
+        ys[i] = isempty(leaders) ? eltype(zs[1])[] : vcat([zs[l] for l in leaders]...)
     end
 
     # Remaining variables for policy constraints
+    # ws[i] contains variables in player i's KKT conditions that are NOT in ys[i].
+    # Structure (deterministic ordering by player index):
+    #   ws[i] = [zs[i], zs[non-leaders in index order], λs[i], λs[followers], μs[pairs]]
+    #
+    # The ordering is critical for the implicit function theorem: from Mw + Ny = 0,
+    # we get dw/dy = -M⁻¹N = -K. The policy extractor then selects the relevant
+    # portion of K * y for policy constraints.
     ws = Dict{Int, Any}()
+
+    # Explicit index tracking for policy extractors (avoids fragile position assumptions).
+    # ws_z_indices[i][j] gives the range where zs[j] appears in ws[i].
+    # This is used in get_qp_kkt_conditions to build extraction matrices.
+    ws_z_indices = Dict{Int, Dict{Int, UnitRange{Int}}}()
+
     for i in 1:N
         leaders = get_all_leaders(graph, i)
-        # ws[i] starts with own variables
+        ws_z_indices[i] = Dict{Int, UnitRange{Int}}()
+
+        # ws[i] starts with the player's own decision variable
         ws[i] = copy(zs[i])
-        # Add non-leader, non-self variables
+        ws_z_indices[i][i] = 1:primal_dims[i]
+        offset = primal_dims[i]
+
+        # Add non-leader, non-self variables (in player index order for consistency)
         for j in 1:N
             if j != i && !(j in leaders)
                 ws[i] = vcat(ws[i], zs[j])
+                ws_z_indices[i][j] = (offset + 1):(offset + primal_dims[j])
+                offset += primal_dims[j]
             end
         end
+
         # Add λs for self and followers
         ws[i] = vcat(ws[i], λs[i])
         for j in get_all_followers(graph, i)
             ws[i] = vcat(ws[i], λs[j])
         end
+
         # Add μs for follower policies
         for j in get_all_followers(graph, i)
             if haskey(μs, (i, j))
@@ -109,14 +203,14 @@ function setup_problem_variables(
         end
     end
 
-    # Flatten all variables
+    # Flatten all variables (in player index order)
     all_variables = vcat(
         vcat([zs[i] for i in 1:N]...),
         vcat([λs[i] for i in 1:N]...),
-        (isempty(μs) ? Symbolics.Num[] : vcat(collect(values(μs))...))
+        (isempty(μs) ? eltype(zs[1])[] : vcat(collect(values(μs))...))
     )
 
-    (; zs, λs, μs, ys, ws, all_variables)
+    (; zs, λs, μs, ys, ws, ws_z_indices, all_variables)
 end
 
 """

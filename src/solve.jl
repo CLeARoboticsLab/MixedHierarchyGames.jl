@@ -21,16 +21,16 @@ Uses precomputed symbolic KKT conditions for efficiency.
 """
 function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve) = precomputed
+    (; vars, πs_solve, parametric_mcp) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
 
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
     elseif solver_type == :path
-        z_sol, status, _ = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+        z_sol, status, _ = solve_with_path(parametric_mcp, θs, parameter_values; verbose)
     else
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
@@ -64,14 +64,14 @@ Named tuple with z_sol, status, info, vars
 """
 function solve_raw(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve) = precomputed
+    (; vars, πs_solve, parametric_mcp) = precomputed
     (; θs) = problem
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
         info = nothing
     elseif solver_type == :path
-        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+        z_sol, status, info = solve_with_path(parametric_mcp, θs, parameter_values; verbose)
     else
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
@@ -162,9 +162,60 @@ end
 =#
 
 """
+    solve_with_path(parametric_mcp, θs::Dict, parameter_values::Dict; kwargs...)
+
+Solve KKT system using PATH solver via ParametricMCPs.jl with cached MCP.
+
+# Arguments
+- `parametric_mcp` - Precomputed ParametricMCP from QPSolver construction
+- `θs::Dict` - Symbolic parameter variables per player
+- `parameter_values::Dict` - Numerical parameter values per player
+
+# Keyword Arguments
+- `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
+- `verbose::Bool=false` - Print solver output
+
+# Returns
+Tuple of:
+- `z_sol::Vector` - Solution vector
+- `status::Symbol` - Solver status (:solved, :failed, etc.)
+- `info` - PATH solver info
+"""
+function solve_with_path(
+    parametric_mcp,
+    θs::Dict,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    verbose::Bool = false,
+    kwargs...
+)
+    # Order parameters by player index
+    order = sort(collect(keys(θs)))
+    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+
+    # Initial guess
+    n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
+    z0 = initial_guess !== nothing ? initial_guess : zeros(n)
+
+    # Solve
+    z_sol, status, info = ParametricMCPs.solve(
+        parametric_mcp,
+        all_param_vals_vec;
+        initial_guess = z0,
+        verbose = verbose,
+        cumulative_iteration_limit = 100000,
+        proximal_perturbation = 1e-2,
+        use_basics = true,
+        use_start = true,
+    )
+
+    return z_sol, status, info
+end
+
+"""
     solve_with_path(πs::Dict, variables::Vector, θs::Dict, parameter_values::Dict; kwargs...)
 
-Solve KKT system using PATH solver via ParametricMCPs.jl.
+Solve KKT system using PATH solver via ParametricMCPs.jl (builds MCP internally).
 
 # Arguments
 - `πs::Dict` - KKT conditions per player
@@ -194,9 +245,6 @@ function solve_with_path(
     symbolic_type = eltype(variables)
 
     # Build KKT vector from all players
-    # Note: Dict iteration order doesn't matter here - the symbolic expressions
-    # encode the mathematical relationships, so F(z)=0 has the same solution
-    # regardless of equation ordering
     F = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Bounds: unconstrained (MCP with -∞ to ∞)
@@ -206,7 +254,6 @@ function solve_with_path(
     # Order parameters by player index
     order = sort(collect(keys(πs)))
     all_θ_vec = vcat([θs[k] for k in order]...)
-    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
 
     # Build parametric MCP
     parametric_mcp = ParametricMCPs.ParametricMCP(
@@ -214,22 +261,8 @@ function solve_with_path(
         compute_sensitivities = false
     )
 
-    # Initial guess
-    z0 = initial_guess !== nothing ? initial_guess : zeros(length(variables))
-
-    # Solve
-    z_sol, status, info = ParametricMCPs.solve(
-        parametric_mcp,
-        all_param_vals_vec;
-        initial_guess = z0,
-        verbose = verbose,
-        cumulative_iteration_limit = 100000,
-        proximal_perturbation = 1e-2,
-        use_basics = true,
-        use_start = true,
-    )
-
-    return z_sol, status, info
+    # Delegate to cached version
+    return solve_with_path(parametric_mcp, θs, parameter_values; initial_guess, verbose, kwargs...)
 end
 
 """
@@ -253,9 +286,68 @@ function qp_game_linsolve(A, b; kwargs...)
 end
 
 """
+    solve_qp_linear(parametric_mcp, θs::Dict, parameter_values::Dict; kwargs...)
+
+Solve LQ game KKT system using direct linear solve with cached MCP.
+
+For LQ games with only equality constraints, the KKT system is linear: Jz = -F
+where J is the Jacobian and F is the KKT residual.
+
+# Arguments
+- `parametric_mcp` - Precomputed ParametricMCP from QPSolver construction
+- `θs::Dict` - Symbolic parameter variables per player
+- `parameter_values::Dict` - Numerical parameter values per player
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print solver output
+
+# Returns
+Tuple of:
+- `z_sol::Vector` - Solution vector
+- `status::Symbol` - Solver status (:solved or :failed)
+"""
+function solve_qp_linear(
+    parametric_mcp,
+    θs::Dict,
+    parameter_values::Dict;
+    verbose::Bool = false
+)
+    # Order parameters by player index
+    order = sort(collect(keys(θs)))
+    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+
+    # Get Jacobian buffer from MCP (handles sparse structure correctly)
+    n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
+    J = copy(parametric_mcp.jacobian_z!.result_buffer)
+    F = zeros(n)
+
+    # Evaluate at zero (for LQ, any point works since system is linear)
+    z0 = zeros(n)
+    parametric_mcp.f!(F, z0, all_param_vals_vec)
+    parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
+
+    # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
+    # Note: No regularization is applied. For ill-conditioned systems, this may fail
+    # or produce inaccurate results. See task StackelbergHierarchyGames.jl-ulv for
+    # planned Tikhonov regularization and automatic scaling.
+    try
+        z_sol = J \ (-F)
+        verbose && println("Linear solve successful")
+        return z_sol, :solved
+    catch e
+        # Only catch expected linear algebra failures; rethrow programming errors
+        if e isa SingularException || e isa LAPACKException
+            verbose && @warn "Linear solve failed: $e"
+            return zeros(n), :failed
+        end
+        rethrow()
+    end
+end
+
+"""
     solve_qp_linear(πs::Dict, variables::Vector, θs::Dict, parameter_values::Dict; kwargs...)
 
-Solve LQ game KKT system using direct linear solve.
+Solve LQ game KKT system using direct linear solve (builds MCP internally).
 
 For LQ games with only equality constraints, the KKT system is linear: Jz = -F
 where J is the Jacobian and F is the KKT residual.
@@ -284,17 +376,13 @@ function solve_qp_linear(
     symbolic_type = eltype(variables)
 
     # Build KKT vector from all players
-    # Note: Dict iteration order doesn't matter here - the symbolic expressions
-    # encode the mathematical relationships, so F(z)=0 has the same solution
-    # regardless of equation ordering
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index
     order = sort(collect(keys(πs)))
     all_θ_vec = vcat([θs[k] for k in order]...)
-    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
 
-    # Build parametric MCP to get compiled functions
+    # Build parametric MCP
     z_lower = fill(-Inf, length(F_sym))
     z_upper = fill(Inf, length(F_sym))
 
@@ -303,29 +391,8 @@ function solve_qp_linear(
         compute_sensitivities = false
     )
 
-    # Get Jacobian buffer from MCP (handles sparse structure correctly)
-    n = length(variables)
-    J = parametric_mcp.jacobian_z!.result_buffer
-    F = zeros(n)
-
-    # Evaluate at zero (for LQ, any point works since system is linear)
-    z0 = zeros(n)
-    parametric_mcp.f!(F, z0, all_param_vals_vec)
-    parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
-
-    # Solve Jz = -F
-    try
-        z_sol = qp_game_linsolve(Matrix(J), -F)  # Convert sparse to dense if needed
-        verbose && println("Linear solve successful")
-        return z_sol, :solved
-    catch e
-        # Only catch expected linear algebra failures; rethrow programming errors
-        if e isa SingularException || e isa LAPACKException
-            verbose && @warn "Linear solve failed: $e"
-            return zeros(n), :failed
-        end
-        rethrow()
-    end
+    # Delegate to cached version
+    return solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
 end
 
 #=

@@ -1,7 +1,8 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, add_vertex!
-using Symbolics: @variables
 using MixedHierarchyGames: QPSolver, solve
+
+# make_θ helper is provided by testing_utils.jl (included in runtests.jl)
 
 """
 Run function with timeout. Returns (result, timed_out::Bool).
@@ -32,9 +33,10 @@ end
             add_edge!(G, 2, 1)
 
             primal_dims = [2, 2]
-            @variables θ1[1:1] θ2[1:1]
-            θs = Dict(1 => collect(θ1), 2 => collect(θ2))
-            gs = [z -> [z[1] - θ1[1]], z -> [z[1] - θ2[1]]]
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+            gs = [z -> [z[1] - θ1_vec[1]], z -> [z[1] - θ2_vec[1]]]
             Js = Dict(
                 1 => (z1, z2; θ=nothing) -> sum(z1.^2),
                 2 => (z1, z2; θ=nothing) -> sum(z2.^2),
@@ -59,9 +61,10 @@ end
             add_edge!(G, 1, 1)  # Self-loop
 
             primal_dims = [2, 2]
-            @variables θ1[1:1] θ2[1:1]
-            θs = Dict(1 => collect(θ1), 2 => collect(θ2))
-            gs = [z -> [z[1] - θ1[1]], z -> [z[1] - θ2[1]]]
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+            gs = [z -> [z[1] - θ1_vec[1]], z -> [z[1] - θ2_vec[1]]]
             Js = Dict(
                 1 => (z1, z2; θ=nothing) -> sum(z1.^2),
                 2 => (z1, z2; θ=nothing) -> sum(z2.^2),
@@ -88,8 +91,9 @@ end
             add_edge!(G, 1, 2)
 
             primal_dims = [2, 2, 2]  # 3 elements for 2-player game
-            @variables θ1[1:1] θ2[1:1]
-            θs = Dict(1 => collect(θ1), 2 => collect(θ2))
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec)
             gs = [z -> [z[1]], z -> [z[1]]]
             Js = Dict(
                 1 => (z1, z2; θ=nothing) -> sum(z1.^2),
@@ -104,8 +108,9 @@ end
             add_edge!(G, 1, 2)
 
             primal_dims = [2, 2]
-            @variables θ1[1:1] θ2[1:1]
-            θs = Dict(1 => collect(θ1), 2 => collect(θ2))
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec)
             gs = [z -> [z[1]]]  # Only 1 constraint function for 2 players
             Js = Dict(
                 1 => (z1, z2; θ=nothing) -> sum(z1.^2),
@@ -120,8 +125,9 @@ end
             add_edge!(G, 1, 2)
 
             primal_dims = [2, 2]
-            @variables θ1[1:1] θ2[1:1]
-            θs = Dict(1 => collect(θ1), 2 => collect(θ2))
+            θ1_vec = make_θ(1, 1)
+            θ2_vec = make_θ(2, 1)
+            θs = Dict(1 => θ1_vec, 2 => θ2_vec)
             gs = [z -> [z[1]], z -> [z[1]]]
             Js = Dict(1 => (z1, z2; θ=nothing) -> sum(z1.^2))  # Missing player 2
 
@@ -133,8 +139,8 @@ end
             add_edge!(G, 1, 2)
 
             primal_dims = [2, 2]
-            @variables θ1[1:1]
-            θs = Dict(1 => collect(θ1))  # Missing player 2
+            θ1_vec = make_θ(1, 1)
+            θs = Dict(1 => θ1_vec)  # Missing player 2
             gs = [z -> [z[1]], z -> [z[1]]]
             Js = Dict(
                 1 => (z1, z2; θ=nothing) -> sum(z1.^2),
@@ -154,9 +160,10 @@ end
         state_dim = 1
         control_dim = 1
 
-        @variables θ1[1:1] θ2[1:1]
-        θs = Dict(1 => collect(θ1), 2 => collect(θ2))
-        gs = [z -> [z[1] - θ1[1]], z -> [z[1] - θ2[1]]]
+        θ1_vec = make_θ(1, 1)
+        θ2_vec = make_θ(2, 1)
+        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+        gs = [z -> [z[1] - θ1_vec[1]], z -> [z[1] - θ2_vec[1]]]
         Js = Dict(
             1 => (z1, z2; θ=nothing) -> sum(z1.^2),
             2 => (z1, z2; θ=nothing) -> sum(z2.^2),

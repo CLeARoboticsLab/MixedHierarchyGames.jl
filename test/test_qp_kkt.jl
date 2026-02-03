@@ -1,7 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv
 using LinearAlgebra: I, norm
-using Symbolics
 using MixedHierarchyGames: get_qp_kkt_conditions, strip_policy_constraints
 using MixedHierarchyGames: setup_problem_variables, make_symbolic_vector
 
@@ -21,7 +20,7 @@ using MixedHierarchyGames: setup_problem_variables, make_symbolic_vector
         # Simple quadratic cost: J = z₁² + z₂²
         Js = Dict(1 => (zs...; θ=nothing) -> sum(vars.zs[1].^2))
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices)
 
         # Should return πs dict with KKT for player 1
         @test haskey(result.πs, 1)
@@ -49,7 +48,7 @@ using MixedHierarchyGames: setup_problem_variables, make_symbolic_vector
             2 => (zs...; θ=nothing) -> sum(vars.zs[2].^2),
         )
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices)
 
         # Both players should have KKT conditions
         @test haskey(result.πs, 1)
@@ -77,7 +76,7 @@ using MixedHierarchyGames: setup_problem_variables, make_symbolic_vector
             2 => (zs...; θ=nothing) -> sum(vars.zs[2].^2),
         )
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices)
 
         # P2 has a leader, so should have M and N matrices
         @test haskey(result.Ms, 2)
@@ -103,7 +102,7 @@ end
             2 => (zs...; θ=nothing) -> sum(vars.zs[2].^2),
         )
 
-        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys)
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices)
 
         # Strip policy constraints
         πs_stripped = strip_policy_constraints(result.πs, G, vars.zs, gs)
