@@ -1,7 +1,7 @@
 name = "MixedHierarchyGames"
 uuid = "34713e38-c463-4aa7-98bb-85ffea4597e9"
-authors = ["hmzh-khn", "jamesjingqili", "leedh0124"]
 version = "0.1.0"
+authors = ["hmzh-khn", "jamesjingqili", "leedh0124"]
 
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
@@ -36,6 +36,7 @@ InvertedIndices = "1.3.1"
 LinearSolve = "3.26.0"
 PATHSolver = "1.7.8"
 ParametricMCPs = "0.1.17"
+ProgressBars = "1"
 Revise = "3.8.0"
 SciMLBase = "2.87.0"
 StatsPlots = "0.15.7"
