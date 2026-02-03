@@ -35,4 +35,7 @@ include("testing_utils.jl")
 
     # Integration Tests (QP vs Nonlinear, paper examples)
     include("test_integration.jl")
+
+    # OLSE Verification (mathematical properties)
+    include("test_olse_verification.jl")
 end
