@@ -64,3 +64,23 @@ When requested, perform code reviews from the perspective of specific expert rol
 - **Developer Experience (DX)**: Onboarding, ergonomics, error messages, discoverability
 
 When reviewing, clearly separate issues by severity (Critical, High, Medium, Low) and provide actionable recommendations.
+
+## Verification Checklist
+
+Before marking work complete, verify the following:
+
+### Code Quality
+- [ ] All tests pass (`julia --project=. -e 'using Pkg; Pkg.test()'`)
+- [ ] No new warnings introduced
+- [ ] Type stability checked for performance-critical functions
+
+### Documentation
+- [ ] All code examples in README.md are tested and runnable
+- [ ] All code examples in docstrings are tested and runnable
+- [ ] New public functions have docstrings
+- [ ] CHANGELOG.md updated for user-facing changes
+
+### Git
+- [ ] Commits are logically organized
+- [ ] Commit messages are descriptive
+- [ ] Branch is up to date with target branch

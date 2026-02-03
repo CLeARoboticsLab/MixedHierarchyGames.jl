@@ -1,0 +1,34 @@
+# Changelog
+
+All notable changes to MixedHierarchyGames.jl will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- `QPSolver` for linear-quadratic hierarchy games with equality constraints
+- `HierarchyGame` type wrapping `TrajectoryGame` with hierarchy graph
+- `solve()` function returning `JointStrategy` with extracted trajectories
+- `solve_raw()` function for debugging and analysis
+- TrajectoryGamesBase.jl integration via `solve_trajectory_game!`
+- Input validation with descriptive error messages
+- Support for `:linear` (direct solve) and `:path` (PATH solver) backends
+- Comprehensive test suite with OLSE validation
+
+### Changed
+- Renamed package from FeedbackStackelbergGames to MixedHierarchyGames
+- Restructured codebase for cleaner API
+
+### Fixed
+- N/A
+
+### Deprecated
+- N/A
+
+### Removed
+- N/A
+
+### Security
+- N/A
