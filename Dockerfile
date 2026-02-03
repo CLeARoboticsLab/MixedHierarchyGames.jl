@@ -5,7 +5,6 @@ FROM julia:1.11
 
 # Set environment variables
 ENV JULIA_DEPOT_PATH=/opt/julia-depot
-ENV PATH_LICENSE_STRING="1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0"
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Install system dependencies
