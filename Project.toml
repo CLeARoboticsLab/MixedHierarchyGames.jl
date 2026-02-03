@@ -1,7 +1,7 @@
 name = "MixedHierarchyGames"
 uuid = "34713e38-c463-4aa7-98bb-85ffea4597e9"
-authors = ["hmzh-khn", "jamesjingqili", "leedh0124"]
 version = "0.1.0"
+authors = ["hmzh-khn", "jamesjingqili", "leedh0124"]
 
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
@@ -31,6 +31,7 @@ TrajectoryGamesBase = "ac1ac542-73eb-4349-ae1b-660ab3609574"
 
 [compat]
 BenchmarkTools = "1.6.0"
+FilePathsBase = "0.9"
 Graphs = "1.13.1"
 InvertedIndices = "1.3.1"
 LinearSolve = "3.26.0"
