@@ -1,0 +1,40 @@
+services:
+  dev:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount source code (changes reflected immediately)
+      - .:/workspace
+      # Mount git credentials for gh/git operations
+      - ~/.gitconfig:/root/.gitconfig:ro
+      # Mount only known_hosts for SSH host verification (keys via agent)
+      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+      # Mount GitHub CLI config
+      - ~/.config/gh:/root/.config/gh
+      # Mount Claude config for API key
+      - ~/.claude:/root/.claude
+      # SSH agent forwarding (macOS)
+      - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+    environment:
+      - SSH_AUTH_SOCK=/ssh-agent
+      - PATH_LICENSE_STRING=1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0
+      # Pass through ANTHROPIC_API_KEY if set on host
+      - ANTHROPIC_API_KEY
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  test:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    environment:
+      - PATH_LICENSE_STRING=1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0
+    working_dir: /workspace
+    command: julia --project=. -e 'using Pkg; Pkg.test()'

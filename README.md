@@ -138,6 +138,66 @@ The current implementation makes the following assumptions:
 - Julia 1.9+
 - See `Project.toml` for package dependencies
 
+## Docker Development Environment
+
+A Docker container is provided for a consistent development environment with all dependencies pre-installed.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- GitHub CLI authenticated on host (`gh auth login`)
+- Claude Code API key (set `ANTHROPIC_API_KEY` environment variable or authenticate via `claude` CLI)
+
+### Quick Start
+
+```bash
+# Build and start development container
+docker compose run --rm dev
+
+# Inside container, you have access to:
+julia --project=.     # Julia with all dependencies
+git                   # Version control
+gh                    # GitHub CLI
+claude                # Claude Code CLI
+```
+
+### Running Tests
+
+```bash
+# Run tests in container
+docker compose run --rm test
+
+# Or interactively
+docker compose run --rm dev
+julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+### Development Workflow
+
+The container mounts your local source code at `/workspace`, so changes are reflected immediately:
+
+```bash
+# Start development session
+docker compose run --rm dev
+
+# Edit code on host, run in container
+julia --project=. -e 'using MixedHierarchyGames'
+
+# Use Claude Code for AI-assisted development
+claude
+
+# Use GitHub CLI for PR management
+gh pr create
+```
+
+### Rebuilding the Container
+
+After changing `Project.toml` or `Manifest.toml`:
+
+```bash
+docker compose build --no-cache dev
+```
+
 ## Citation
 
 <!-- TODO: Add proper citation -->
