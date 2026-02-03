@@ -22,13 +22,15 @@ using TrajectoryGamesBase:
     horizon,
     unflatten_trajectory
 
-using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, indegree, topological_sort_by_dfs, is_cyclic, has_self_loops
+using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, indegree, topological_sort_by_dfs, is_cyclic, has_self_loops, BFSIterator
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks
 using LinearAlgebra: norm, I, SingularException, LAPACKException
-using SparseArrays: sparse
+using SparseArrays: sparse, spzeros
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
+using SciMLBase: SciMLBase
 
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
