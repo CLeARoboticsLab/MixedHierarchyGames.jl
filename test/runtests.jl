@@ -32,4 +32,7 @@ include("testing_utils.jl")
 
     # OLSE Validation (QP solver correctness)
     include("test_qp_olse_validation.jl")
+
+    # Integration Tests (QP vs Nonlinear, paper examples)
+    include("test_integration.jl")
 end
