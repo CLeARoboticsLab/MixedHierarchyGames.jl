@@ -92,10 +92,16 @@ function _validate_qpsolver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs:
 
     # Graph structure validation
     if has_self_loops(hierarchy_graph)
-        throw(ArgumentError("Hierarchy graph contains self-loops. Each player cannot be their own leader."))
+        throw(ArgumentError(
+            "Hierarchy graph contains self-loops. Each player cannot be their own leader. " *
+            "Check your add_edge! calls - ensure no edge (i, i) exists."
+        ))
     end
     if is_cyclic(hierarchy_graph)
-        throw(ArgumentError("Hierarchy graph contains cycles. The hierarchy must be a DAG (directed acyclic graph)."))
+        throw(ArgumentError(
+            "Hierarchy graph contains cycles. The hierarchy must be a DAG (directed acyclic graph). " *
+            "Use Graphs.is_cyclic(G) to check, and Graphs.simplecycles(G) to find cycles."
+        ))
     end
 
     # Dimension consistency validation
@@ -140,7 +146,7 @@ function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
 
     # Order parameters by player index for consistency
     order = sort(collect(keys(πs)))
-    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Unconstrained bounds (equality-only KKT)
     z_lower = fill(-Inf, length(F_sym))
@@ -176,7 +182,7 @@ function _verify_linear_system(mcp, n::Int, θs::Dict)
 
     # Create dummy parameter values (actual values don't affect linearity check)
     order = sort(collect(keys(θs)))
-    θ_vals = vcat([zeros(length(θs[k])) for k in order]...)
+    θ_vals = reduce(vcat, (zeros(length(θs[k])) for k in order))
 
     # Allocate Jacobian buffers
     J1 = copy(mcp.jacobian_z!.result_buffer)
@@ -229,7 +235,7 @@ function QPSolver(
     # Note: setup_problem_variables validates constraint function signatures internally
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
-    θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
+    θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
     kkt_result = get_qp_kkt_conditions(
         hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
         θ = θ_all, verbose = false

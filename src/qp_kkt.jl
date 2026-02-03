@@ -18,7 +18,7 @@ If ws[j] = [zs[j], zs[other], λs[j], ...] and zs[j] has dimension 3, then:
 
 Returns a sparse matrix E such that E * v extracts v[indices].
 """
-function _build_extractor(indices::UnitRange{Int}, total_len::Int)
+@inline function _build_extractor(indices::UnitRange{Int}, total_len::Int)
     n_extract = length(indices)
     # Create sparse matrix: row i maps to column indices[i]
     return sparse(1:n_extract, indices, ones(n_extract), n_extract, total_len)
@@ -85,6 +85,9 @@ function get_qp_kkt_conditions(
     λs_dict = λs isa Dict ? λs : Dict(i => λs[i] for i in 1:length(λs))
 
     # Output containers
+    # Note: Using Dict{Int, Any} because symbolic types vary based on input.
+    # This causes minor type instability but is acceptable for symbolic construction
+    # which is done once at solver creation, not in the hot solve path.
     πs = Dict{Int, Any}()
     Ms = Dict{Int, Any}()
     Ns = Dict{Int, Any}()
@@ -98,9 +101,10 @@ function get_qp_kkt_conditions(
         zi_size = length(zi)
 
         # Build Lagrangian: L = J - λ'g
-        # Cost function signature: Js[i](zs...; θ) or Js[i](zs...)
+        # Cost function signature: Js[i](zs...; θ) with θ as keyword argument
         all_zs = [zs_dict[j] for j in 1:N]
-        Lᵢ = Js[ii](all_zs...; θ=θ) - λs_dict[ii]' * gs[ii](zi)
+        Jᵢ = isnothing(θ) ? Js[ii](all_zs...) : Js[ii](all_zs...; θ=θ)
+        Lᵢ = Jᵢ - λs_dict[ii]' * gs[ii](zi)
 
         if is_leaf(G, ii)
             # Leaf player: stationarity + constraints
@@ -143,9 +147,12 @@ function get_qp_kkt_conditions(
         end
 
         # Compute M, N, K for followers (players with leaders)
-        # Note: K = M \ N is computed symbolically here. For small problems this is fine,
-        # but symbolic matrix inversion can cause exponential expression growth for larger
-        # systems. The nonlinear solver defers K computation to numerical evaluation.
+        # WARNING: K = M \ N is computed symbolically here. For problems with more than
+        # 3-4 players or large state dimensions, the symbolic expressions in K can grow
+        # exponentially, causing memory exhaustion and very slow construction times.
+        # The nonlinear solver defers K computation to numerical evaluation to avoid this.
+        # If you hit performance issues here, consider using the nonlinear solver or
+        # reducing problem size.
         if has_leader(G, ii)
             Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
             Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
@@ -283,7 +290,7 @@ function _run_qp_solver(
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
     # Build KKT conditions
-    θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
+    θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
     result = get_qp_kkt_conditions(
         hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
         θ = θ_all, verbose = verbose

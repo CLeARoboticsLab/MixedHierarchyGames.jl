@@ -231,7 +231,7 @@ function solve_with_path(
 )
     # Order parameters by player index
     order = sort(collect(keys(θs)))
-    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+    all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
 
     # Initial guess
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
@@ -300,7 +300,7 @@ function solve_with_path(
 
     # Order parameters by player index
     order = sort(collect(keys(πs)))
-    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Build parametric MCP
     parametric_mcp = ParametricMCPs.ParametricMCP(
@@ -364,7 +364,7 @@ function solve_qp_linear(
 )
     # Order parameters by player index
     order = sort(collect(keys(θs)))
-    all_param_vals_vec = vcat([parameter_values[k] for k in order]...)
+    all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
 
     # Get Jacobian buffer from MCP (handles sparse structure correctly)
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
@@ -430,7 +430,7 @@ function solve_qp_linear(
 
     # Order parameters by player index
     order = sort(collect(keys(πs)))
-    all_θ_vec = vcat([θs[k] for k in order]...)
+    all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Build parametric MCP
     z_lower = fill(-Inf, length(F_sym))
