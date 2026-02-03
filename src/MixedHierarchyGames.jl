@@ -30,7 +30,7 @@ using LinearAlgebra: norm, I
 
 # Types
 include("types.jl")
-export QPSolver, NonlinearSolver, HierarchyGame
+export QPSolver, NonlinearSolver, HierarchyGame, QPProblem
 
 # Problem setup
 include("problem_setup.jl")
@@ -45,11 +45,11 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 
 # Solvers
 include("solve.jl")
-export solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
+export solve, solve_with_path, solve_qp_linear, qp_game_linsolve, run_qp_solver, run_nonlinear_solver
 
 # Utilities
 include("utils.jl")
-export is_root, is_leaf, get_roots, get_all_leaders, get_all_followers
+export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
 export make_symbolic_variable
 export evaluate_kkt_residuals
 

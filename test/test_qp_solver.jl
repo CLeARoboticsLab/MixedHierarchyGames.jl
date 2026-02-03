@@ -12,7 +12,8 @@ using MixedHierarchyGames:
     solve_qp_linear,
     qp_game_linsolve,
     run_qp_solver,
-    make_symbolic_vector
+    make_symbolic_vector,
+    QPSolver
 
 @testset "QP Solver - solve_with_path" begin
     @testset "Solves simple 1-player QP" begin
@@ -209,6 +210,109 @@ end
         parameter_values = Dict(1 => [1.0, 2.0])
 
         result = run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:path)
+
+        @test result.status == PATHSolver.MCP_Solved
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+    end
+end
+
+@testset "QPSolver struct interface" begin
+    @testset "Constructor precomputes KKT" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs)
+
+        @test solver.problem isa MixedHierarchyGames.QPProblem
+        @test solver.solver_type == :linear
+        @test haskey(solver.precomputed, :vars)
+        @test haskey(solver.precomputed, :πs_solve)
+    end
+
+    @testset "solve() uses precomputed components" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs)
+        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
+
+        @test result.status == :solved
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+    end
+
+    @testset "solve() with different parameter values" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs)
+
+        # Solve with different initial states
+        result1 = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
+        result2 = MixedHierarchyGames.solve(solver, Dict(1 => [5.0, 6.0]))
+
+        @test isapprox(result1.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result2.z_sol[1:2], [5.0, 6.0], atol=1e-6)
+    end
+
+    @testset "2-player Stackelberg with QPSolver struct" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [2, 2]
+
+        @variables θ1[1:2] θ2[1:2]
+        θ1_vec = collect(θ1)
+        θ2_vec = collect(θ2)
+        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
+
+        gs = [
+            z -> z - θ1_vec,
+            z -> z - θ2_vec,
+        ]
+
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs)
+        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0]))
+
+        @test result.status == :solved
+        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result.z_sol[3:4], [3.0, 4.0], atol=1e-6)
+    end
+
+    @testset "PATH solver option" begin
+        G = SimpleDiGraph(1)
+        primal_dims = [2]
+
+        @variables θ[1:2]
+        θ_vec = collect(θ)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> z - θ_vec]
+        Js = Dict(1 => (z1; θ=nothing) -> sum(z1.^2))
+
+        solver = QPSolver(G, Js, gs, primal_dims, θs; solver=:path)
+        result = MixedHierarchyGames.solve(solver, Dict(1 => [1.0, 2.0]))
 
         @test result.status == PATHSolver.MCP_Solved
         @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)

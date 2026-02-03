@@ -3,6 +3,43 @@
 =#
 
 """
+    solve(solver::QPSolver, parameter_values::Dict; verbose=false)
+
+Solve the QP hierarchy game with given parameter values (typically initial states).
+
+Uses precomputed symbolic KKT conditions for efficiency.
+
+# Arguments
+- `solver::QPSolver` - The QP solver with precomputed components
+- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print debug info
+
+# Returns
+Named tuple containing:
+- `z_sol::Vector` - Solution vector
+- `status` - Solver status
+- `info` - Additional solver info
+"""
+function solve(solver::QPSolver, parameter_values::Dict; verbose::Bool = false)
+    (; problem, solver_type, precomputed) = solver
+    (; vars, πs_solve) = precomputed
+    (; θs) = problem
+
+    if solver_type == :linear
+        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+        info = nothing
+    elseif solver_type == :path
+        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose)
+    else
+        error("Unknown solver type: $solver_type. Use :linear or :path")
+    end
+
+    return (; z_sol, status, info, vars)
+end
+
+"""
     TrajectoryGamesBase.solve_trajectory_game!(
         solver::QPSolver,
         game::HierarchyGame,
@@ -15,13 +52,17 @@ Solve a QP (linear-quadratic) hierarchy game.
 # Arguments
 - `solver::QPSolver` - The QP solver instance
 - `game::HierarchyGame` - The hierarchy game to solve
-- `initial_state` - Initial state (BlockVector or Vector)
+- `initial_state` - Initial state per player (Dict{Int, Vector} or Vector of Vectors)
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
 
 # Returns
-- `JointStrategy` over `OpenLoopStrategy`s for each player
+Named tuple with:
+- `z_sol::Vector` - Raw solution vector
+- `status` - Solver status
+- `info` - Additional solver info
+- `vars` - Problem variables
 """
 function TrajectoryGamesBase.solve_trajectory_game!(
     solver::QPSolver,
@@ -30,11 +71,17 @@ function TrajectoryGamesBase.solve_trajectory_game!(
     verbose::Bool = false,
     kwargs...
 )
-    # TODO: Implement
-    # 1. Extract initial states per player from initial_state
-    # 2. Call run_qp_solver with game parameters
-    # 3. Convert solution to JointStrategy of OpenLoopStrategys
-    error("Not implemented: solve_trajectory_game! for QPSolver")
+    # Convert initial_state to parameter_values Dict
+    if initial_state isa Dict
+        parameter_values = initial_state
+    elseif initial_state isa AbstractVector && eltype(initial_state) <: AbstractVector
+        # Vector of vectors → Dict
+        parameter_values = Dict(i => initial_state[i] for i in 1:length(initial_state))
+    else
+        error("initial_state must be Dict{Int, Vector} or Vector of Vectors")
+    end
+
+    return solve(solver, parameter_values; verbose)
 end
 
 """

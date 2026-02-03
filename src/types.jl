@@ -18,31 +18,97 @@ struct HierarchyGame{TG<:TrajectoryGame, TH<:SimpleDiGraph}
 end
 
 """
+    QPProblem
+
+Low-level problem specification for QP hierarchy games.
+Stores cost functions, constraints, and symbolic variables.
+
+# Fields
+- `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
+- `Js::Dict` - Cost functions per player: Js[i](zs...; θ) → scalar
+- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `primal_dims::Vector{Int}` - Decision variable dimension per player
+- `θs::Dict` - Symbolic parameter variables per player
+"""
+struct QPProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+    hierarchy_graph::TG
+    Js::TJ
+    gs::TC
+    primal_dims::Vector{Int}
+    θs::TP
+end
+
+"""
     QPSolver
 
 Solver for quadratic programming hierarchy games (linear dynamics, quadratic costs).
 
-Uses direct KKT construction and PATH solver.
-
 # Fields
-- `horizon::Int` - Time horizon
-- `dims::NamedTuple` - Problem dimensions per player
-- `mcp_problem::Any` - Precomputed MCP problem representation (or nothing if not yet set up)
+- `problem::QPProblem` - The problem specification
+- `solver_type::Symbol` - Solver backend (:linear or :path)
+- `precomputed::Any` - Precomputed symbolic components (variables, KKT conditions)
 """
-struct QPSolver{T}
-    horizon::Int
-    dims::NamedTuple
-    mcp_problem::T
+struct QPSolver{TP<:QPProblem, TC}
+    problem::TP
+    solver_type::Symbol
+    precomputed::TC
 end
 
 """
-    QPSolver(game::HierarchyGame, horizon::Int)
+    QPSolver(hierarchy_graph, Js, gs, primal_dims, θs; solver=:linear)
 
-Construct a QPSolver for the given hierarchy game.
+Construct a QPSolver from low-level problem components (matches original interface).
+
+# Arguments
+- `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
+- `Js::Dict` - Cost functions per player
+- `gs::Vector` - Constraint functions per player
+- `primal_dims::Vector{Int}` - Decision variable dimension per player
+- `θs::Dict` - Symbolic parameter variables per player
+
+# Keyword Arguments
+- `solver::Symbol=:linear` - Solver backend (:linear or :path)
 """
-function QPSolver(game::HierarchyGame, horizon::Int)
-    # TODO: Implement - extract dimensions, set up MCP problem
-    error("Not implemented: QPSolver constructor")
+function QPSolver(
+    hierarchy_graph::SimpleDiGraph,
+    Js::Dict,
+    gs::Vector,
+    primal_dims::Vector{Int},
+    θs::Dict;
+    solver::Symbol = :linear
+)
+    problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs)
+
+    # Precompute symbolic variables and KKT conditions
+    vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
+    θ_all = vcat([θs[k] for k in sort(collect(keys(θs)))]...)
+    kkt_result = get_qp_kkt_conditions(
+        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys;
+        θ = θ_all, verbose = false
+    )
+    πs_solve = strip_policy_constraints(kkt_result.πs, hierarchy_graph, vars.zs, gs)
+
+    precomputed = (; vars, kkt_result, πs_solve)
+
+    return QPSolver(problem, solver, precomputed)
+end
+
+"""
+    QPSolver(game::HierarchyGame, Js, gs, primal_dims, θs; solver=:linear)
+
+Construct a QPSolver from a HierarchyGame with explicit cost/constraint functions.
+
+Uses the hierarchy graph from the game but allows custom Js and gs.
+"""
+function QPSolver(
+    game::HierarchyGame,
+    Js::Dict,
+    gs::Vector,
+    primal_dims::Vector{Int},
+    θs::Dict;
+    solver::Symbol = :linear
+)
+    return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs; solver)
 end
 
 """
