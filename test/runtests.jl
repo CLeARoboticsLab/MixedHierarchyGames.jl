@@ -36,4 +36,7 @@ include("testing_utils.jl")
     # OLSE Tests (comparing solvers against closed-form OLSE solution)
     include("olse/test_qp_solver.jl")
     include("olse/test_nonlinear_solver.jl")
+
+    # Type Stability Tests
+    include("test_type_stability.jl")
 end
