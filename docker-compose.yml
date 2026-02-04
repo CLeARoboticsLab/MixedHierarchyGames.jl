@@ -7,14 +7,14 @@ services:
     volumes:
       # Mount source code (changes reflected immediately)
       - .:/workspace
-      # Mount git credentials for gh/git operations
-      - ~/.gitconfig:/root/.gitconfig:ro
+      # Mount git credentials for gh/git operations (devuser home, not root)
+      - ~/.gitconfig:/home/devuser/.gitconfig:ro
       # Mount only known_hosts for SSH host verification (keys via agent)
-      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+      - ~/.ssh/known_hosts:/home/devuser/.ssh/known_hosts:ro
       # Mount GitHub CLI config
-      - ~/.config/gh:/root/.config/gh
+      - ~/.config/gh:/home/devuser/.config/gh
       # Mount Claude config for API key
-      - ~/.claude:/root/.claude
+      - ~/.claude:/home/devuser/.claude
       # SSH agent forwarding (macOS)
       - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
     environment:

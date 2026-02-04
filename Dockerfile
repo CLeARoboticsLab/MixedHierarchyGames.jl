@@ -1,20 +1,39 @@
 # Development container for MixedHierarchyGames.jl
 # Includes Julia, development tools (git, gh, claude), and pre-compiled dependencies
+#
+# Security features:
+# - Runs as non-root user (devuser)
+# - Minimal sudo access (only for package management)
+# - No SUID/SGID binaries
+# - Secure environment variables
+# - Minimal installed packages
 
 FROM julia:1.11
 
-# Set environment variables
-ENV JULIA_DEPOT_PATH=/opt/julia-depot
-ENV PATH="/root/.local/bin:${PATH}"
+# Create non-root user (required for claude --dangerously-skip-permissions)
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid $USER_GID devuser \
+    && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash devuser
 
-# Install system dependencies
+# Set secure environment variables
+ENV JULIA_DEPOT_PATH=/home/devuser/.julia
+ENV PATH="/home/devuser/.local/bin:${PATH}"
+ENV HOME=/home/devuser
+
+# Install system dependencies (minimal set)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ca-certificates \
     gnupg \
     ripgrep \
-    && rm -rf /var/lib/apt/lists/*
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Remove SUID/SGID bits from all binaries (security hardening)
+RUN find / -perm /6000 -type f -exec chmod a-s {} \; 2>/dev/null || true
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -24,15 +43,32 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI (native installer)
+# Create workspace directory with correct ownership
+RUN mkdir -p /workspace && chown devuser:devuser /workspace
+
+# Switch to non-root user for remaining setup
+USER devuser
+WORKDIR /home/devuser
+
+# Create .claude directory for Claude Code configuration
+RUN mkdir -p /home/devuser/.claude
+
+# Create .ssh directory with correct permissions for SSH agent forwarding
+RUN mkdir -p /home/devuser/.ssh && chmod 700 /home/devuser/.ssh
+
+# Create .config directory for gh CLI
+RUN mkdir -p /home/devuser/.config
+
+# Install Claude Code CLI (native installer) as non-root user
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Create working directory
 WORKDIR /workspace
 
-# Copy project files for dependency installation
-COPY Project.toml ./
-COPY test/Project.toml test/Project.toml
+# Copy project files with correct ownership (done as root, then chown)
+# Note: COPY --chown works with USER directive
+COPY --chown=devuser:devuser Project.toml ./
+COPY --chown=devuser:devuser test/Project.toml test/Project.toml
 
 # Add General registry and install packages (precompilation happens at runtime)
 RUN julia --project=. -e ' \
@@ -41,6 +77,19 @@ RUN julia --project=. -e ' \
     Pkg.resolve(); \
     Pkg.instantiate(); \
     '
+
+# Healthcheck to verify Julia works
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD julia --version || exit 1
+
+# Security: Set restrictive umask
+RUN echo "umask 027" >> /home/devuser/.bashrc
+
+# Labels for security scanning and metadata
+LABEL org.opencontainers.image.title="MixedHierarchyGames.jl Development Container"
+LABEL org.opencontainers.image.description="Julia development environment with Claude Code CLI"
+LABEL org.opencontainers.image.vendor="CLeAR Lab"
+LABEL security.non-root="true"
 
 # Set default command
 CMD ["julia", "--project=."]
