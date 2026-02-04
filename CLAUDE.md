@@ -9,12 +9,49 @@
 
 ## Test-Driven Development (TDD)
 
-ALWAYS follow this cycle:
+**TDD is mandatory for all new code.** No exceptions without explicit user approval.
 
-1. Write a failing test that defines the feature
-2. Write minimal code to make the test pass
-3. Refactor only after tests are green
-4. Never skip the red-green-refactor cycle
+### The Red-Green-Refactor Cycle
+
+1. **RED**: Write a failing test that defines the expected behavior
+2. **GREEN**: Write the minimal code to make the test pass
+3. **REFACTOR**: Clean up the code while keeping tests green
+4. **Repeat**: Never skip steps or reverse the order
+
+### TDD Rules
+
+- **Tests come first**: Do NOT write implementation code before a failing test exists
+- **One behavior at a time**: Each test should verify one specific behavior
+- **Run tests frequently**: After every change, verify the test status
+- **Porting existing code**: Even when porting from reference implementations, write tests first that define the expected behavior, then port the code to satisfy those tests
+- **Bug fixes**: Write a failing test that reproduces the bug before fixing it
+
+### Violations
+
+If you find yourself writing implementation code without a failing test:
+1. Stop immediately
+2. Delete or stash the implementation code
+3. Write the test first
+4. Then rewrite the implementation
+
+## Testing Standards
+
+- **Tolerance**: Test tolerances should be `1e-6` or tighter unless explicitly approved by the user. Do NOT loosen tolerances to make failing tests pass.
+- **Numerical precision**: For linear algebra operations, expect machine precision (~1e-14 to 1e-16). Use `1e-10` for tight tests, `1e-6` for general correctness.
+- **Failing tests**: If a test fails, investigate and fix the root cause. Never relax tolerances as a workaround.
+
+## Planning
+
+When creating implementation plans:
+
+1. **Every plan must explicitly address TDD**: Include a section specifying:
+   - What tests will be written first
+   - Expected test structure (test file locations, test names)
+   - Order of test-then-implement for each feature
+
+2. **Plans must be granular enough for TDD**: Break features into testable units. If a feature can't be described as a test, break it down further.
+
+3. **Include test verification steps**: After each implementation phase, the plan should specify running tests to confirm the red-green-refactor cycle completed correctly.
 
 ## Work Tracking
 
@@ -64,6 +101,10 @@ When requested, perform code reviews from the perspective of specific expert rol
 - **Developer Experience (DX)**: Onboarding, ergonomics, error messages, discoverability
 
 When reviewing, clearly separate issues by severity (Critical, High, Medium, Low) and provide actionable recommendations.
+
+## Debug Files
+
+All debug scripts should live in the `debug/` folder, which is gitignored. Do not create debug files (e.g., `debug_*.jl`) in the repository root or other tracked locations.
 
 ## Verification Checklist
 

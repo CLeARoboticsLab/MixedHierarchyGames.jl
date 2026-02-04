@@ -127,7 +127,7 @@ The current implementation makes the following assumptions:
 
 1. **Equality constraints only**: All constraints `g(z) = 0` are equality constraints. Inequality constraints are not yet supported.
 
-2. **Decoupled constraints**: Each player's constraints depend only on their own decision variables: `gs[i](zs[i])`. Coupled constraints (e.g., collision avoidance between players) are not yet supported.
+2. **Decoupled constraints**: Each player's constraints depend only on their own decision variables: `gs[i](zs[i])`. Coupled constraints (e.g., shared dynamics `x_{t+1} = A*x_t + B1*u1 + B2*u2`) are not directly supported. However, problems with shared dynamics can often be reformulated by "baking" the dynamics into the cost function via trajectory rollout. See `test/olse/` for an example where the OLSE (Open-Loop Stackelberg Equilibrium) problem with shared dynamics is solved by embedding the dynamics in the cost functions rather than as explicit constraints.
 
 3. **DAG hierarchy**: The leader-follower structure must be a directed acyclic graph (DAG). Cyclic dependencies and self-loops are not allowed.
 
