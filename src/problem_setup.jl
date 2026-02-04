@@ -108,23 +108,46 @@ end
 """
     _validate_constraint_functions(gs::Vector, zs::Dict)
 
-Validate that constraint functions have correct signatures and return Vectors.
+Validate that constraint functions have correct signatures, return Vectors,
+and only depend on the player's own decision variables (decoupled constraints).
 
-Called during problem setup to catch signature errors early with clear messages.
+Called during problem setup to catch errors early with clear messages.
 
 # Arguments
 - `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
 - `zs::Dict` - Decision variables per player (used to test function signatures)
 
 # Throws
-- `ArgumentError` if gs[i] has wrong signature or doesn't return AbstractVector
+- `ArgumentError` if gs[i] has wrong signature, doesn't return AbstractVector,
+  or contains variables from other players (coupled constraint)
 """
 function _validate_constraint_functions(gs::Vector, zs::Dict)
+    # Collect all variables from all players for coupled constraint detection
+    all_zs_flat = Set(Iterators.flatten(values(zs)))
+
     for (i, g) in enumerate(gs)
         try
             result = g(zs[i])
             if !(result isa AbstractVector)
                 throw(ArgumentError("gs[$i] must return a Vector, got $(typeof(result))"))
+            end
+
+            # Check for coupled constraints: ensure result only uses variables from zs[i]
+            if !isempty(result)
+                allowed_vars = Set(zs[i])
+                for constraint in result
+                    constraint_vars = Symbolics.get_variables(constraint)
+                    for var in constraint_vars
+                        if var in all_zs_flat && !(var in allowed_vars)
+                            throw(ArgumentError(
+                                "gs[$i] contains coupled constraint: references variable " *
+                                "from another player. Coupled constraints (gs[i] depending " *
+                                "on zs[j] for j ≠ i) are not supported. " *
+                                "See README.md for details."
+                            ))
+                        end
+                    end
+                end
             end
         catch e
             if e isa MethodError
