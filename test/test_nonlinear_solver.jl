@@ -43,13 +43,13 @@ function make_two_player_chain_problem(; T=3, state_dim=2, control_dim=2)
     # Simple quadratic costs
     # P1: minimize ||x_T - goal1||^2 + ||u||^2
     # P2: minimize ||x_T - goal2||^2 + ||u||^2
-    function J1(z1, z2, θ)
+    function J1(z1, z2; θ=nothing)
         (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
         goal = [1.0, 1.0]
         sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
     end
 
-    function J2(z1, z2, θ)
+    function J2(z1, z2; θ=nothing)
         (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
         goal = [2.0, 2.0]
         sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
@@ -99,19 +99,19 @@ function make_three_player_chain_problem(; T=3, state_dim=2, control_dim=2)
     θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
 
     # Simple quadratic costs
-    function J1(z1, z2, z3, θ)
+    function J1(z1, z2, z3; θ=nothing)
         (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
         goal = [1.0, 1.0]
         sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
     end
 
-    function J2(z1, z2, z3, θ)
+    function J2(z1, z2, z3; θ=nothing)
         (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
         goal = [2.0, 2.0]
         sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
     end
 
-    function J3(z1, z2, z3, θ)
+    function J3(z1, z2, z3; θ=nothing)
         (; xs, us) = unflatten_trajectory(z3, state_dim, control_dim)
         goal = [3.0, 3.0]
         sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
@@ -422,7 +422,7 @@ end
         )
 
         # Check return type has required fields
-        @test hasproperty(result, :z_sol) || haskey(result, :z_sol)
+        @test hasproperty(result, :sol) || haskey(result, :sol)
         @test hasproperty(result, :converged) || haskey(result, :converged)
         @test hasproperty(result, :iterations) || haskey(result, :iterations)
         @test hasproperty(result, :residual) || haskey(result, :residual)
@@ -451,7 +451,7 @@ end
         @test result.iterations <= 5
     end
 
-    @testset "Converges on simple LQ problem" begin
+    @testset "Converges on simple QP problem" begin
         prob = make_two_player_chain_problem()
 
         precomputed = preoptimize_nonlinear_solver(
@@ -471,7 +471,7 @@ end
             verbose=false
         )
 
-        # Should converge on an LQ problem
+        # Should converge on a QP problem
         @test result.converged
         @test result.residual < 1e-6
     end
@@ -501,8 +501,8 @@ end
         )
 
         # Should still return valid results
-        @test result.z_sol isa AbstractVector
-        @test length(result.z_sol) == length(precomputed.all_variables)
+        @test result.sol isa AbstractVector
+        @test length(result.sol) == length(precomputed.all_variables)
     end
 end
 

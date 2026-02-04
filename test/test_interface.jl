@@ -1,5 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!
+using Symbolics: Num
 using MixedHierarchyGames: QPSolver, NonlinearSolver, HierarchyGame
 using MixedHierarchyGames: extract_trajectories, solution_to_joint_strategy, solve
 using TrajectoryGamesBase: solve_trajectory_game!, JointStrategy, OpenLoopStrategy
@@ -16,14 +17,14 @@ using TrajectoryGamesBase: solve_trajectory_game!, JointStrategy, OpenLoopStrate
 
         # Total size: (state_dim + control_dim) * T * n_players
         total_dim = (state_dim * (T + 1) + control_dim * T) * n_players
-        z_sol = randn(total_dim)
+        sol = randn(total_dim)
 
         dims = (
             state_dims = [state_dim, state_dim],
             control_dims = [control_dim, control_dim],
         )
 
-        xs, us = extract_trajectories(z_sol, dims, T, n_players)
+        xs, us = extract_trajectories(sol, dims, T, n_players)
 
         # Should return dicts indexed by player
         @test xs isa Dict
@@ -90,7 +91,33 @@ end
     end
 
     @testset "solve_trajectory_game! returns JointStrategy (Nonlinear)" begin
-        @test_skip "Implement NonlinearSolver first"
+        # NonlinearSolver uses controls-only formulation (dynamics baked into cost)
+        G = SimpleDiGraph(1)
+        T = 2
+        state_dim = 1
+        control_dim = 1
+        primal_dims = [control_dim * T]  # Controls only
+
+        θ_vec = make_θ(1, state_dim)
+        θs = Dict(1 => θ_vec)
+        gs = [z -> Num[]]  # No explicit constraints
+
+        # Simple quadratic cost with dynamics baked in
+        function J1(z1; θ=nothing)
+            # Rollout: x[t+1] = x[t] + u[t]
+            x0 = θs[1][1]
+            x1 = x0 + z1[1]
+            x2 = x1 + z1[2]
+            return x1^2 + x2^2 + z1[1]^2 + z1[2]^2
+        end
+        Js = Dict(1 => J1)
+
+        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        strategy = solve(solver, Dict(1 => [1.0]))
+
+        @test strategy isa JointStrategy
+        @test length(strategy.substrategies) == 1
+        @test strategy.substrategies[1] isa OpenLoopStrategy
     end
 
     @testset "Trajectories start from initial state (QP)" begin

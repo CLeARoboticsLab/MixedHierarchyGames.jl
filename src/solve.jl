@@ -40,9 +40,9 @@ function solve(
     _validate_parameter_values(parameter_values, θs)
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
+        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
     elseif solver_type == :path
-        z_sol, status, _ = solve_with_path(
+        sol, status, _ = solve_with_path(
             parametric_mcp, θs, parameter_values;
             verbose, iteration_limit, proximal_perturbation, use_basics, use_start
         )
@@ -56,8 +56,8 @@ function solve(
 
     offset = 1
     for i in 1:N
-        # Extract player i's portion of z_sol
-        zi = z_sol[offset:(offset + primal_dims[i] - 1)]
+        # Extract player i's portion of sol
+        zi = sol[offset:(offset + primal_dims[i] - 1)]
         offset += primal_dims[i]
 
         # Unflatten into states and controls
@@ -82,7 +82,7 @@ Solve and return raw solution vector (for debugging/analysis).
 - `use_start::Bool=true` - Use starting point from PATH (only used with :path)
 
 # Returns
-Named tuple with z_sol, status, info, vars
+Named tuple with sol, status, info, vars
 """
 function solve_raw(
     solver::QPSolver,
@@ -98,10 +98,10 @@ function solve_raw(
     (; θs) = problem
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
+        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
         info = nothing
     elseif solver_type == :path
-        z_sol, status, info = solve_with_path(
+        sol, status, info = solve_with_path(
             parametric_mcp, θs, parameter_values;
             verbose, iteration_limit, proximal_perturbation, use_basics, use_start
         )
@@ -109,7 +109,7 @@ function solve_raw(
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
-    return (; z_sol, status, info, vars)
+    return (; sol, status, info, vars)
 end
 
 """
@@ -205,14 +205,14 @@ function solve(
     )
 
     # Extract per-player trajectories and build JointStrategy
-    z_sol = result.z_sol
+    sol = result.sol
     N = length(primal_dims)
     substrategies = Vector{OpenLoopStrategy}(undef, N)
 
     offset = 1
     for i in 1:N
-        # Extract player i's portion of z_sol
-        zi = z_sol[offset:(offset + primal_dims[i] - 1)]
+        # Extract player i's portion of sol
+        zi = sol[offset:(offset + primal_dims[i] - 1)]
         offset += primal_dims[i]
 
         # Unflatten into states and controls
@@ -230,7 +230,7 @@ end
 Solve and return raw solution with convergence info (for debugging/analysis).
 
 # Returns
-Named tuple with z_sol, converged, iterations, residual, status
+Named tuple with sol, converged, iterations, residual, status
 """
 function solve_raw(
     solver::NonlinearSolver,
@@ -332,7 +332,7 @@ Solve KKT system using PATH solver via ParametricMCPs.jl with cached MCP.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved, :failed, etc.)
 - `info` - PATH solver info
 """
@@ -356,7 +356,7 @@ function solve_with_path(
     z0 = initial_guess !== nothing ? initial_guess : zeros(n)
 
     # Solve
-    z_sol, status, info = ParametricMCPs.solve(
+    sol, status, info = ParametricMCPs.solve(
         parametric_mcp,
         all_param_vals_vec;
         initial_guess = z0,
@@ -367,7 +367,7 @@ function solve_with_path(
         use_start = use_start,
     )
 
-    return z_sol, status, info
+    return sol, status, info
 end
 
 """
@@ -391,7 +391,7 @@ Solve KKT system using PATH solver via ParametricMCPs.jl (builds MCP internally)
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved, :failed, etc.)
 - `info` - PATH solver info
 """
@@ -471,7 +471,7 @@ where J is the Jacobian and F is the KKT residual.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved or :failed)
 """
 function solve_qp_linear(
@@ -499,9 +499,9 @@ function solve_qp_linear(
     # or produce inaccurate results. See task StackelbergHierarchyGames.jl-ulv for
     # planned Tikhonov regularization and automatic scaling.
     try
-        z_sol = J \ (-F)
+        sol = J \ (-F)
         verbose && println("Linear solve successful")
-        return z_sol, :solved
+        return sol, :solved
     catch e
         # Only catch expected linear algebra failures; rethrow programming errors
         if e isa SingularException || e isa LAPACKException
@@ -531,7 +531,7 @@ where J is the Jacobian and F is the KKT residual.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved or :failed)
 """
 function solve_qp_linear(
@@ -590,12 +590,12 @@ end
 =#
 
 """
-    extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
+    extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
 
 Extract state and control trajectories from flattened solution vector.
 
 # Arguments
-- `z_sol::Vector` - Flattened solution
+- `sol::Vector` - Flattened solution
 - `dims::NamedTuple` - Dimension info per player
 - `T::Int` - Time horizon
 - `n_players::Int` - Number of players
@@ -604,7 +604,7 @@ Extract state and control trajectories from flattened solution vector.
 - `xs::Dict{Int, Vector{Vector}}` - State trajectories per player
 - `us::Dict{Int, Vector{Vector}}` - Control trajectories per player
 """
-function extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
+function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
     xs = Dict{Int, Vector{Vector{Float64}}}()
     us = Dict{Int, Vector{Vector{Float64}}}()
 
@@ -616,14 +616,14 @@ function extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players
         # Extract states: T+1 states (t=0 to t=T)
         xs[i] = Vector{Vector{Float64}}()
         for t in 1:(T+1)
-            push!(xs[i], z_sol[idx:idx+state_dim-1])
+            push!(xs[i], sol[idx:idx+state_dim-1])
             idx += state_dim
         end
 
         # Extract controls: T controls (t=0 to t=T-1)
         us[i] = Vector{Vector{Float64}}()
         for t in 1:T
-            push!(us[i], z_sol[idx:idx+control_dim-1])
+            push!(us[i], sol[idx:idx+control_dim-1])
             idx += control_dim
         end
     end

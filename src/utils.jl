@@ -82,7 +82,7 @@ end
     evaluate_kkt_residuals(
         πs::Dict,
         all_variables::Vector,
-        z_sol::Vector,
+        sol::Vector,
         θs::Dict,
         parameter_values::Dict;
         tol::Float64 = 1e-6,
@@ -97,7 +97,7 @@ Substitutes numerical values and computes residual norms to verify solution vali
 # Arguments
 - `πs::Dict{Int, Any}` - Symbolic KKT conditions per player
 - `all_variables::Vector` - All symbolic decision variables
-- `z_sol::Vector` - Numerical solution vector
+- `sol::Vector` - Numerical solution vector
 - `θs::Dict{Int, Any}` - Symbolic parameter variables per player
 - `parameter_values::Dict{Int, Vector}` - Numerical values for parameters
 
@@ -112,7 +112,7 @@ Substitutes numerical values and computes residual norms to verify solution vali
 function evaluate_kkt_residuals(
     πs::Dict,
     all_variables::Vector,
-    z_sol::Vector,
+    sol::Vector,
     θs::Dict,
     parameter_values::Dict;
     tol::Float64 = 1e-6,

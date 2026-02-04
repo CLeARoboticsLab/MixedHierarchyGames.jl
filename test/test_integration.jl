@@ -18,13 +18,13 @@ using TrajectoryGamesBase: unflatten_trajectory
     Integration Tests for MixedHierarchyGames.jl
 
     Tests that verify:
-    1. QP and Nonlinear solvers produce same results on LQ problems
+    1. QP and Nonlinear solvers produce same results on QP problems
     2. Paper example regression tests
     3. Multi-player hierarchies work correctly
 =#
 
 """
-Create a 2-player LQ Stackelberg game for comparison testing.
+Create a 2-player QP Stackelberg game for comparison testing.
 P1 is leader, P2 is follower.
 """
 function make_comparison_problem(; T=3, state_dim=2, control_dim=2)
@@ -43,7 +43,7 @@ function make_comparison_problem(; T=3, state_dim=2, control_dim=2)
     θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
 
     # Simple quadratic costs
-    function J1(z1, z2, θ)
+    function J1(z1, z2; θ=nothing)
         (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
         (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
         xs2, us2 = xs, us
@@ -55,7 +55,7 @@ function make_comparison_problem(; T=3, state_dim=2, control_dim=2)
         0.5 * sum((xs1[end] .- goal) .^ 2) + 0.05 * sum(sum(u .^ 2) for u in us1)
     end
 
-    function J2(z1, z2, θ)
+    function J2(z1, z2; θ=nothing)
         (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
         xs2, us2 = xs, us
 
@@ -139,7 +139,7 @@ function make_siopt_problem(; T=2, x0=[1.0, 2.0, 2.0, 1.0])
         return xs
     end
 
-    function J1(z1, z2, θ)
+    function J1(z1, z2; θ=nothing)
         u1 = unpack_u(z1)
         u2 = unpack_u(z2)
         xs = rollout_x(u1, u2, θs[1])
@@ -148,7 +148,7 @@ function make_siopt_problem(; T=2, x0=[1.0, 2.0, 2.0, 1.0])
         return x_cost + u_cost
     end
 
-    function J2(z1, z2, θ)
+    function J2(z1, z2; θ=nothing)
         u1 = unpack_u(z1)
         u2 = unpack_u(z2)
         xs = rollout_x(u1, u2, θs[2])
@@ -280,9 +280,96 @@ function compute_olse_solution(prob)
     return (; u1_traj, u2_traj, xs)
 end
 
+"""
+Create a single-player (N=1) optimization problem.
+No hierarchy, just one player minimizing their cost.
+"""
+function make_single_player_problem(; T=3, state_dim=2, control_dim=2)
+    N = 1
+
+    # No hierarchy edges - single player is a root
+    G = SimpleDiGraph(N)
+
+    # Dimensions
+    primal_dim = (state_dim + control_dim) * (T + 1)
+    primal_dims = [primal_dim]
+
+    # Parameters
+    backend = default_backend()
+    θs = setup_problem_parameter_variables([state_dim]; backend)
+
+    # Simple quadratic cost: reach goal with minimal effort
+    function J1(z1; θ=nothing)
+        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+        goal = [1.0, 1.0]
+        0.5 * sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+    end
+
+    Js = Dict(1 => J1)
+
+    # Single integrator dynamics: x_{t+1} = x_t + Δt * u_t
+    Δt = 0.5
+    function constraints(z)
+        (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+        cons = []
+        for t in 1:T
+            push!(cons, xs[t+1] - xs[t] - Δt * us[t])
+        end
+        push!(cons, xs[1] - θs[1])
+        return vcat(cons...)
+    end
+
+    gs = [constraints]
+
+    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N, Δt)
+end
+
 @testset "Integration Tests" begin
+    @testset "Single-Player Edge Case (N=1)" begin
+        @testset "QPSolver handles single player" begin
+            prob = make_single_player_problem(T=3)
+
+            solver = QPSolver(
+                prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                prob.state_dim, prob.control_dim,
+            )
+
+            x0 = [0.0, 0.0]
+            params = Dict(1 => x0)
+
+            result = solve_raw(solver, params)
+
+            @test result.status == :solved
+            # sol includes primal (16) + dual (8 constraints) variables
+            @test length(result.sol) >= prob.primal_dims[1]
+            # Primal portion should be finite
+            @test all(isfinite, result.sol[1:prob.primal_dims[1]])
+        end
+
+        @testset "NonlinearSolver handles single player" begin
+            prob = make_single_player_problem(T=3)
+
+            solver = NonlinearSolver(
+                prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                prob.state_dim, prob.control_dim;
+                max_iters=50, tol=1e-8,
+            )
+
+            x0 = [0.0, 0.0]
+            params = Dict(1 => x0)
+
+            result = solve_raw(solver, params)
+
+            @test result.converged
+            # sol includes primal (16) + dual (8 constraints) variables
+            @test length(result.sol) >= prob.primal_dims[1]
+            # Primal portion should be finite
+            @test all(isfinite, result.sol[1:prob.primal_dims[1]])
+        end
+    end
+
     @testset "QP vs Nonlinear Solver Comparison" begin
-        @testset "Solutions match on LQ problem" begin
+        @testset "Solutions match on QP problem" begin
             prob = make_comparison_problem(T=3)
 
             # Create both solvers
@@ -310,7 +397,7 @@ end
             @test nonlinear_result.converged
 
             # Solutions should match within tolerance
-            @test norm(qp_result.z_sol - nonlinear_result.z_sol) < 1e-4
+            @test norm(qp_result.sol - nonlinear_result.sol) < 1e-4
         end
 
         @testset "Different initial conditions" begin
@@ -343,8 +430,8 @@ end
                 @test qp_result.status == :solved
                 @test nonlinear_result.converged
 
-                err = norm(qp_result.z_sol - nonlinear_result.z_sol)
-                @test err < 1e-4 "Solutions differ by $err for x0=$x0_vals"
+                err = norm(qp_result.sol - nonlinear_result.sol)
+                @test err < 1e-4
             end
         end
     end
@@ -372,8 +459,8 @@ end
             # Extract solutions
             m = prob.control_dim
             T = prob.T
-            u1_sol = result.z_sol[1:(m*T)]
-            u2_sol = result.z_sol[(m*T+1):(2*m*T)]
+            u1_sol = result.sol[1:(m*T)]
+            u2_sol = result.sol[(m*T+1):(2*m*T)]
 
             u1_traj = prob.unpack_u(u1_sol)
             u2_traj = prob.unpack_u(u2_sol)
@@ -382,8 +469,8 @@ end
             u1_err = norm(vcat(u1_traj...) - vcat(olse.u1_traj...))
             u2_err = norm(vcat(u2_traj...) - vcat(olse.u2_traj...))
 
-            @test u1_err < 1e-6 "u1 error: $u1_err"
-            @test u2_err < 1e-6 "u2 error: $u2_err"
+            @test u1_err < 1e-6
+            @test u2_err < 1e-6
         end
 
         @testset "Random initial conditions" begin
@@ -409,20 +496,20 @@ end
 
                 m = prob.control_dim
                 T = prob.T
-                u1_traj = prob.unpack_u(result.z_sol[1:(m*T)])
-                u2_traj = prob.unpack_u(result.z_sol[(m*T+1):(2*m*T)])
+                u1_traj = prob.unpack_u(result.sol[1:(m*T)])
+                u2_traj = prob.unpack_u(result.sol[(m*T+1):(2*m*T)])
 
                 u1_err = norm(vcat(u1_traj...) - vcat(olse.u1_traj...))
                 u2_err = norm(vcat(u2_traj...) - vcat(olse.u2_traj...))
 
-                @test u1_err < 1e-6 "u1 error: $u1_err for x0=$x0"
-                @test u2_err < 1e-6 "u2 error: $u2_err for x0=$x0"
+                @test u1_err < 1e-6
+                @test u2_err < 1e-6
             end
         end
     end
 
     @testset "Three-Player Chain Hierarchy" begin
-        @testset "Solver converges on 3-player LQ problem" begin
+        @testset "Solver converges on 3-player QP problem" begin
             N = 3
             T = 3
             state_dim = 2
@@ -440,17 +527,17 @@ end
             θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
 
             # Simple costs
-            function J1(z1, z2, z3, θ)
+            function J1(z1, z2, z3; θ=nothing)
                 (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
                 sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
             end
 
-            function J2(z1, z2, z3, θ)
+            function J2(z1, z2, z3; θ=nothing)
                 (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
                 sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
             end
 
-            function J3(z1, z2, z3, θ)
+            function J3(z1, z2, z3; θ=nothing)
                 (; xs, us) = unflatten_trajectory(z3, state_dim, control_dim)
                 sum((xs[end] .- [3.0, 3.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
             end

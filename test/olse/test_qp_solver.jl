@@ -4,7 +4,7 @@ using Graphs: SimpleDiGraph, add_edge!
 using MixedHierarchyGames: QPSolver, solve_raw, make_symbolic_vector
 
 """
-Compute analytical OLSE solution for 2-player LQ Stackelberg game.
+Compute analytical OLSE solution for 2-player QP Stackelberg game.
 This is the ground truth from the SIOPT paper example.
 """
 function compute_olse_analytical(; T=2, x0=[1.0, 2.0, 2.0, 1.0])
@@ -206,15 +206,15 @@ function solve_with_qpsolver(; T=2, x0=[1.0, 2.0, 2.0, 1.0])
 
     @test result.status == :solved
 
-    z_sol = result.z_sol
-    u1_sol = z_sol[1:primal_dim]
-    u2_sol = z_sol[primal_dim+1:2*primal_dim]
+    sol = result.sol
+    u1_sol = sol[1:primal_dim]
+    u2_sol = sol[primal_dim+1:2*primal_dim]
 
     return (; u1=u1_sol, u2=u2_sol)
 end
 
 @testset "QP Solver OLSE Validation" begin
-    @testset "2-player LQ Stackelberg (SIOPT example)" begin
+    @testset "2-player QP Stackelberg (SIOPT example)" begin
         T = 2
         x0 = [1.0, 2.0, 2.0, 1.0]
 
@@ -297,6 +297,6 @@ end
         result = solve_raw(solver, parameter_values)
 
         @test result.status == :solved
-        @test all(isfinite, result.z_sol)
+        @test all(isfinite, result.sol)
     end
 end

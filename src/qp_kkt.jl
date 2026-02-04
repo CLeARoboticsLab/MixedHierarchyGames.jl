@@ -271,7 +271,7 @@ This function rebuilds the MCP on every call, which is inefficient for repeated 
 
 # Returns
 Named tuple containing:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status` - Solver status
 - `info` - Additional solver info
 - `vars` - Problem variables (zs, λs, μs, etc.)
@@ -301,13 +301,13 @@ function _run_qp_solver(
 
     # Solve based on selected method
     if solver == :linear
-        z_sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
+        sol, status = solve_qp_linear(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
         info = nothing
     elseif solver == :path
-        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
+        sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, parameter_values; verbose = verbose)
     else
         error("Unknown solver: $solver. Use :linear or :path")
     end
 
-    return (; z_sol, status, info, vars, kkt_result = result)
+    return (; sol, status, info, vars, kkt_result = result)
 end
