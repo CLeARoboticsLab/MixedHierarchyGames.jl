@@ -206,7 +206,7 @@ function setup_problem_variables(
               for i in 1:N for j in get_all_followers(graph, i))
 
     # Information vectors: ys[i] contains decisions of all leaders of i
-    ys = Dict{Int, Any}()
+    ys = Dict{Int, Vector{Symbolics.Num}}()
     for i in 1:N
         leaders = get_all_leaders(graph, i)
         ys[i] = isempty(leaders) ? eltype(zs[1])[] : vcat([zs[l] for l in leaders]...)
@@ -220,7 +220,7 @@ function setup_problem_variables(
     # The ordering is critical for the implicit function theorem: from Mw + Ny = 0,
     # we get dw/dy = -M⁻¹N = -K. The policy extractor then selects the relevant
     # portion of K * y for policy constraints.
-    ws = Dict{Int, Any}()
+    ws = Dict{Int, Vector{Symbolics.Num}}()
 
     # Explicit index tracking for policy extractors (avoids fragile position assumptions).
     # ws_z_indices[i][j] gives the range where zs[j] appears in ws[i].

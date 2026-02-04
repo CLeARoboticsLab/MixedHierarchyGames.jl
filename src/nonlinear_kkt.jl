@@ -112,11 +112,11 @@ function setup_approximate_kkt_solver(
 
     # Output containers
     π_sizes = Dict{Int, Int}()
-    K_syms = Dict{Int, Any}()
-    πs = Dict{Int, Any}()
-    M_fns = Dict{Int, Any}()
-    N_fns = Dict{Int, Any}()
-    augmented_variables = Dict{Int, Any}()
+    K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
+    πs = Dict{Int, Vector{Symbolics.Num}}()
+    M_fns = Dict{Int, Function}()
+    N_fns = Dict{Int, Function}()
+    augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
     for ii in 1:N
@@ -151,7 +151,8 @@ function setup_approximate_kkt_solver(
         θ_all = vcat([θs[k] for k in θ_order]...)
 
         all_zs = [zs[j] for j in 1:N]
-        Lᵢ = Js[ii](all_zs..., θ_all) - λs[ii]' * gs[ii](zs[ii])
+        # Cost function signature: Js[i](zs...; θ) with θ as keyword argument
+        Lᵢ = Js[ii](all_zs...; θ=θ_all) - λs[ii]' * gs[ii](zs[ii])
 
         # Add follower policy constraint terms using symbolic K
         for jj in BFSIterator(G, ii)
@@ -170,8 +171,8 @@ function setup_approximate_kkt_solver(
             end
         end
 
-        # Build KKT conditions
-        πᵢ = Any[]
+        # Build KKT conditions (accumulator holds vectors, vcat flattens to Num[])
+        πᵢ = Vector{Symbolics.Num}[]
         for jj in BFSIterator(G, ii)
             # Stationarity gradient
             push!(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
@@ -418,9 +419,9 @@ function compute_K_evals(
     π_sizes = setup_info.π_sizes
     graph = setup_info.graph
 
-    M_evals = Dict{Int, Any}()
-    N_evals = Dict{Int, Any}()
-    K_evals = Dict{Int, Any}()
+    M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+    N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+    K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
 
     # Caches to reduce allocations
     follower_cache = Dict{Int, Vector{Int}}()
@@ -461,7 +462,7 @@ end
         precomputed::NamedTuple,
         initial_states::Dict,
         hierarchy_graph::SimpleDiGraph;
-        initial_guess::Union{Nothing, Vector} = nothing,
+        initial_guess::Union{Nothing, Vector{Float64}} = nothing,
         max_iters::Int = 100,
         tol::Float64 = 1e-6,
         verbose::Bool = false,
@@ -486,7 +487,7 @@ Uses Armijo backtracking line search for step size selection.
 
 # Returns
 Named tuple containing:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `converged::Bool` - Whether solver converged
 - `iterations::Int` - Number of iterations taken
 - `residual::Float64` - Final KKT residual norm
@@ -496,7 +497,7 @@ function run_nonlinear_solver(
     precomputed::NamedTuple,
     initial_states::Dict,
     hierarchy_graph::SimpleDiGraph;
-    initial_guess::Union{Nothing, Vector} = nothing,
+    initial_guess::Union{Nothing, Vector{Float64}} = nothing,
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
@@ -598,7 +599,7 @@ function run_nonlinear_solver(
     end
 
     return (;
-        z_sol = z_est,
+        sol = z_est,
         converged,
         iterations = num_iterations,
         residual = convergence_criterion,
@@ -667,6 +668,7 @@ function armijo_backtracking_linesearch(
         α *= β
     end
 
-    # Return smallest step if no sufficient decrease found
-    return α
+    # Signal failure if no sufficient decrease found
+    @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
+    return 0.0
 end
