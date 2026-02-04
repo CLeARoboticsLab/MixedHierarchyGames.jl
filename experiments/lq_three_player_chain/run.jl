@@ -2,7 +2,8 @@
     LQ Three Player Chain Experiment
 
     Demonstrates a linear-quadratic game with 3 players in a Stackelberg chain:
-    P1 → P2 → P3 (P1 leads P2, P2 leads P3)
+    P2 is the root leader, with P1 and P3 as followers.
+    Hierarchy: P2 → P1, P2 → P3
 
     This is the simplest example using single integrator dynamics and
     quadratic objectives.
@@ -40,9 +41,9 @@ function run_lq_three_player_chain(;
     state_dim = 2
     control_dim = 2
 
-    # Set up hierarchy: P1 → P2 → P3
+    # Set up hierarchy: P2 is root, leads P1 and P3
     G = SimpleDiGraph(N)
-    add_edge!(G, 2, 1)  # P1 leads P2
+    add_edge!(G, 2, 1)  # P2 leads P1
     add_edge!(G, 2, 3)  # P2 leads P3
 
     # Dimensions
@@ -50,11 +51,10 @@ function run_lq_three_player_chain(;
     primal_dims = fill(primal_dim, N)
 
     # Set up symbolic parameters for initial states
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(backend, fill(state_dim, N))
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
 
-    # Player objectives
-    function J₁(z₁, z₂, z₃, θi)
+    # Player objectives (θ as keyword argument for NonlinearSolver compatibility)
+    function J₁(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -63,7 +63,7 @@ function run_lq_three_player_chain(;
         0.5 * sum((xs¹[end] .- xs²[end]) .^ 2) + 0.05 * sum(sum(u .^ 2) for u in us¹)
     end
 
-    function J₂(z₁, z₂, z₃, θi)
+    function J₂(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₃, state_dim, control_dim)
         xs³, us³ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -74,7 +74,7 @@ function run_lq_three_player_chain(;
         sum((0.5 * (xs¹[end] .+ xs³[end])) .^ 2) + 0.05 * sum(sum(u .^ 2) for u in us²)
     end
 
-    function J₃(z₁, z₂, z₃, θi)
+    function J₃(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₃, state_dim, control_dim)
         xs³, us³ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -115,7 +115,7 @@ function run_lq_three_player_chain(;
     result = solve_raw(solver, parameter_values; verbose = verbose)
 
     # Extract per-player solutions
-    z_sol = result.z_sol
+    z_sol = result.sol
     offs = 1
     z_sols = Vector{Vector{Float64}}(undef, N)
     for i in 1:N
@@ -129,7 +129,7 @@ function run_lq_three_player_chain(;
     end
 
     # Compute costs
-    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
+    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3]) for i in 1:N]
 
     if verbose
         @info "Solution found" status = result.status iterations = result.iterations
