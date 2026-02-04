@@ -72,7 +72,14 @@ function compute_olse_closed_form(x0, T, A, B1, B2, Q1, Q2, R1, R2)
     end
     N2[Block(2 * T + 1, 1)] = -A
 
-    K2 = -inv(Array(M2)) * Array(N2)
+    # Solve for K2: K2 maps [x0; u1] to [u2; λ2; x]
+    # Keep as BlockArray to allow Block indexing later
+    K2_data = -inv(Array(M2)) * Array(N2)
+    K2 = BlockArray(
+        K2_data,
+        vcat(m * ones(Int, T), nx * ones(Int, T), nx * ones(Int, T)),
+        vcat([nx], m * ones(Int, T)),
+    )
 
     # Leader's KKT system
     M = BlockArray(
