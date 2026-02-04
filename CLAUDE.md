@@ -106,6 +106,27 @@ When reviewing, clearly separate issues by severity (Critical, High, Medium, Low
 
 All debug scripts should live in the `debug/` folder, which is gitignored. Do not create debug files (e.g., `debug_*.jl`) in the repository root or other tracked locations.
 
+## Experiments Structure
+
+Each experiment in `experiments/` should follow this structure:
+
+```
+experiments/<name>/
+├── config.jl          # Pure parameters: x0, G, N, T, Δt, costs, goals
+├── run.jl             # Main entry point (concise, uses config + support)
+├── support.jl         # Experiment-specific helpers (if needed)
+└── README.md          # Description (optional)
+```
+
+### Guidelines
+
+- **config.jl**: Pure data/parameters, no logic
+- **run.jl**: Concise, delegates to support functions
+- **No duplicate code**: Use shared utilities in `experiments/common/`
+- **Generally useful code**: Consider adding to `src/`
+
+See `experiments/README.md` for full documentation.
+
 ## Verification Checklist
 
 Before marking work complete, verify the following:

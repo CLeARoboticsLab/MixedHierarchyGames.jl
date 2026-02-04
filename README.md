@@ -69,6 +69,18 @@ player1_states = strategy.substrategies[1].xs
 player1_controls = strategy.substrategies[1].us
 ```
 
+## Examples
+
+See the `experiments/` folder for complete examples:
+
+- **lq_three_player_chain**: 3-player Stackelberg chain with single integrator dynamics
+- **nonlinear_lane_change**: 4-vehicle highway scenario with unicycle dynamics
+- **siopt_stackelberg**: 2-player LQ game from the SIOPT paper
+- **pursuer_protector_vip**: 3-agent pursuit-protection game
+- **olse_paper_example**: OLSE verification with closed-form comparison
+
+Each experiment has a `run.jl` entry point. See `experiments/README.md` for details.
+
 ## Hierarchy Graph Structure
 
 The hierarchy is defined using a directed acyclic graph (DAG):

@@ -107,7 +107,62 @@ then verifies they match within numerical tolerance.
 
 ## Adding New Experiments
 
-1. Create a new folder under `experiments/`
-2. Add a `run.jl` script that demonstrates the experiment
-3. Optionally add `test_<name>.jl` for regression tests
-4. Update this README with the experiment description
+### Required Structure
+
+Each experiment should follow this structure:
+
+```
+experiments/<name>/
+├── config.jl          # Parameters: x0, G, N, T, Δt, costs, goals, etc.
+├── run.jl             # Main entry point (uses config + support)
+├── support.jl         # Experiment-specific helpers (if needed)
+└── README.md          # Experiment description (optional)
+```
+
+### Guidelines
+
+1. **config.jl** - Pure data/parameters, no logic:
+   ```julia
+   # config.jl
+   const N = 3
+   const T = 10
+   const Δt = 0.1
+   const x0 = [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]
+   const goals = [[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]]
+   # ... costs, hierarchy graph, etc.
+   ```
+
+2. **run.jl** - Concise entry point that delegates to support functions:
+   ```julia
+   include("config.jl")
+   include("support.jl")
+
+   function run_experiment(; verbose=false)
+       # Build problem from config
+       # Solve
+       # Return results
+   end
+   ```
+
+3. **support.jl** - Experiment-specific helpers (cost functions, custom dynamics, etc.)
+
+4. **Avoid duplicate code**:
+   - Shared dynamics → `experiments/common/dynamics.jl`
+   - Shared collision avoidance → `experiments/common/collision_avoidance.jl`
+   - Shared plotting → `experiments/common/plotting.jl`
+   - Generally useful code → consider adding to `src/`
+
+5. **Update this README** with the experiment description
+
+### Shared Code Organization
+
+```
+experiments/
+├── common/                    # Shared utilities
+│   ├── dynamics.jl           # Single integrator, unicycle, etc.
+│   ├── collision_avoidance.jl
+│   ├── trajectory_utils.jl
+│   └── plotting.jl           # Plotting utilities
+├── Project.toml              # Dev dependencies (Plots, JLD2, etc.)
+└── <experiment>/             # Individual experiments
+```
