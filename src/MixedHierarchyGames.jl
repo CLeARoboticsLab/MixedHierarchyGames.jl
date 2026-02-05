@@ -35,6 +35,7 @@ using SciMLBase: SciMLBase
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
+export evaluate_kkt_residuals, verify_kkt_solution
 
 # Problem setup (symbolic variable creation)
 include("problem_setup.jl")
