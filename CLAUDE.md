@@ -199,3 +199,87 @@ Before marking work complete, verify the following:
 - [ ] Commits are logically organized
 - [ ] Commit messages are descriptive
 - [ ] Branch is up to date with target branch
+
+## Pre-Merge Retrospective
+
+**Before landing any PR**, conduct a retrospective to identify improvements for future work. This is mandatory.
+
+### Process Adherence Review
+
+Ask these questions and document honest answers:
+
+#### TDD Compliance
+- [ ] Was TDD followed for all new code? (Red-Green-Refactor)
+- [ ] Were there any instances where implementation was written before tests?
+- [ ] If TDD was violated, why? What could prevent this next time?
+
+#### Clean Code Practices
+- [ ] Are functions small and single-purpose?
+- [ ] Are names clear and intention-revealing?
+- [ ] Is there any duplicated code that should be extracted?
+- [ ] Are there any magic numbers that should be constants?
+- [ ] Is error handling consistent and informative?
+
+#### Clean Architecture Practices
+- [ ] Are dependencies pointing inward (toward domain logic)?
+- [ ] Is business logic separated from infrastructure concerns?
+- [ ] Could any code be more easily tested with better structure?
+- [ ] Are module boundaries clear and responsibilities well-defined?
+
+#### Commit Hygiene
+- [ ] Are commits small and focused on single changes?
+- [ ] Does each commit leave the codebase in a working state?
+- [ ] Are commit messages descriptive of *why*, not just *what*?
+- [ ] Could any large commits be split for better reviewability?
+
+#### CLAUDE.md Compliance
+- [ ] Were all instructions in CLAUDE.md followed?
+- [ ] If any were skipped, was there explicit user approval?
+- [ ] Should any new instructions be added based on lessons learned?
+
+### Improvement Identification
+
+Document answers to:
+
+1. **What went well?**
+   - Practices that worked effectively
+   - Patterns worth repeating
+
+2. **What could be improved?**
+   - Specific violations or shortcuts taken
+   - Areas where quality suffered
+
+3. **Action items for next PR:**
+   - Concrete changes to make next time
+   - New beads/tasks to create for technical debt
+
+### Example Retrospective Entry
+
+```markdown
+## PR Retrospective: feature/phase-1-nonlinear-kkt
+
+### TDD Compliance
+- Partially followed. `evaluate_kkt_residuals` was implemented before tests.
+- Corrected mid-PR by writing TDD tests retroactively.
+- **Improvement**: Start each feature by writing test file first.
+
+### Clean Code
+- Some functions (run_nonlinear_solver) exceed 100 lines.
+- Created Bead 6 to address this.
+
+### Commits
+- Several commits were large (addressing multiple review items).
+- **Improvement**: Commit after each individual fix.
+
+### Action Items
+- [ ] Bead 6: Refactor run_nonlinear_solver
+- [ ] Start next feature with test file creation
+```
+
+### When to Skip
+
+This retrospective may be abbreviated (but never skipped) for:
+- Trivial PRs (typo fixes, single-line changes)
+- Emergency hotfixes (document debt and create follow-up tasks)
+
+Even abbreviated retrospectives should note: "Retrospective: Trivial change, no process issues identified."
