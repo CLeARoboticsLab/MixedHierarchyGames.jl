@@ -8,6 +8,8 @@
 # - Secure environment variables
 # - Minimal installed packages
 
+# NOTE: Forces linux/amd64 platform because PATHSolver.jl only provides x86_64 binaries.
+# On ARM64 hosts (Apple Silicon), Docker will use Rosetta/QEMU emulation.
 FROM --platform=linux/amd64 julia:1.11
 
 # Create non-root user (required for claude --dangerously-skip-permissions)
@@ -64,8 +66,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Install beads (bd) CLI for work tracking
 USER root
-RUN BEADS_VERSION=$(curl -fsSL https://api.github.com/repos/steveyegge/beads/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+') && \
-    curl -fsSL "https://github.com/steveyegge/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin bd
+ARG BEADS_VERSION=0.49.4
+RUN curl -fsSL "https://github.com/steveyegge/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin bd
 USER devuser
 
 # Create working directory
@@ -98,10 +100,6 @@ RUN julia --project=. -e ' \
     using PATHSolver; \
     @info "PATHSolver loaded successfully"; \
     '
-
-# Healthcheck to verify Julia works
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD julia --version || exit 1
 
 # Security: Set restrictive umask
 RUN echo "umask 027" >> /home/devuser/.bashrc
