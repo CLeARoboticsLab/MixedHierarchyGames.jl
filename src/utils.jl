@@ -119,21 +119,39 @@ function evaluate_kkt_residuals(
     verbose::Bool = false,
     should_enforce::Bool = false
 )
-    # Order everything consistently by player index
+    # Order players consistently by index
     order = sort(collect(keys(πs)))
 
     # Concatenate all KKT conditions into a single vector
-    all_πs = vcat([πs[ii] for ii in order]...)
+    all_πs = if isempty(order)
+        eltype(all_variables)[]
+    else
+        vcat([πs[ii] for ii in order]...)
+    end
 
     # Build combined variable vector: [decision vars; parameters]
-    θ_vec = vcat([θs[ii] for ii in order]...)
+    θ_order = sort(collect(keys(θs)))
+    θ_vec = if isempty(θ_order)
+        eltype(all_variables)[]
+    else
+        vcat([θs[ii] for ii in θ_order]...)
+    end
     all_vars_and_params = vcat(all_variables, θ_vec)
+
+    # Handle empty case
+    if isempty(all_πs)
+        return Float64[]
+    end
 
     # Compile symbolic expressions to numerical function
     π_fn! = SymbolicTracingUtils.build_function(all_πs, all_vars_and_params; in_place=true)
 
     # Prepare parameter values
-    param_vals_vec = vcat([parameter_values[ii] for ii in order]...)
+    param_vals_vec = if isempty(θ_order)
+        Float64[]
+    else
+        vcat([parameter_values[ii] for ii in θ_order]...)
+    end
 
     # Evaluate KKT residuals
     π_eval = zeros(Float64, length(all_πs))
@@ -203,7 +221,7 @@ function verify_kkt_solution(
     verbose::Bool = false,
     should_enforce::Bool = false
 )
-    # Extract data from solver
+    # Extract data from solver's precomputed structures
     πs = solver.precomputed.setup_info.πs
     zs = solver.precomputed.problem_vars.zs
     G = solver.precomputed.setup_info.graph
@@ -211,17 +229,16 @@ function verify_kkt_solution(
     problem_vars = solver.precomputed.problem_vars
     setup_info = solver.precomputed.setup_info
 
-    # For NonlinearSolver, compute K values from solution and build augmented solution
+    # Get augmented variables (includes K matrix symbols)
     all_augmented_variables = solver.precomputed.all_augmented_variables
-    n_sol = length(sol)
 
-    # Compute K values at the solution
+    # Compute K (policy) matrix values at the solution
     all_K_vec, _ = compute_K_evals(sol, problem_vars, setup_info)
 
-    # Create augmented solution: [sol; K_values]
+    # Build augmented solution vector: [primal solution; K values]
     sol_augmented = vcat(sol, all_K_vec)
 
-    # Strip policy constraints (keep only stationarity + constraints)
+    # Strip policy constraints (keep only stationarity + equality constraints)
     πs_eval = strip_policy_constraints(πs, G, zs, gs)
 
     # Evaluate KKT residuals with augmented variables
