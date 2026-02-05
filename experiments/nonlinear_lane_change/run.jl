@@ -9,6 +9,7 @@
 
 using MixedHierarchyGames
 using TrajectoryGamesBase: unflatten_trajectory
+using Plots
 
 # Include experiment modules
 include("config.jl")
@@ -17,6 +18,7 @@ include("config.jl")
 include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
 include(joinpath(@__DIR__, "..", "common", "collision_avoidance.jl"))
 include(joinpath(@__DIR__, "..", "common", "trajectory_utils.jl"))
+include(joinpath(@__DIR__, "..", "common", "plotting.jl"))
 
 include("support.jl")
 
@@ -43,6 +45,8 @@ function run_nonlinear_lane_change(;
     x0::Vector{<:AbstractVector} = default_initial_states(R),
     max_iters::Integer = MAX_ITERS,
     verbose::Bool = false,
+    plot::Bool = false,
+    savepath::Union{Nothing,String} = nothing,
 )
     # Build hierarchy and cost functions
     G = build_hierarchy()
@@ -100,12 +104,32 @@ function run_nonlinear_lane_change(;
         @info "Player costs" costs
     end
 
+    # Generate plots if requested
+    plt_traj = nothing
+    plt_dist = nothing
+    if plot || savepath !== nothing
+        plt_traj = plot_lane_change_trajectories(
+            trajectories, R, T, Δt;
+            labels = ["P1 (Leader)", "P2", "P3 (Merger)", "P4"],
+            show = plot,
+            savepath = savepath !== nothing ? savepath * "_trajectories" : nothing,
+        )
+        plt_dist = plot_pairwise_distances(
+            trajectories, T, Δt;
+            d_safe = 2.0,
+            show = plot,
+            savepath = savepath !== nothing ? savepath * "_distances" : nothing,
+        )
+        verbose && savepath !== nothing && @info "Plots saved to $(savepath)_*"
+    end
+
     return (;
         z_sol, z_sols, trajectories, costs,
         status = result.status,
         iterations = result.iterations,
         residual = result.residual,
         R, T, Δt,
+        plt_traj, plt_dist,
     )
 end
 

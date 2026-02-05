@@ -11,6 +11,7 @@
 
 using MixedHierarchyGames
 using TrajectoryGamesBase: unflatten_trajectory
+using Plots
 
 # Include experiment modules
 include("config.jl")
@@ -18,6 +19,7 @@ include("support.jl")
 
 # Include common utilities
 include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+include(joinpath(@__DIR__, "..", "common", "plotting.jl"))
 
 """
     run_pursuer_protector_vip(; T, Δt, x0, x_goal, max_iters, verbose)
@@ -42,6 +44,8 @@ function run_pursuer_protector_vip(;
     x_goal::AbstractVector = DEFAULT_GOAL,
     max_iters::Integer = MAX_ITERS,
     verbose::Bool = false,
+    plot::Bool = false,
+    savepath::Union{Nothing,String} = nothing,
 )
     # Build hierarchy and cost functions
     G = build_hierarchy()
@@ -97,12 +101,26 @@ function run_pursuer_protector_vip(;
         @info "Final positions" pursuer=trajectories[1].xs[end] protector=trajectories[2].xs[end] vip=trajectories[3].xs[end]
     end
 
+    # Generate plots if requested
+    plt = nothing
+    if plot || savepath !== nothing
+        plt = plot_pursuit_game(
+            trajectories;
+            x_goal = x_goal,
+            labels = ["Pursuer", "Protector (Leader)", "VIP"],
+            show = plot,
+            savepath = savepath,
+        )
+        verbose && savepath !== nothing && @info "Plot saved to $savepath"
+    end
+
     return (;
         z_sol, z_sols, trajectories, costs,
         status = result.status,
         iterations = result.iterations,
         residual = result.residual,
         x_goal,
+        plt,
     )
 end
 

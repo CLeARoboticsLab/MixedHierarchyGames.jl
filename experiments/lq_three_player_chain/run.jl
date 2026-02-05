@@ -11,6 +11,7 @@
 
 using MixedHierarchyGames
 using TrajectoryGamesBase: unflatten_trajectory
+using Plots
 
 # Include experiment modules
 include("config.jl")
@@ -18,6 +19,7 @@ include("support.jl")
 
 # Include common utilities
 include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+include(joinpath(@__DIR__, "..", "common", "plotting.jl"))
 
 """
     run_lq_three_player_chain(; T, Δt, x0, verbose)
@@ -38,6 +40,8 @@ function run_lq_three_player_chain(;
     Δt::Real = DEFAULT_DT,
     x0::Vector{<:AbstractVector} = DEFAULT_X0,
     verbose::Bool = false,
+    plot::Bool = false,
+    savepath::Union{Nothing,String} = nothing,
 )
     # Build hierarchy and cost functions
     G = build_hierarchy()
@@ -95,11 +99,30 @@ function run_lq_three_player_chain(;
         end
     end
 
+    # Generate plots if requested
+    plt = nothing
+    if plot || savepath !== nothing
+        plt = plot_trajectories_2d(
+            trajectories;
+            title = "LQ Three Player Chain (T=$T, Δt=$Δt)",
+            labels = ["P1", "P2 (Leader)", "P3"],
+            show = plot,
+        )
+        # Mark origin (target for leader's objective)
+        scatter!(plt, [0.0], [0.0]; marker=:cross, ms=10, color=:black, label="Origin")
+
+        if savepath !== nothing
+            savefig(plt, savepath)
+            verbose && @info "Plot saved to $savepath"
+        end
+    end
+
     return (;
         z_sol, z_sols, trajectories, costs,
         status = result.status,
         iterations = result.iterations,
         residual = result.residual,
+        plt,
     )
 end
 
