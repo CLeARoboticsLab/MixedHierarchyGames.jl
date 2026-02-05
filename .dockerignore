@@ -11,12 +11,27 @@ Manifest.toml.bak
 # IDE
 .vscode
 .idea
+*.swp
+*.swo
+*~
 
 # Beads tracking
 .beads
 
-# Claude
+# Claude local state
 .claude
+
+# Secrets and credentials (critical security exclusions)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+**/secrets/
+**/.secrets/
 
 # Data and experiments (large files)
 data/
@@ -25,3 +40,13 @@ reference_archive/
 
 # Documentation artifacts
 docs/build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary and log files
+*.log
+*.tmp
+tmp/
+temp/

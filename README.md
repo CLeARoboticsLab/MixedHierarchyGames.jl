@@ -2,7 +2,7 @@
 
 A Julia package for solving mixed hierarchy games. This implementation uses the `TrajectoryGamesBase.jl` interface, though the solver is more general and can be used for general equality-constrained games.
 
-Based on: *Manuscript in preparation* by the CLeAR Robotics Lab at UT Austin.
+Based on: H. Khan, D. H. Lee, J. Li, T. Qiu, C. Ellis, J. Milzman, W. Suttle, and D. Fridovich-Keil, "[Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations](https://arxiv.org/abs/2602.01568)," 2026.
 
 ## Features
 
@@ -186,6 +186,7 @@ julia --project=.     # Julia with all dependencies
 git                   # Version control
 gh                    # GitHub CLI
 claude                # Claude Code CLI
+bd                    # Beads work tracking CLI
 ```
 
 ### Running Tests
@@ -232,15 +233,13 @@ docker compose build --no-cache dev
 
 If you use this software in your research, please cite:
 
-```
-Manuscript in preparation. Please check back for updated citation information.
-
-For now, please cite the repository:
-@software{MixedHierarchyGames,
-  author = {CLeAR Robotics Lab},
-  title = {MixedHierarchyGames.jl: A Julia Package for Mixed Hierarchy Games},
-  url = {https://github.com/CLeARoboticsLab/MixedHierarchyGames.jl},
-  year = {2024}
+```bibtex
+@article{khan2026mixedhierarchygames,
+  title={Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations},
+  author={Khan, Hamzah and Lee, Dong Ho and Li, Jingqi and Qiu, Tianyu and Ellis, Christian and Milzman, Jesse and Suttle, Wesley and Fridovich-Keil, David},
+  journal={arXiv preprint arXiv:2602.01568},
+  year={2026},
+  url={https://arxiv.org/abs/2602.01568}
 }
 ```
 
