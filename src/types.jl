@@ -18,10 +18,11 @@ struct HierarchyGame{TG<:TrajectoryGame, TH<:SimpleDiGraph}
 end
 
 """
-    QPProblem
+    HierarchyProblem
 
-Low-level problem specification for QP hierarchy games.
+Low-level problem specification for hierarchy games.
 Stores cost functions, constraints, and symbolic variables.
+Used by both QPSolver and NonlinearSolver.
 
 # Fields
 - `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
@@ -32,7 +33,7 @@ Stores cost functions, constraints, and symbolic variables.
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
-struct QPProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+struct HierarchyProblem{TG<:SimpleDiGraph, TJ, TC, TP}
     hierarchy_graph::TG
     Js::TJ
     gs::TC
@@ -72,22 +73,23 @@ end
 Solver for quadratic programming hierarchy games (linear dynamics, quadratic costs).
 
 # Fields
-- `problem::QPProblem` - The problem specification
+- `problem::HierarchyProblem` - The problem specification
 - `solver_type::Symbol` - Solver backend (:linear or :path)
 - `precomputed::QPPrecomputed` - Precomputed symbolic components (variables, KKT conditions)
 """
-struct QPSolver{TP<:QPProblem, TC<:QPPrecomputed}
+struct QPSolver{TP<:HierarchyProblem, TC<:QPPrecomputed}
     problem::TP
     solver_type::Symbol
     precomputed::TC
 end
 
 """
-    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+    _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
-Validate inputs for QPSolver constructor. Throws ArgumentError on invalid input.
+Validate inputs for solver constructors. Throws ArgumentError on invalid input.
+Used by both QPSolver and NonlinearSolver.
 """
-function _validate_qpsolver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs::Vector, primal_dims::Vector{Int}, θs::Dict)
+function _validate_solver_inputs(hierarchy_graph::SimpleDiGraph, Js::Dict, gs::Vector, primal_dims::Vector{Int}, θs::Dict)
     N = nv(hierarchy_graph)
 
     # Graph structure validation
@@ -240,9 +242,9 @@ function QPSolver(
     solver::Symbol = :linear
 )
     # Validate inputs
-    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+    _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
-    problem = QPProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
+    problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
     # Precompute symbolic variables and KKT conditions
     # Note: setup_problem_variables validates constraint function signatures internally
@@ -287,31 +289,6 @@ function QPSolver(
 end
 
 """
-    NonlinearProblem
-
-Low-level problem specification for nonlinear hierarchy games.
-Similar to QPProblem but for general nonlinear costs/dynamics.
-
-# Fields
-- `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict` - Cost functions per player: Js[i](zs..., θ) → scalar
-- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
-- `primal_dims::Vector{Int}` - Decision variable dimension per player
-- `θs::Dict` - Symbolic parameter variables per player
-- `state_dim::Int` - State dimension per player
-- `control_dim::Int` - Control dimension per player
-"""
-struct NonlinearProblem{TG<:SimpleDiGraph, TJ, TC, TP}
-    hierarchy_graph::TG
-    Js::TJ
-    gs::TC
-    primal_dims::Vector{Int}
-    θs::TP
-    state_dim::Int
-    control_dim::Int
-end
-
-"""
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
@@ -319,11 +296,11 @@ Solver for general nonlinear hierarchy games.
 Uses iterative quasi-linear policy approximation with Armijo line search.
 
 # Fields
-- `problem::NonlinearProblem` - The problem specification
+- `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
 - `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
 """
-struct NonlinearSolver{TP<:NonlinearProblem, TC}
+struct NonlinearSolver{TP<:HierarchyProblem, TC}
     problem::TP
     precomputed::TC
     options::NamedTuple
@@ -362,11 +339,11 @@ function NonlinearSolver(
     verbose::Bool = false,
     use_armijo::Bool = true
 )
-    # Validate inputs (reuse QPSolver validation)
-    _validate_qpsolver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+    # Validate inputs
+    _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
     # Create problem specification
-    problem = NonlinearProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
+    problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
     # Precompute symbolic components
     precomputed = preoptimize_nonlinear_solver(

@@ -3,6 +3,27 @@
 =#
 
 """
+    _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
+
+Extract per-player trajectories from solution vector and build JointStrategy.
+Shared helper used by both QPSolver and NonlinearSolver.
+"""
+function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
+    N = length(primal_dims)
+    substrategies = Vector{OpenLoopStrategy}(undef, N)
+
+    offset = 1
+    for i in 1:N
+        zi = sol[offset:(offset + primal_dims[i] - 1)]
+        offset += primal_dims[i]
+        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
+        substrategies[i] = OpenLoopStrategy(xs, us)
+    end
+
+    return JointStrategy(substrategies)
+end
+
+"""
     solve(solver::QPSolver, parameter_values::Dict; kwargs...)
 
 Solve the QP hierarchy game with given parameter values (typically initial states).
@@ -50,23 +71,7 @@ function solve(
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
-    # Extract per-player trajectories and build JointStrategy
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        # Extract player i's portion of sol
-        zi = sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
-
-        # Unflatten into states and controls
-        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-
-        substrategies[i] = OpenLoopStrategy(xs, us)
-    end
-
-    return JointStrategy(substrategies)
+    return _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 end
 
 """
@@ -204,24 +209,7 @@ function solve(
         use_armijo = actual_use_armijo
     )
 
-    # Extract per-player trajectories and build JointStrategy
-    sol = result.sol
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        # Extract player i's portion of sol
-        zi = sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
-
-        # Unflatten into states and controls
-        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-
-        substrategies[i] = OpenLoopStrategy(xs, us)
-    end
-
-    return JointStrategy(substrategies)
+    return _extract_joint_strategy(result.sol, primal_dims, state_dim, control_dim)
 end
 
 """

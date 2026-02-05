@@ -225,7 +225,7 @@ end
 
         solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
 
-        @test solver.problem isa MixedHierarchyGames.QPProblem
+        @test solver.problem isa HierarchyProblem
         @test solver.solver_type == :linear
         @test solver.precomputed isa QPPrecomputed
         @test hasproperty(solver.precomputed, :vars)
