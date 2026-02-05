@@ -186,6 +186,7 @@ julia --project=.     # Julia with all dependencies
 git                   # Version control
 gh                    # GitHub CLI
 claude                # Claude Code CLI
+bd                    # Beads work tracking CLI
 ```
 
 ### Running Tests
@@ -212,6 +213,9 @@ julia --project=. -e 'using MixedHierarchyGames'
 
 # Use Claude Code for AI-assisted development
 claude
+
+# Or with auto-approve (no permission prompts, for sandboxed environments)
+claude --dangerously-skip-permissions
 
 # Use GitHub CLI for PR management
 gh pr create

@@ -32,6 +32,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && \
     cp /root/.local/bin/claude /usr/local/bin/claude && \
     chmod 755 /usr/local/bin/claude
 
+# Install beads (bd) CLI for work tracking
+RUN BEADS_VERSION=$(curl -fsSL https://api.github.com/repos/steveyegge/beads/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+') && \
+    curl -fsSL "https://github.com/steveyegge/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin bd
+
 # Create working directory
 WORKDIR /workspace
 
