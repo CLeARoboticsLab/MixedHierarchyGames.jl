@@ -186,7 +186,6 @@ julia --project=.     # Julia with all dependencies
 git                   # Version control
 gh                    # GitHub CLI
 claude                # Claude Code CLI
-bd                    # Beads work tracking CLI
 ```
 
 ### Running Tests
