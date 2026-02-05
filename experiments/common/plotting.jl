@@ -67,12 +67,12 @@ function plot_trajectories_2d(
 end
 
 """
-    plot_3player_trajectories(z_sols, state_dim, control_dim; kwargs...)
+    plot_3player_trajectories(sols, state_dim, control_dim; kwargs...)
 
 Plot trajectories for a 3-player game from solution vectors.
 """
 function plot_3player_trajectories(
-    z_sols::Vector{<:AbstractVector},
+    sols::Vector{<:AbstractVector},
     state_dim::Int,
     control_dim::Int;
     T = nothing,
@@ -84,7 +84,7 @@ function plot_3player_trajectories(
         error("Must provide unflatten_fn (e.g., TrajectoryGamesBase.unflatten_trajectory)")
     end
 
-    trajectories = [unflatten_fn(z, state_dim, control_dim) for z in z_sols]
+    trajectories = [unflatten_fn(z, state_dim, control_dim) for z in sols]
 
     title = if T !== nothing && Δt !== nothing
         "Player Trajectories (T=$T, Δt=$Δt)"
@@ -324,17 +324,17 @@ end
 # ============================================================================
 
 """
-    print_solution_info(trajectories, Js, z_sols; verbose=true)
+    print_solution_info(trajectories, Js, sols; verbose=true)
 
 Print solution information for each player including trajectories and objective values.
 
 # Arguments
 - `trajectories`: Vector of trajectory named tuples with `.xs` and `.us` fields
 - `Js`: Dict of objective functions (player index => function)
-- `z_sols`: Vector of solution vectors for each player
+- `sols`: Vector of solution vectors for each player
 - `verbose`: Whether to print detailed trajectory info
 """
-function print_solution_info(trajectories, Js::Dict, z_sols::Vector; verbose=true)
+function print_solution_info(trajectories, Js::Dict, sols::Vector; verbose=true)
     N = length(trajectories)
 
     println("\n" * "="^60)
@@ -357,7 +357,7 @@ function print_solution_info(trajectories, Js::Dict, z_sols::Vector; verbose=tru
 
         # Compute objective value
         if haskey(Js, i)
-            obj_val = Js[i](z_sols..., nothing)
+            obj_val = Js[i](sols..., nothing)
             println("  Objective value: $obj_val")
         end
     end
@@ -365,27 +365,27 @@ function print_solution_info(trajectories, Js::Dict, z_sols::Vector; verbose=tru
 end
 
 """
-    print_solution_info(z_sols, Js, state_dim, control_dim; unflatten_fn, verbose=true)
+    print_solution_info(sols, Js, state_dim, control_dim; unflatten_fn, verbose=true)
 
 Print solution info from raw solution vectors.
 
 # Arguments
-- `z_sols`: Vector of solution vectors for each player
+- `sols`: Vector of solution vectors for each player
 - `Js`: Dict of objective functions
 - `state_dim`: State dimension
 - `control_dim`: Control dimension
 - `unflatten_fn`: Function to unflatten trajectory (e.g., TrajectoryGamesBase.unflatten_trajectory)
 """
 function print_solution_info(
-    z_sols::Vector{<:AbstractVector},
+    sols::Vector{<:AbstractVector},
     Js::Dict,
     state_dim::Int,
     control_dim::Int;
     unflatten_fn,
     verbose=true
 )
-    trajectories = [unflatten_fn(z, state_dim, control_dim) for z in z_sols]
-    print_solution_info(trajectories, Js, z_sols; verbose=verbose)
+    trajectories = [unflatten_fn(z, state_dim, control_dim) for z in sols]
+    print_solution_info(trajectories, Js, sols; verbose=verbose)
 end
 
 # ============================================================================

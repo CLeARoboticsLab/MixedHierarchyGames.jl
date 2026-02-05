@@ -11,6 +11,7 @@
 
 using MixedHierarchyGames
 using TrajectoryGamesBase: unflatten_trajectory
+using LinearAlgebra: norm
 using Plots
 
 # Include experiment modules
@@ -40,6 +41,7 @@ function run_lq_three_player_chain(;
     Δt::Real = DEFAULT_DT,
     x0::Vector{<:AbstractVector} = DEFAULT_X0,
     verbose::Bool = false,
+    verify::Bool = false,
     plot::Bool = false,
     savepath::Union{Nothing,String} = nothing,
 )
@@ -79,17 +81,17 @@ function run_lq_three_player_chain(;
     result = solve_raw(solver, parameter_values; verbose = verbose)
 
     # Extract per-player solutions
-    z_sol = result.sol
-    z_sols = Vector{Vector{Float64}}(undef, N)
+    sol = result.sol
+    sols = Vector{Vector{Float64}}(undef, N)
     offs = 1
     for i in 1:N
-        z_sols[i] = z_sol[offs:offs+primal_dim-1]
+        sols[i] = sol[offs:offs+primal_dim-1]
         offs += primal_dim
     end
 
     # Extract trajectories and compute costs
-    trajectories = [unflatten_trajectory(z, STATE_DIM, CONTROL_DIM) for z in z_sols]
-    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3]) for i in 1:N]
+    trajectories = [unflatten_trajectory(z, STATE_DIM, CONTROL_DIM) for z in sols]
+    costs = [Js[i](sols[1], sols[2], sols[3]) for i in 1:N]
 
     if verbose
         @info "Solution found" status=result.status iterations=result.iterations
@@ -97,6 +99,13 @@ function run_lq_three_player_chain(;
         for i in 1:N
             @info "Player $i trajectory" xs=trajectories[i].xs us=trajectories[i].us
         end
+    end
+
+    # Verify KKT conditions if requested
+    kkt_residuals = nothing
+    if verify
+        kkt_residuals = verify_kkt_solution(solver, sol, θs, parameter_values; verbose=verbose)
+        verbose && @info "KKT residual norm" norm=norm(kkt_residuals)
     end
 
     # Generate plots if requested
@@ -118,10 +127,11 @@ function run_lq_three_player_chain(;
     end
 
     return (;
-        z_sol, z_sols, trajectories, costs,
+        sol, sols, trajectories, costs,
         status = result.status,
         iterations = result.iterations,
         residual = result.residual,
+        kkt_residuals,
         plt,
     )
 end

@@ -9,6 +9,7 @@
 
 using MixedHierarchyGames
 using TrajectoryGamesBase: unflatten_trajectory
+using LinearAlgebra: norm
 using Plots
 
 # Include experiment modules
@@ -45,6 +46,7 @@ function run_nonlinear_lane_change(;
     x0::Vector{<:AbstractVector} = default_initial_states(R),
     max_iters::Integer = MAX_ITERS,
     verbose::Bool = false,
+    verify::Bool = false,
     plot::Bool = false,
     savepath::Union{Nothing,String} = nothing,
 )
@@ -87,21 +89,28 @@ function run_nonlinear_lane_change(;
     result = solve_raw(solver, parameter_values; initial_guess = z0_guess, verbose = verbose)
 
     # Extract per-player solutions
-    z_sol = result.sol
-    z_sols = Vector{Vector{Float64}}(undef, N)
+    sol = result.sol
+    sols = Vector{Vector{Float64}}(undef, N)
     offs = 1
     for i in 1:N
-        z_sols[i] = z_sol[offs:offs+primal_dim-1]
+        sols[i] = sol[offs:offs+primal_dim-1]
         offs += primal_dim
     end
 
     # Extract trajectories and compute costs
-    trajectories = [unflatten_trajectory(z, STATE_DIM, CONTROL_DIM) for z in z_sols]
-    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], z_sols[4]) for i in 1:N]
+    trajectories = [unflatten_trajectory(z, STATE_DIM, CONTROL_DIM) for z in sols]
+    costs = [Js[i](sols[1], sols[2], sols[3], sols[4]) for i in 1:N]
 
     if verbose
         @info "Solution found" status=result.status iterations=result.iterations residual=result.residual
         @info "Player costs" costs
+    end
+
+    # Verify KKT conditions if requested
+    kkt_residuals = nothing
+    if verify
+        kkt_residuals = verify_kkt_solution(solver, sol, θs, parameter_values; verbose=verbose)
+        verbose && @info "KKT residual norm" norm=norm(kkt_residuals)
     end
 
     # Generate plots if requested
@@ -124,10 +133,11 @@ function run_nonlinear_lane_change(;
     end
 
     return (;
-        z_sol, z_sols, trajectories, costs,
+        sol, sols, trajectories, costs,
         status = result.status,
         iterations = result.iterations,
         residual = result.residual,
+        kkt_residuals,
         R, T, Δt,
         plt_traj, plt_dist,
     )
