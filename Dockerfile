@@ -8,7 +8,7 @@
 # - Secure environment variables
 # - Minimal installed packages
 
-FROM julia:1.11
+FROM --platform=linux/amd64 julia:1.11
 
 # Create non-root user (required for claude --dangerously-skip-permissions)
 ARG USER_UID=1000
@@ -62,6 +62,12 @@ RUN mkdir -p /home/devuser/.config
 # Install Claude Code CLI (native installer) as non-root user
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Install beads (bd) CLI for work tracking
+USER root
+RUN BEADS_VERSION=$(curl -fsSL https://api.github.com/repos/steveyegge/beads/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+') && \
+    curl -fsSL "https://github.com/steveyegge/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin bd
+USER devuser
+
 # Create working directory
 WORKDIR /workspace
 
@@ -76,6 +82,21 @@ RUN julia --project=. -e ' \
     Pkg.Registry.add("General"); \
     Pkg.resolve(); \
     Pkg.instantiate(); \
+    '
+
+# Copy source files for precompilation
+COPY --chown=devuser:devuser src/ src/
+
+# Precompile packages (downloads PATH binaries and LUSOL)
+RUN julia --project=. -e ' \
+    using Pkg; \
+    Pkg.precompile(); \
+    '
+
+# Verify PATH solver is available
+RUN julia --project=. -e ' \
+    using PATHSolver; \
+    @info "PATHSolver loaded successfully"; \
     '
 
 # Healthcheck to verify Julia works
