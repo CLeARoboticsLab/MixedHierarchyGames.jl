@@ -9,6 +9,7 @@ Based on: TBD
 
 - **Flexible hierarchy structures**: Supports arbitrary DAG-based leader-follower relationships (pure Stackelberg, Nash, or mixed)
 - **QP Solver**: For linear-quadratic games with equality constraints
+- **Nonlinear Solver**: For general nonlinear games using iterative quasi-linear policy approximation
 - **TrajectoryGamesBase integration**: Compatible with the TrajectoryGamesBase.jl ecosystem
 
 ## Installation
@@ -52,7 +53,9 @@ gs = [
     z -> z[1:state_dim] - collect(θ2),
 ]
 
-# Cost functions (each player minimizes own trajectory cost)
+# Cost functions: Js[i](z1, z2, ..., zN; θ=combined_params) → scalar
+# The θ keyword receives all parameter values concatenated [θ1; θ2; ...] during solve.
+# For simple cases where costs don't depend on parameters, you can ignore θ.
 Js = Dict(
     1 => (z1, z2; θ=nothing) -> sum(z1.^2),
     2 => (z1, z2; θ=nothing) -> sum(z2.^2),
@@ -75,9 +78,8 @@ See the `experiments/` folder for complete examples:
 
 - **lq_three_player_chain**: 3-player Stackelberg chain with single integrator dynamics
 - **nonlinear_lane_change**: 4-vehicle highway scenario with unicycle dynamics
-- **siopt_stackelberg**: 2-player LQ game from the SIOPT paper
 - **pursuer_protector_vip**: 3-agent pursuit-protection game
-- **olse_paper_example**: OLSE verification with closed-form comparison
+- **convergence_analysis**: Multi-run convergence analysis for nonlinear solver
 
 Each experiment has a `run.jl` entry point. See `experiments/README.md` for details.
 
@@ -118,9 +120,21 @@ For linear-quadratic games with equality constraints. Supports two backends:
 solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 ```
 
-### NonlinearSolver (planned)
+### NonlinearSolver
 
-For general nonlinear games using iterative quasi-linear policy approximation.
+For general nonlinear games using iterative quasi-linear policy approximation with Armijo backtracking line search.
+
+```julia
+solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim;
+                         max_iters=100, tol=1e-6, verbose=false, use_armijo=true)
+
+# Solve with initial guess (optional)
+strategy = solve(solver, parameter_values; initial_guess=z0)
+
+# Get raw solution with convergence info
+result = solve_raw(solver, parameter_values)
+# result.sol, result.converged, result.iterations, result.residual, result.status
+```
 
 ## Equilibrium Concept
 
