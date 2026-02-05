@@ -2,8 +2,7 @@
 
 A Julia package for solving mixed hierarchy games. This implementation uses the `TrajectoryGamesBase.jl` interface, though the solver is more general and can be used for general equality-constrained games.
 
-<!-- TODO: Add paper reference -->
-Based on: TBD
+Based on: *Manuscript in preparation* by the CLeAR Robotics Lab at UT Austin.
 
 ## Features
 
@@ -27,9 +26,11 @@ add https://github.com/CLeARoboticsLab/MixedHierarchyGames.jl
 ## Quick Start
 
 ```julia
+# Required packages (install once with: using Pkg; Pkg.add(["Graphs", "Symbolics"]))
 using MixedHierarchyGames
 using Graphs: SimpleDiGraph, add_edge!
 using Symbolics: @variables
+using LinearAlgebra: norm  # Optional, for solution analysis
 
 # Define a 2-player Stackelberg game: Player 1 leads Player 2
 G = SimpleDiGraph(2)
@@ -226,8 +227,19 @@ docker compose build --no-cache dev
 
 ## Citation
 
-<!-- TODO: Add proper citation -->
-TBD
+If you use this software in your research, please cite:
+
+```
+Manuscript in preparation. Please check back for updated citation information.
+
+For now, please cite the repository:
+@software{MixedHierarchyGames,
+  author = {CLeAR Robotics Lab},
+  title = {MixedHierarchyGames.jl: A Julia Package for Mixed Hierarchy Games},
+  url = {https://github.com/CLeARoboticsLab/MixedHierarchyGames.jl},
+  year = {2024}
+}
+```
 
 ## License
 

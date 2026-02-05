@@ -71,6 +71,11 @@ function solve(
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
+    # Check for solver failure
+    if status == :failed
+        error("QPSolver failed to find a solution. The KKT system may be singular or ill-conditioned.")
+    end
+
     return _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 end
 
@@ -87,7 +92,11 @@ Solve and return raw solution vector (for debugging/analysis).
 - `use_start::Bool=true` - Use starting point from PATH (only used with :path)
 
 # Returns
-Named tuple with sol, status, info, vars
+Named tuple with fields:
+- `sol::Vector{Float64}` - Solution vector (concatenated player decision variables)
+- `status::Symbol` - Solver status (`:solved` or `:failed`)
+- `info` - PATH solver info (only for `:path` backend, `nothing` for `:linear`)
+- `vars` - Symbolic variables from precomputation
 """
 function solve_raw(
     solver::QPSolver,
@@ -217,8 +226,25 @@ end
 
 Solve and return raw solution with convergence info (for debugging/analysis).
 
+# Keyword Arguments
+- `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- `max_iters::Int` - Maximum iterations (default from solver.options)
+- `tol::Float64` - Convergence tolerance (default from solver.options)
+- `verbose::Bool` - Print iteration info (default from solver.options)
+- `use_armijo::Bool` - Use Armijo line search (default from solver.options)
+
 # Returns
-Named tuple with sol, converged, iterations, residual, status
+Named tuple with fields:
+- `sol::Vector{Float64}` - Solution vector (concatenated player decision variables)
+- `converged::Bool` - Whether solver converged to tolerance
+- `iterations::Int` - Number of iterations taken
+- `residual::Float64` - Final KKT residual norm
+- `status::Symbol` - Solver status:
+  - `:solved` - Converged successfully
+  - `:solved_initial_point` - Initial guess was already a solution
+  - `:max_iters_reached` - Did not converge within iteration limit
+  - `:linear_solver_error` - Newton step computation failed
+  - `:numerical_error` - NaN or Inf encountered
 """
 function solve_raw(
     solver::NonlinearSolver,
@@ -484,17 +510,31 @@ function solve_qp_linear(
 
     # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
     # Note: No regularization is applied. For ill-conditioned systems, this may fail
-    # or produce inaccurate results. See task StackelbergHierarchyGames.jl-ulv for
-    # planned Tikhonov regularization and automatic scaling.
+    # or produce inaccurate results. See Phase 5 bead for planned Tikhonov regularization.
     try
         sol = J \ (-F)
-        verbose && println("Linear solve successful")
+
+        # Check for NaN/Inf in solution (can occur with near-singular matrices)
+        if any(!isfinite, sol)
+            verbose && @warn "Linear solve produced non-finite values (possible near-singular matrix)"
+            return fill(NaN, n), :failed
+        end
+
+        # Check residual quality
+        residual = norm(J * sol + F)
+        if residual > 1e-6 * max(1.0, norm(F))
+            verbose && @warn "Linear solve has unexpectedly high residual: $residual"
+        end
+
+        verbose && println("Linear solve successful (residual: $residual)")
         return sol, :solved
     catch e
         # Only catch expected linear algebra failures; rethrow programming errors
         if e isa SingularException || e isa LAPACKException
             verbose && @warn "Linear solve failed: $e"
-            return zeros(n), :failed
+            # Return NaN-filled vector to clearly signal invalid solution
+            # (zeros could be a valid solution for some problems)
+            return fill(NaN, n), :failed
         end
         rethrow()
     end

@@ -267,6 +267,94 @@ using TrajectoryGamesBase: unflatten_trajectory
             @test length(residuals) > 0
         end
 
+        @testset "Invalid solution has non-zero residuals" begin
+            G, Js, gs, primal_dims, θs, state_dim, control_dim, x0 = setup_three_player_problem()
+
+            solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; verbose=false)
+            result = solve_raw(solver, x0; verbose=false)
+
+            # Perturb the solution to make it invalid
+            bad_sol = result.sol .+ 0.5
+
+            residuals = verify_kkt_solution(solver, bad_sol, θs, x0)
+
+            # Invalid solution should have non-zero residuals
+            @test norm(residuals) > 0.1
+        end
+
+        @testset "should_enforce throws on invalid solution" begin
+            G, Js, gs, primal_dims, θs, state_dim, control_dim, x0 = setup_three_player_problem()
+
+            solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; verbose=false)
+            result = solve_raw(solver, x0; verbose=false)
+
+            # Perturb the solution significantly
+            bad_sol = result.sol .+ 1.0
+
+            # Should throw AssertionError for invalid solution with should_enforce=true
+            @test_throws AssertionError verify_kkt_solution(
+                solver, bad_sol, θs, x0;
+                should_enforce=true, tol=1e-6
+            )
+        end
+
+        @testset "verbose output does not error" begin
+            G, Js, gs, primal_dims, θs, state_dim, control_dim, x0 = setup_three_player_problem()
+
+            solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; verbose=false)
+            result = solve_raw(solver, x0; verbose=false)
+
+            # Should not error with verbose=true
+            residuals = verify_kkt_solution(solver, result.sol, θs, x0; verbose=true)
+            @test length(residuals) > 0
+        end
+
+        @testset "Single-player edge case" begin
+            # Single player Nash game (no hierarchy)
+            G = SimpleDiGraph(1)
+
+            # Use matching state and control dims for valid dynamics
+            state_dim = 2
+            control_dim = 2
+            T = 2
+
+            primal_dim = (state_dim + control_dim) * (T + 1)
+            primal_dims = [primal_dim]
+
+            θs = setup_problem_parameter_variables([state_dim])
+
+            # Simple cost: minimize state and control
+            Js = Dict(
+                1 => (z1; θ=nothing) -> begin
+                    (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+                    sum(sum(x.^2) for x in xs) + 0.1 * sum(sum(u.^2) for u in us)
+                end
+            )
+
+            # Single integrator dynamics
+            Δt = 0.1
+            gs = [
+                z -> begin
+                    (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                    dyn = mapreduce(vcat, 1:T) do t
+                        xs[t+1] - xs[t] - Δt * us[t]
+                    end
+                    ic = xs[1] - θs[1]
+                    vcat(dyn, ic)
+                end
+            ]
+
+            x0 = Dict(1 => [1.0, 0.5])
+
+            solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; verbose=false)
+            result = solve_raw(solver, x0; verbose=false)
+
+            residuals = verify_kkt_solution(solver, result.sol, θs, x0)
+
+            @test residuals isa Vector{Float64}
+            @test norm(residuals) < 1e-6
+        end
+
     end
 
 end

@@ -36,10 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Armijo line search now returns 0.0 on failure instead of last attempted step
 
 ### Deprecated
-- N/A
+(No deprecations in this release)
 
 ### Removed
-- N/A
+(No removals in this release)
 
 ### Security
-- N/A
+(No security changes in this release)

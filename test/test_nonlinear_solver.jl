@@ -538,3 +538,165 @@ end
         @test α > 0
     end
 end
+
+#=
+    Tests for solver failure paths
+=#
+
+@testset "Nonlinear Solver Failure Paths" begin
+    @testset ":max_iters_reached status" begin
+        # Create a problem and run with zero iterations allowed
+        # For linear problems, 1 iteration is enough to converge, so we need max_iters=0
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, -0.5])
+
+        # Allow 0 iterations - should hit max_iters immediately
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=0,
+            tol=1e-12,  # Very tight tolerance
+            verbose=false
+        )
+
+        @test result.status == :max_iters_reached
+        @test result.converged == false
+        @test result.iterations == 0
+    end
+
+    @testset "Solver handles poor initial guess" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, -0.5])
+
+        # Very bad initial guess (large values)
+        bad_guess = fill(1000.0, length(precomputed.all_variables))
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            initial_guess=bad_guess,
+            max_iters=50,
+            tol=1e-6,
+            verbose=false
+        )
+
+        # Should still return a result (may or may not converge)
+        @test result.sol isa Vector{Float64}
+        @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error]
+    end
+end
+
+#=
+    Input Validation Tests for NonlinearSolver
+=#
+
+@testset "NonlinearSolver Input Validation" begin
+    using MixedHierarchyGames: NonlinearSolver, solve, solve_raw
+
+    @testset "Rejects cyclic graph" begin
+        # Create a cycle: 1 → 2 → 1
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 1)
+
+        primal_dims = [4, 4]
+        θs = setup_problem_parameter_variables([2, 2])
+        gs = [z -> [z[1]], z -> [z[1]]]
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        @test_throws ArgumentError NonlinearSolver(G, Js, gs, primal_dims, θs, 2, 1)
+    end
+
+    @testset "Rejects self-loop" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 1)  # Self-loop
+
+        primal_dims = [4, 4]
+        θs = setup_problem_parameter_variables([2, 2])
+        gs = [z -> [z[1]], z -> [z[1]]]
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        @test_throws ArgumentError NonlinearSolver(G, Js, gs, primal_dims, θs, 2, 1)
+    end
+
+    @testset "Rejects mismatched primal_dims length" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [4, 4, 4]  # 3 elements for 2-player game
+        θs = setup_problem_parameter_variables([2, 2])
+        gs = [z -> [z[1]], z -> [z[1]]]
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        @test_throws ArgumentError NonlinearSolver(G, Js, gs, primal_dims, θs, 2, 1)
+    end
+
+    @testset "Rejects missing player in Js" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [4, 4]
+        θs = setup_problem_parameter_variables([2, 2])
+        gs = [z -> [z[1]], z -> [z[1]]]
+        Js = Dict(1 => (z1, z2; θ=nothing) -> sum(z1.^2))  # Missing player 2
+
+        @test_throws ArgumentError NonlinearSolver(G, Js, gs, primal_dims, θs, 2, 1)
+    end
+
+    @testset "Rejects missing parameter_values in solve" begin
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        # Use matching state and control dims to avoid dimension mismatch
+        state_dim = 2
+        control_dim = 2
+        T = 2
+        primal_dim = (state_dim + control_dim) * (T + 1)
+        primal_dims = [primal_dim, primal_dim]
+
+        θs = setup_problem_parameter_variables([state_dim, state_dim])
+
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
+        )
+
+        gs = [
+            z -> begin
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                vcat([xs[t+1] - xs[t] - 0.1*us[t] for t in 1:T]..., xs[1] - θs[1])
+            end,
+            z -> begin
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                vcat([xs[t+1] - xs[t] - 0.1*us[t] for t in 1:T]..., xs[1] - θs[2])
+            end
+        ]
+
+        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+
+        # Missing player 2 in parameter_values
+        parameter_values = Dict(1 => [1.0, 0.0])
+        @test_throws ArgumentError solve(solver, parameter_values)
+    end
+end

@@ -6,8 +6,9 @@
     K = M \ N numerically at each iteration.
 =#
 
-# Helper function to replace @something macro
-_value_or_default(x, default) = isnothing(x) ? default : x
+# Use Julia's built-in `something(x, default)` for value-or-default pattern
+# Note: something() returns the first non-nothing value, so something(x, default)
+# is equivalent to isnothing(x) ? default : x
 
 # Line search constants for run_nonlinear_solver
 const LINESEARCH_MAX_ITERS = 10
@@ -212,7 +213,7 @@ function setup_approximate_kkt_solver(
     end
 
     # Build full augmented variable list
-    all_K_syms_vec = vcat([reshape(_value_or_default(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
+    all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
     all_augmented_variables = vcat(all_variables, all_K_syms_vec)
 
     return all_augmented_variables, (; graph=G, πs, K_syms, M_fns, N_fns, π_sizes)
@@ -295,7 +296,7 @@ function preoptimize_nonlinear_solver(
     K_syms = setup_info.K_syms
 
     # Build flattened K symbols vector for use as parameters
-    all_K_syms_vec = vcat([reshape(_value_or_default(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
+    all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
 
     # Build parameter vector (θ values + K matrix values)
     θ_order = sort(collect(keys(θs)))
@@ -400,6 +401,11 @@ end
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
+Note: This function is NOT thread-safe. The precomputed M_fns and N_fns contain
+shared result buffers that would cause data races if called concurrently.
+For multi-threaded use, each thread needs its own solver instance.
+See Phase 6 for planned thread-safety improvements.
+
 # Arguments
 - `z_current::Vector` - Current solution estimate
 - `problem_vars::NamedTuple` - Problem variables (from setup_problem_variables)
@@ -456,7 +462,7 @@ function compute_K_evals(
 
     # Concatenate all K values into single vector
     N = nv(graph)
-    all_K_vec = vcat([reshape(_value_or_default(K_evals[ii], Float64[]), :) for ii in 1:N]...)
+    all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N]...)
 
     return all_K_vec, (; M_evals, N_evals, K_evals)
 end
@@ -551,6 +557,13 @@ function run_nonlinear_solver(
         mcp_obj.f!(F_eval, z_est, param_vec)
         convergence_criterion = norm(F_eval)
 
+        # Guard against NaN/Inf in residual computation
+        if !isfinite(convergence_criterion)
+            verbose && @warn "Residual contains NaN or Inf values, terminating"
+            status = :numerical_error
+            break
+        end
+
         verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
 
         if convergence_criterion < tol
@@ -598,8 +611,15 @@ function run_nonlinear_solver(
             end
         end
 
-        # Update estimate
-        z_est = z_est .+ α .* δz
+        # Update estimate (in-place to avoid allocation)
+        @. z_est += α * δz
+
+        # Guard against NaN/Inf in solution
+        if any(!isfinite, z_est)
+            verbose && @warn "Solution contains NaN or Inf values after update, terminating"
+            status = :numerical_error
+            break
+        end
     end
 
     return (;

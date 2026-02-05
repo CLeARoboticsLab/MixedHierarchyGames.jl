@@ -187,10 +187,9 @@ The solver must have `precomputed.setup_info.πs` and related fields (NonlinearS
 This is a convenience wrapper that extracts the necessary data from the solver
 and calls `evaluate_kkt_residuals`.
 
-!!! note "Nonlinear Solver Limitation"
-    For NonlinearSolver, this function evaluates the *approximate* KKT conditions
-    (with K=0, i.e., ignoring policy derivatives). For exact verification of
-    nonlinear problems, see the legacy examples which use augmented variables.
+Note: For NonlinearSolver, this function evaluates the KKT conditions with the
+actual K (policy derivative) values computed at the solution. The residuals
+should be small for a properly converged solution.
 
 # Arguments
 - `solver` - The solver used to find the solution (NonlinearSolver)
