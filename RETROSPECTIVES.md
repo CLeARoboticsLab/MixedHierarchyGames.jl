@@ -37,6 +37,8 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
   - Write test names/descriptions before any implementation
   - Use `@test_broken` for tests that define behavior not yet implemented
 
+- **Verifiable Solution:** Before any implementation file is created, run `git status` and verify a corresponding test file exists. If implementing `src/foo.jl`, there must be `test/test_foo.jl` in the staged or committed files first.
+
 ### Clean Code Practices
 
 **Score: Fair (7/10)**
@@ -58,6 +60,8 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
   - Define constants at module level with clear names
   - Review for repeated patterns before PR completion
 
+- **Verifiable Solution:** Before marking PR ready, run: `grep -c "^function\|^end" src/*.jl` and manually verify no function body exceeds 50 lines. Add a pre-merge check: search for magic numbers (bare numeric literals) in new code.
+
 ### Clean Architecture Practices
 
 **Score: Good (8/10)**
@@ -75,6 +79,8 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
 - **Improvement for next PR:**
   - Complete Bead 2 (rename `examples/` to `legacy/`)
   - Consider whether any experiment code should move to `src/`
+
+- **Verifiable Solution:** Before PR completion, verify no imports go from `src/` to `experiments/`. Run: `grep -r "include.*experiments" src/` should return empty.
 
 ### Commit Hygiene
 
@@ -96,6 +102,8 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
   - If a commit message needs "and" or lists multiple items, split it
   - Consider feature flags or separate PRs for distinct features
 
+- **Verifiable Solution:** Before committing, run `git diff --stat` and verify fewer than 100 lines changed across no more than 3 files. If commit message contains "and", split into separate commits.
+
 ### CLAUDE.md Compliance
 
 **Score: Good (8/10)**
@@ -113,6 +121,8 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
 - **Improvement for next PR:**
   - Review CLAUDE.md at PR START, not just at end
   - Check TDD compliance after each feature, not just at PR end
+
+- **Verifiable Solution:** At PR start, explicitly acknowledge CLAUDE.md review with a comment listing which sections apply. After each feature, run tests and note "TDD verified: [feature name]" in commit message or PR notes.
 
 ### Beads Created
 
@@ -157,30 +167,35 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
 - What went well:
 - What went wrong:
 - Improvement:
+- Verifiable Solution:
 
 ### Clean Code Practices
 **Score: X/10**
 - What went well:
 - What went wrong:
 - Improvement:
+- Verifiable Solution:
 
 ### Clean Architecture Practices
 **Score: X/10**
 - What went well:
 - What went wrong:
 - Improvement:
+- Verifiable Solution:
 
 ### Commit Hygiene
 **Score: X/10**
 - What went well:
 - What went wrong:
 - Improvement:
+- Verifiable Solution:
 
 ### CLAUDE.md Compliance
 **Score: X/10**
 - What went well:
 - What went wrong:
 - Improvement:
+- Verifiable Solution:
 
 ### Beads Created
 [List]

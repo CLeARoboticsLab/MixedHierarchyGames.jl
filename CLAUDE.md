@@ -283,3 +283,7 @@ This retrospective may be abbreviated (but never skipped) for:
 - Emergency hotfixes (document debt and create follow-up tasks)
 
 Even abbreviated retrospectives should note: "Retrospective: Trivial change, no process issues identified."
+
+### Recording Retrospectives
+
+All retrospectives must be recorded in `RETROSPECTIVES.md` at the repository root. This file serves as a learning diary across PRs. See the template in that file for required sections.
