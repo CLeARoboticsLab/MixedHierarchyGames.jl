@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `QPSolver` for linear-quadratic hierarchy games with equality constraints
 - `NonlinearSolver` for nonlinear hierarchy games using iterative KKT solving
+  - Quasi-linear policy approximation with Newton-like iterations
+  - Armijo backtracking line search for globalization
+  - Configurable: `max_iters`, `tol`, `verbose`, `use_armijo`
+  - Supports warm-starting via `initial_guess` parameter
 - `HierarchyGame` type wrapping `TrajectoryGame` with hierarchy graph
 - `solve()` function returning `JointStrategy` with extracted trajectories
 - `solve_raw()` function for debugging and analysis

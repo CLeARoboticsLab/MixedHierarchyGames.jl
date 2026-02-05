@@ -9,6 +9,10 @@
 # Helper function to replace @something macro
 _value_or_default(x, default) = isnothing(x) ? default : x
 
+# Line search constants for run_nonlinear_solver
+const LINESEARCH_MAX_ITERS = 10
+const LINESEARCH_BACKTRACK_FACTOR = 0.5
+
 """
     _construct_augmented_variables(ii, all_variables, K_syms, G)
 
@@ -582,7 +586,7 @@ function run_nonlinear_solver(
         F_eval_current_norm = norm(F_eval)
 
         if use_armijo
-            for _ in 1:10
+            for _ in 1:LINESEARCH_MAX_ITERS
                 z_trial = z_est .+ α .* δz
                 param_trial, _ = params_for_z(z_trial)
                 mcp_obj.f!(F_eval, z_trial, param_trial)
@@ -590,7 +594,7 @@ function run_nonlinear_solver(
                 if norm(F_eval) < F_eval_current_norm
                     break
                 end
-                α *= 0.5
+                α *= LINESEARCH_BACKTRACK_FACTOR
             end
         end
 

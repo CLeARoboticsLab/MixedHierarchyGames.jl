@@ -313,7 +313,7 @@ Construct a NonlinearSolver from low-level problem components.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict` - Cost functions per player (signature: Js[i](z1, z2, ..., zN, θ) → scalar)
+- `Js::Dict` - Cost functions per player: Js[i](z1, z2, ..., zN; θ) → scalar
 - `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
