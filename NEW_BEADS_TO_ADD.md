@@ -302,3 +302,64 @@ mcp_obj.jacobian_z!(∇F, z_est, param_vec)
 ```
 
 **Risk:** May slightly slow down iterations. Profile before implementing.
+
+---
+
+## Bead 15: Type Stability in Dict Storage (Phase 6)
+
+**Type:** task
+**Phase:** 6 (low priority - performance)
+
+**Description:**
+Address type instabilities in Dict usage throughout KKT construction:
+
+1. `Dict{Int, Any}` in `src/qp_kkt.jl:91-94` - πs, Ms, Ns, Ks
+2. `Dict{Int, Union{Matrix{Float64}, Nothing}}` in `src/nonlinear_kkt.jl:426-428`
+3. `Dict{Int, Function}` in `src/nonlinear_kkt.jl:121-122`
+
+**Impact:** Moderate for small problems, significant for large problems due to dynamic dispatch.
+
+**Proposed Fix:**
+- Use concrete type parameters: `Dict{Int, Vector{Symbolics.Num}}`
+- Replace `Union{..., Nothing}` with sentinel empty matrices
+- Consider FunctionWrapper for typed function storage
+
+**Note:** Requires restructuring symbolic expression storage - invasive change.
+
+---
+
+## Bead 16: Extract Player Ordering Helper (Phase 5)
+
+**Type:** task
+**Phase:** 5 (code quality)
+
+**Description:**
+Create `ordered_player_indices(d::Dict)` helper to replace repeated `sort(collect(keys(d)))` pattern.
+
+**Locations:**
+- src/solve.jl:160-161
+- src/nonlinear_kkt.jl:301-302
+- src/utils.jl (multiple)
+
+**Benefits:**
+- Single source of truth for ordering
+- Prevents bugs from missing sort()
+- Could cache result for performance
+
+---
+
+## Bead 17: Pre-allocate params_for_z Buffers (Phase 6)
+
+**Type:** task
+**Phase:** 6 (low priority - performance)
+
+**Description:**
+The `params_for_z` closure in `run_nonlinear_solver` allocates new vectors on each call. Called 2-3x per iteration.
+
+**Location:** src/nonlinear_kkt.jl:540-543
+
+**Proposed Fix:**
+- Pre-allocate output buffers before loop
+- Use `copyto!` instead of creating new arrays
+
+**Note:** Profile first - may be negligible for typical problem sizes.

@@ -11,6 +11,8 @@
 # is equivalent to isnothing(x) ? default : x
 
 # Line search constants for run_nonlinear_solver
+# Note: These differ from armijo_backtracking_linesearch defaults (20 iters).
+# See Bead 1 for planned unification of line search implementations.
 const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
