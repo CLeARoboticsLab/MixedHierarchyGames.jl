@@ -6,8 +6,8 @@
     - Player 2: Protector - protects the VIP from pursuer
     - Player 3: VIP - tries to reach goal while staying near protector
 
-    Uses the same hierarchy as the LQ three-player chain:
-    P1 → P2 → P3
+    Hierarchy: P2 is root leader, leads P1 and P3
+    (P2 → P1, P2 → P3)
 =#
 
 using MixedHierarchyGames
@@ -49,9 +49,9 @@ function run_pursuer_protector_vip(;
     state_dim = 2  # [x, y] position
     control_dim = 2  # [vx, vy] velocity
 
-    # Set up hierarchy: P1 → P2 → P3
+    # Set up hierarchy: P2 is root, leads P1 and P3
     G = SimpleDiGraph(N)
-    add_edge!(G, 2, 1)  # P1 leads P2
+    add_edge!(G, 2, 1)  # P2 leads P1
     add_edge!(G, 2, 3)  # P2 leads P3
 
     # Dimensions
@@ -59,12 +59,11 @@ function run_pursuer_protector_vip(;
     primal_dims = fill(primal_dim, N)
 
     # Set up symbolic parameters for initial states
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(backend, fill(state_dim, N))
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
 
-    # Player objectives
+    # Player objectives (θ as keyword argument for NonlinearSolver compatibility)
     # Pursuer: chase VIP, lightly repulse protector, penalize control effort
-    function J₁(z₁, z₂, z₃, θi)
+    function J₁(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -83,7 +82,7 @@ function run_pursuer_protector_vip(;
     end
 
     # Protector: stay with VIP, pull VIP away from pursuer
-    function J₂(z₁, z₂, z₃, θi)
+    function J₂(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
         xs², us² = xs, us
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
@@ -102,7 +101,7 @@ function run_pursuer_protector_vip(;
     end
 
     # VIP: reach goal, stay close to protector
-    function J₃(z₁, z₂, z₃, θi)
+    function J₃(z₁, z₂, z₃; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₃, state_dim, control_dim)
         xs³, us³ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -148,7 +147,7 @@ function run_pursuer_protector_vip(;
     result = solve_raw(solver, parameter_values; verbose = verbose)
 
     # Extract per-player solutions
-    z_sol = result.z_sol
+    z_sol = result.sol
     offs = 1
     z_sols = Vector{Vector{Float64}}(undef, N)
     for i in 1:N
@@ -162,7 +161,7 @@ function run_pursuer_protector_vip(;
     end
 
     # Compute costs
-    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], nothing) for i in 1:N]
+    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3]) for i in 1:N]
 
     if verbose
         @info "Solution found" status = result.status iterations = result.iterations
