@@ -7,6 +7,38 @@
 - Each significant chunk of work in a PR should be divided into commits
 - Branches associated with merged PRs can be deleted locally (not on the remote repo) after merging
 
+### Pull Request Requirements
+
+When pushing a branch, always create or update the associated PR with a clear, auditable description:
+
+1. **New branches**: Create a PR immediately after pushing with:
+   - Summary of changes made
+   - List of files modified with brief descriptions
+   - Any breaking changes or migration notes
+   - Testing performed
+
+2. **Existing PRs**: When pushing additional commits to a branch with an existing PR:
+   - Update the PR description to reflect new changes
+   - Add a changelog section at the bottom showing what was added in each push
+   - Keep the description current with the actual state of the branch
+
+3. **PR Description Format**:
+   ```markdown
+   ## Summary
+   [Brief description of the overall change]
+
+   ## Changes
+   - `path/to/file.jl`: [What changed and why]
+   - `another/file.jl`: [What changed and why]
+
+   ## Testing
+   - [How the changes were tested]
+
+   ## Changelog
+   - [Date]: Initial PR with [features]
+   - [Date]: Added [additional features]
+   ```
+
 ## Test-Driven Development (TDD)
 
 **TDD is mandatory for all new code.** No exceptions without explicit user approval.
@@ -132,12 +164,28 @@ experiments/<name>/
 
 See `experiments/README.md` for full documentation.
 
+## Dependencies
+
+The repository has multiple Project.toml files for different contexts:
+
+- **Root `Project.toml`**: Contains minimal dependencies required for the core package. Keep this lean - only include what's necessary for `src/`.
+- **`experiments/Project.toml`**: Contains dependencies needed for running experiments (e.g., Plots, visualization tools). Uses `[sources]` to reference the local MixedHierarchyGames package.
+- **`test/Project.toml`** (if exists): Contains test-specific dependencies.
+
+### Guidelines
+
+- **Run experiments** with: `julia --project=experiments experiments/lq_three_player_chain/run.jl`
+- **Run tests** with: `julia --project=. -e 'using Pkg; Pkg.test()'`
+- **New experiment dependencies**: Add to `experiments/Project.toml`, not the root
+- **New package dependencies**: Add to root `Project.toml` only if used by `src/`
+
 ## Verification Checklist
 
 Before marking work complete, verify the following:
 
 ### Code Quality
-- [ ] All tests pass (`julia --project=. -e 'using Pkg; Pkg.test()'`)
+- [ ] All tests pass (`julia --project=. -e 'using Pkg; Pkg.test()'` or `julia --project=. test/runtests.jl`)
+- [ ] Experiments run successfully (`julia --project=experiments experiments/<name>/run.jl`)
 - [ ] No new warnings introduced
 - [ ] Type stability checked for performance-critical functions
 

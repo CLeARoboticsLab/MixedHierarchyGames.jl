@@ -56,3 +56,22 @@ This is confusing because:
 3. Update `examples/` to use the package (significant work)
 
 **Recommendation:** Rename to `legacy/` with a README explaining it's historical reference code.
+
+---
+
+## Bead 3: Add Progress Bars to NonlinearSolver
+
+**Type:** task
+**Phase:** 5 (enhancements)
+
+**Description:**
+Use ProgressBars.jl to show solver iteration progress during `run_nonlinear_solver`. The package is already a dependency.
+
+**Implementation:**
+- Add a `show_progress::Bool = false` keyword argument to `run_nonlinear_solver`
+- Wrap the main iteration loop with `ProgressBar(1:max_iters)` when enabled
+- Update progress bar description with current residual norm
+
+**Notes:**
+- Should be optional to avoid cluttering output in automated tests
+- Consider also adding to QPSolver for consistency
