@@ -6,6 +6,12 @@ Manifest.toml
 deps/deps.jl
 deps/build.log
 docs/build/
+.julia/
+.julia_depot/
+.julia_local/
+
+# Debug scripts
+debug/
 
 # Project-specific
 warmstart/*.jld2
