@@ -45,21 +45,16 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Create workspace directory with correct ownership
-RUN mkdir -p /workspace && chown devuser:devuser /workspace
+# Create workspace and user directories with correct ownership (as root)
+RUN mkdir -p /workspace && chown devuser:devuser /workspace \
+    && mkdir -p /home/devuser/.claude /home/devuser/.cache/claude \
+       /home/devuser/.config /home/devuser/.ssh \
+    && chmod 700 /home/devuser/.ssh \
+    && chown -R devuser:devuser /home/devuser
 
 # Switch to non-root user for remaining setup
 USER devuser
 WORKDIR /home/devuser
-
-# Create .claude directory for Claude Code configuration
-RUN mkdir -p /home/devuser/.claude
-
-# Create .ssh directory with correct permissions for SSH agent forwarding
-RUN mkdir -p /home/devuser/.ssh && chmod 700 /home/devuser/.ssh
-
-# Create .config directory for gh CLI
-RUN mkdir -p /home/devuser/.config
 
 # Install Claude Code CLI (native installer) as non-root user
 RUN curl -fsSL https://claude.ai/install.sh | bash
