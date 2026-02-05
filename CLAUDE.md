@@ -40,6 +40,11 @@ If you find yourself writing implementation code without a failing test:
 - **Numerical precision**: For linear algebra operations, expect machine precision (~1e-14 to 1e-16). Use `1e-10` for tight tests, `1e-6` for general correctness.
 - **Failing tests**: If a test fails, investigate and fix the root cause. Never relax tolerances as a workaround.
 
+## Code Quality
+
+- **Dead code**: When encountering dead code (unused functions, unreachable branches, stub functions that throw errors), mark it for removal. Delete it if clearly unused, or flag for review if uncertain.
+- **Duplicated code**: When encountering duplicated logic, mark it for consolidation. Extract shared functionality into helper functions or common modules.
+
 ## Planning
 
 When creating implementation plans:

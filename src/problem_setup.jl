@@ -268,21 +268,3 @@ function setup_problem_variables(
 
     (; zs, λs, μs, ys, ws, ws_z_indices, all_variables)
 end
-
-"""
-    construct_augmented_variables(zs, Ks, hierarchy_graph)
-
-Build augmented variable list including symbolic K matrices for optimized solving.
-
-# Arguments
-- `zs::Dict` - Decision variables per player
-- `Ks::Dict` - Policy matrices per player
-- `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
-
-# Returns
-- `augmented_vars::Vector` - Variables augmented with K matrix entries
-"""
-function construct_augmented_variables(zs, Ks, hierarchy_graph)
-    # TODO(Phase F): Implement for nonlinear solver K matrix handling
-    error("construct_augmented_variables is not yet implemented. Planned for nonlinear solver phase.")
-end

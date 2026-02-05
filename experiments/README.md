@@ -7,20 +7,25 @@ All experiments use the NonlinearSolver interface, which works for both LQ and n
 
 ```
 experiments/
-├── README.md                     # This file
+├── README.md                     # This file (overview)
 ├── common/                       # Shared utilities
-│   ├── dynamics.jl              # Common dynamics models (unicycle, bicycle, etc.)
+│   ├── dynamics.jl              # Common dynamics models
 │   ├── collision_avoidance.jl   # Smooth collision cost functions
-│   └── trajectory_utils.jl      # Trajectory generation utilities
-├── lq_three_player_chain/       # LQ example with 3-player Stackelberg chain
-│   └── run.jl                   # run_lq_three_player_chain()
-├── nonlinear_lane_change/       # Nonlinear lane change scenario
-│   └── run.jl                   # run_nonlinear_lane_change()
-├── convergence_analysis/        # Multi-run convergence testing
-│   └── run.jl                   # run_convergence_analysis()
-├── pursuer_protector_vip/       # Multi-agent pursuit-protection game
-│   └── run.jl                   # run_pursuer_protector_vip()
-└── three_player_chain_validation.jl  # Validation against reference
+│   ├── trajectory_utils.jl      # Trajectory generation utilities
+│   └── plotting.jl              # Visualization utilities
+├── lq_three_player_chain/       # LQ 3-player game
+│   ├── README.md                # Detailed documentation
+│   ├── config.jl, run.jl, support.jl
+├── nonlinear_lane_change/       # Highway merge scenario
+│   ├── README.md
+│   ├── config.jl, run.jl, support.jl
+├── pursuer_protector_vip/       # Pursuit-protection game
+│   ├── README.md
+│   ├── config.jl, run.jl, support.jl
+├── convergence_analysis/        # Solver robustness testing
+│   ├── README.md
+│   ├── config.jl, run.jl, support.jl
+└── three_player_chain_validation.jl  # Validation script
 ```
 
 ## Common Utilities
@@ -55,47 +60,16 @@ using MixedHierarchyGames
 include("experiments/lq_three_player_chain/run.jl")
 ```
 
-## Experiment Descriptions
+## Experiments Overview
 
-### LQ Three Player Chain
-A linear-quadratic game with 3 players in a Stackelberg chain: P1 → P2 → P3.
-Uses single integrator dynamics (2D position + 2D velocity control).
-Players have quadratic objectives related to reaching positions and minimizing control.
+| Experiment | Hierarchy | Dynamics | Description |
+|------------|-----------|----------|-------------|
+| [lq_three_player_chain](lq_three_player_chain/README.md) | P2 → P1, P2 → P3 | Single integrator | 3-player LQ game, P2 is root leader |
+| [nonlinear_lane_change](nonlinear_lane_change/README.md) | P1 → P2 → P4 (P3 Nash) | Unicycle | 4-vehicle highway merge scenario |
+| [pursuer_protector_vip](pursuer_protector_vip/README.md) | P2 → P1, P2 → P3 | Single integrator | 3-agent pursuit-protection game |
+| [convergence_analysis](convergence_analysis/README.md) | (uses lane change) | Unicycle | Multi-run solver robustness testing |
 
-**Hierarchy:** P1 leads P2, P2 leads P3
-**Dynamics:** Single integrator (linear)
-**Key function:** `run_lq_three_player_chain(; T=3, Δt=0.5, x0, verbose)`
-
-### Nonlinear Lane Change
-Four vehicles with unicycle dynamics on a highway. One vehicle (P3) merges from
-an on-ramp following a quarter-circle trajectory, while others maintain lanes.
-Tests collision avoidance and nonlinear dynamics.
-
-**Hierarchy:** P1 → P2 → P4 (P3 is Nash)
-**Dynamics:** Unicycle (nonlinear)
-**Key function:** `run_nonlinear_lane_change(; T=14, Δt=0.4, R=6.0, x0, verbose)`
-
-### Pursuer Protector VIP
-Three-agent pursuit-protection game:
-- P1 (Pursuer): Chases the VIP
-- P2 (Protector): Shields VIP from pursuer
-- P3 (VIP): Reaches goal while staying near protector
-
-**Hierarchy:** P1 → P2 → P3
-**Dynamics:** Single integrator
-**Key function:** `run_pursuer_protector_vip(; T=20, Δt=0.1, x0, x_goal, verbose)`
-
-### Convergence Analysis
-Multi-run solver robustness testing with perturbed initial states.
-Runs the nonlinear lane change scenario multiple times with random perturbations
-to verify solver convergence reliability.
-
-**Configuration:**
-- `num_runs=11`: Number of test runs
-- `perturb_scale=0.1`: Random perturbation magnitude for initial states
-- `max_iters=200`: Maximum solver iterations per run
-
-**Key function:** `run_convergence_analysis(; config, verbose)`
+See individual experiment README files for detailed documentation.
 
 ## Adding New Experiments
 
@@ -105,10 +79,10 @@ Each experiment should follow this structure:
 
 ```
 experiments/<name>/
+├── README.md          # Detailed documentation (required)
 ├── config.jl          # Parameters: x0, G, N, T, Δt, costs, goals, etc.
 ├── run.jl             # Main entry point (uses config + support)
-├── support.jl         # Experiment-specific helpers (if needed)
-└── README.md          # Experiment description (optional)
+└── support.jl         # Experiment-specific helpers (if needed)
 ```
 
 ### Guidelines
@@ -144,7 +118,7 @@ experiments/<name>/
    - Shared plotting → `experiments/common/plotting.jl`
    - Generally useful code → consider adding to `src/`
 
-5. **Update this README** with the experiment description
+5. **Update this README** - Add entry to the Experiments Overview table
 
 ### Shared Code Organization
 
