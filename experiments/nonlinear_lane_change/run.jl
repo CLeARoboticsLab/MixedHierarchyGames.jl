@@ -61,11 +61,10 @@ function run_nonlinear_lane_change(;
     primal_dims = fill(primal_dim, N)
 
     # Set up symbolic parameters for initial states
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(backend, fill(state_dim, N))
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
 
-    # Player objectives
-    function J₁(z₁, z₂, z₃, z₄, θ)
+    # Player objectives (θ as keyword argument for NonlinearSolver compatibility)
+    function J₁(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -84,7 +83,7 @@ function run_nonlinear_lane_change(;
         control + collision + 5 * y_deviation + zero_heading + velocity
     end
 
-    function J₂(z₁, z₂, z₃, z₄, θ)
+    function J₂(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -103,7 +102,7 @@ function run_nonlinear_lane_change(;
         control + collision + 5 * y_deviation + zero_heading + velocity
     end
 
-    function J₃(z₁, z₂, z₃, z₄, θ)
+    function J₃(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -124,7 +123,7 @@ function run_nonlinear_lane_change(;
         tracking + control + collision + 5 * y_deviation + zero_heading + velocity
     end
 
-    function J₄(z₁, z₂, z₃, z₄, θ)
+    function J₄(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -185,7 +184,7 @@ function run_nonlinear_lane_change(;
     result = solve_raw(solver, parameter_values; initial_guess = z0_guess, verbose = verbose)
 
     # Extract per-player solutions
-    z_sol = result.z_sol
+    z_sol = result.sol
     offs = 1
     z_sols = Vector{Vector{Float64}}(undef, N)
     for i in 1:N
@@ -199,7 +198,7 @@ function run_nonlinear_lane_change(;
     end
 
     # Compute costs
-    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], z_sols[4], nothing) for i in 1:N]
+    costs = [Js[i](z_sols[1], z_sols[2], z_sols[3], z_sols[4]) for i in 1:N]
 
     if verbose
         @info "Solution found" status = result.status iterations = result.iterations residual = result.residual

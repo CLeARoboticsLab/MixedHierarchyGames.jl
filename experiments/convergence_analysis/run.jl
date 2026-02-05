@@ -62,11 +62,10 @@ function build_nonlinear_lane_change_solver(; R, T, Δt, max_iters, verbose=fals
     primal_dims = fill(primal_dim, N)
 
     # Symbolic parameters for initial states
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(backend, fill(state_dim, N))
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
 
     # Cost functions
-    function J₁(z₁, z₂, z₃, z₄, θ)
+    function J₁(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs, us) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹, us¹ = xs, us
         (; xs,) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -85,7 +84,7 @@ function build_nonlinear_lane_change_solver(; R, T, Δt, max_iters, verbose=fals
         control + collision + 5y_deviation + zero_heading + velocity
     end
 
-    function J₂(z₁, z₂, z₃, z₄, θ)
+    function J₂(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs,) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹ = xs
         (; xs, us) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -104,7 +103,7 @@ function build_nonlinear_lane_change_solver(; R, T, Δt, max_iters, verbose=fals
         control + collision + 5y_deviation + zero_heading + velocity
     end
 
-    function J₃(z₁, z₂, z₃, z₄, θ)
+    function J₃(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs,) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹ = xs
         (; xs,) = unflatten_trajectory(z₂, state_dim, control_dim)
@@ -124,7 +123,7 @@ function build_nonlinear_lane_change_solver(; R, T, Δt, max_iters, verbose=fals
         tracking + control + collision + 5y_deviation + zero_heading + velocity
     end
 
-    function J₄(z₁, z₂, z₃, z₄, θ)
+    function J₄(z₁, z₂, z₃, z₄; θ=nothing)
         (; xs,) = unflatten_trajectory(z₁, state_dim, control_dim)
         xs¹ = xs
         (; xs,) = unflatten_trajectory(z₂, state_dim, control_dim)
