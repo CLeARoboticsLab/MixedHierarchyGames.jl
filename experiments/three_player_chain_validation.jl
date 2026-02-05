@@ -482,7 +482,7 @@ function run_validation(; T=3, Δt=0.5, tol=1e-10, verbose=false)
         verbose=verbose
     )
 
-    z_sol_new = result_new.z_sol
+    z_sol_new = result_new.sol
     status_new = result_new.status
 
     println("  Status: $status_new")

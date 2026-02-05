@@ -24,12 +24,22 @@ include("testing_utils.jl")
     # Phase F: Nonlinear Solver (TDD)
     include("test_nonlinear_solver.jl")
 
+    # KKT Verification Utilities (TDD)
+    include("test_kkt_verification.jl")
+
     # Phase G: Interface (TDD)
     include("test_interface.jl")
 
     # Input Validation
     include("test_input_validation.jl")
 
-    # OLSE Validation (QP solver correctness)
-    include("test_qp_olse_validation.jl")
+    # Integration Tests (QP vs Nonlinear, paper examples)
+    include("test_integration.jl")
+
+    # OLSE Tests (comparing solvers against closed-form OLSE solution)
+    include("olse/test_qp_solver.jl")
+    include("olse/test_nonlinear_solver.jl")
+
+    # Type Stability Tests
+    include("test_type_stability.jl")
 end

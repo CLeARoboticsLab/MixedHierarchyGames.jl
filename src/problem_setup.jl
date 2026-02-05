@@ -108,23 +108,46 @@ end
 """
     _validate_constraint_functions(gs::Vector, zs::Dict)
 
-Validate that constraint functions have correct signatures and return Vectors.
+Validate that constraint functions have correct signatures, return Vectors,
+and only depend on the player's own decision variables (decoupled constraints).
 
-Called during problem setup to catch signature errors early with clear messages.
+Called during problem setup to catch errors early with clear messages.
 
 # Arguments
 - `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
 - `zs::Dict` - Decision variables per player (used to test function signatures)
 
 # Throws
-- `ArgumentError` if gs[i] has wrong signature or doesn't return AbstractVector
+- `ArgumentError` if gs[i] has wrong signature, doesn't return AbstractVector,
+  or contains variables from other players (coupled constraint)
 """
 function _validate_constraint_functions(gs::Vector, zs::Dict)
+    # Collect all variables from all players for coupled constraint detection
+    all_zs_flat = Set(Iterators.flatten(values(zs)))
+
     for (i, g) in enumerate(gs)
         try
             result = g(zs[i])
             if !(result isa AbstractVector)
                 throw(ArgumentError("gs[$i] must return a Vector, got $(typeof(result))"))
+            end
+
+            # Check for coupled constraints: ensure result only uses variables from zs[i]
+            if !isempty(result)
+                allowed_vars = Set(zs[i])
+                for constraint in result
+                    constraint_vars = Symbolics.get_variables(constraint)
+                    for var in constraint_vars
+                        if var in all_zs_flat && !(var in allowed_vars)
+                            throw(ArgumentError(
+                                "gs[$i] contains coupled constraint: references variable " *
+                                "from another player. Coupled constraints (gs[i] depending " *
+                                "on zs[j] for j ≠ i) are not supported. " *
+                                "See README.md for details."
+                            ))
+                        end
+                    end
+                end
             end
         catch e
             if e isa MethodError
@@ -183,7 +206,7 @@ function setup_problem_variables(
               for i in 1:N for j in get_all_followers(graph, i))
 
     # Information vectors: ys[i] contains decisions of all leaders of i
-    ys = Dict{Int, Any}()
+    ys = Dict{Int, Vector{Symbolics.Num}}()
     for i in 1:N
         leaders = get_all_leaders(graph, i)
         ys[i] = isempty(leaders) ? eltype(zs[1])[] : vcat([zs[l] for l in leaders]...)
@@ -197,7 +220,7 @@ function setup_problem_variables(
     # The ordering is critical for the implicit function theorem: from Mw + Ny = 0,
     # we get dw/dy = -M⁻¹N = -K. The policy extractor then selects the relevant
     # portion of K * y for policy constraints.
-    ws = Dict{Int, Any}()
+    ws = Dict{Int, Vector{Symbolics.Num}}()
 
     # Explicit index tracking for policy extractors (avoids fragile position assumptions).
     # ws_z_indices[i][j] gives the range where zs[j] appears in ws[i].
@@ -244,22 +267,4 @@ function setup_problem_variables(
     )
 
     (; zs, λs, μs, ys, ws, ws_z_indices, all_variables)
-end
-
-"""
-    construct_augmented_variables(zs, Ks, hierarchy_graph)
-
-Build augmented variable list including symbolic K matrices for optimized solving.
-
-# Arguments
-- `zs::Dict` - Decision variables per player
-- `Ks::Dict` - Policy matrices per player
-- `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
-
-# Returns
-- `augmented_vars::Vector` - Variables augmented with K matrix entries
-"""
-function construct_augmented_variables(zs, Ks, hierarchy_graph)
-    # TODO(Phase F): Implement for nonlinear solver K matrix handling
-    error("construct_augmented_variables is not yet implemented. Planned for nonlinear solver phase.")
 end

@@ -22,17 +22,20 @@ using TrajectoryGamesBase:
     horizon,
     unflatten_trajectory
 
-using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, indegree, topological_sort_by_dfs, is_cyclic, has_self_loops
+using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, indegree, topological_sort_by_dfs, is_cyclic, has_self_loops, BFSIterator
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks
 using LinearAlgebra: norm, I, SingularException, LAPACKException
-using SparseArrays: sparse
+using SparseArrays: sparse, spzeros
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
+using SciMLBase: SciMLBase
 
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
+export evaluate_kkt_residuals, verify_kkt_solution
 
 # Problem setup (symbolic variable creation)
 include("problem_setup.jl")
@@ -42,7 +45,7 @@ export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
-export QPSolver, NonlinearSolver, HierarchyGame, QPProblem, QPPrecomputed
+export QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
 
 # KKT construction
 include("qp_kkt.jl")

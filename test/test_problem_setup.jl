@@ -116,4 +116,28 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         # P3 (follower of P2): has P2's decisions
         @test length(result.ys[3]) == primal_dims[2]
     end
+
+    @testset "coupled constraints are rejected" begin
+        using MixedHierarchyGames: default_backend, make_symbolic_vector
+
+        # Create symbolic variables manually to simulate coupled constraints
+        backend = default_backend()
+        z1_sym = make_symbolic_vector(:z, 1, 4; backend)
+        z2_sym = make_symbolic_vector(:z, 2, 4; backend)
+
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [4, 4]
+
+        # Player 2's constraint incorrectly references player 1's variables (coupled)
+        # This captures z1_sym in a closure
+        gs_coupled = [
+            z -> zeros(Num, 2),  # P1: valid decoupled constraint
+            z -> [z[1] - z1_sym[1], z[2] - z1_sym[2]],  # P2: INVALID - references z1
+        ]
+
+        # Should throw ArgumentError for coupled constraint
+        @test_throws ArgumentError setup_problem_variables(G, primal_dims, gs_coupled)
+    end
 end
