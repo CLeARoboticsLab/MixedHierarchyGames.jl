@@ -2,13 +2,13 @@
 
 A Julia package for solving mixed hierarchy games. This implementation uses the `TrajectoryGamesBase.jl` interface, though the solver is more general and can be used for general equality-constrained games.
 
-<!-- TODO: Add paper reference -->
-Based on: TBD
+Based on: *Manuscript in preparation* by the CLeAR Robotics Lab at UT Austin.
 
 ## Features
 
 - **Flexible hierarchy structures**: Supports arbitrary DAG-based leader-follower relationships (pure Stackelberg, Nash, or mixed)
 - **QP Solver**: For linear-quadratic games with equality constraints
+- **Nonlinear Solver**: For general nonlinear games using iterative quasi-linear policy approximation
 - **TrajectoryGamesBase integration**: Compatible with the TrajectoryGamesBase.jl ecosystem
 
 ## Installation
@@ -26,9 +26,11 @@ add https://github.com/CLeARoboticsLab/MixedHierarchyGames.jl
 ## Quick Start
 
 ```julia
+# Required packages (install once with: using Pkg; Pkg.add(["Graphs", "Symbolics"]))
 using MixedHierarchyGames
 using Graphs: SimpleDiGraph, add_edge!
 using Symbolics: @variables
+using LinearAlgebra: norm  # Optional, for solution analysis
 
 # Define a 2-player Stackelberg game: Player 1 leads Player 2
 G = SimpleDiGraph(2)
@@ -52,7 +54,9 @@ gs = [
     z -> z[1:state_dim] - collect(θ2),
 ]
 
-# Cost functions (each player minimizes own trajectory cost)
+# Cost functions: Js[i](z1, z2, ..., zN; θ=combined_params) → scalar
+# The θ keyword receives all parameter values concatenated [θ1; θ2; ...] during solve.
+# For simple cases where costs don't depend on parameters, you can ignore θ.
 Js = Dict(
     1 => (z1, z2; θ=nothing) -> sum(z1.^2),
     2 => (z1, z2; θ=nothing) -> sum(z2.^2),
@@ -68,6 +72,17 @@ strategy = solve(solver, Dict(1 => [1.0, 0.0], 2 => [0.0, 1.0]))
 player1_states = strategy.substrategies[1].xs
 player1_controls = strategy.substrategies[1].us
 ```
+
+## Examples
+
+See the `experiments/` folder for complete examples:
+
+- **lq_three_player_chain**: 3-player Stackelberg chain with single integrator dynamics
+- **nonlinear_lane_change**: 4-vehicle highway scenario with unicycle dynamics
+- **pursuer_protector_vip**: 3-agent pursuit-protection game
+- **convergence_analysis**: Multi-run convergence analysis for nonlinear solver
+
+Each experiment has a `run.jl` entry point. See `experiments/README.md` for details.
 
 ## Hierarchy Graph Structure
 
@@ -106,9 +121,21 @@ For linear-quadratic games with equality constraints. Supports two backends:
 solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 ```
 
-### NonlinearSolver (planned)
+### NonlinearSolver
 
-For general nonlinear games using iterative quasi-linear policy approximation.
+For general nonlinear games using iterative quasi-linear policy approximation with Armijo backtracking line search.
+
+```julia
+solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim;
+                         max_iters=100, tol=1e-6, verbose=false, use_armijo=true)
+
+# Solve with initial guess (optional)
+strategy = solve(solver, parameter_values; initial_guess=z0)
+
+# Get raw solution with convergence info
+result = solve_raw(solver, parameter_values)
+# result.sol, result.converged, result.iterations, result.residual, result.status
+```
 
 ## Equilibrium Concept
 
@@ -127,7 +154,7 @@ The current implementation makes the following assumptions:
 
 1. **Equality constraints only**: All constraints `g(z) = 0` are equality constraints. Inequality constraints are not yet supported.
 
-2. **Decoupled constraints**: Each player's constraints depend only on their own decision variables: `gs[i](zs[i])`. Coupled constraints (e.g., collision avoidance between players) are not yet supported.
+2. **Decoupled constraints**: Each player's constraints depend only on their own decision variables: `gs[i](zs[i])`. Coupled constraints (e.g., shared dynamics `x_{t+1} = A*x_t + B1*u1 + B2*u2`) are not directly supported. However, problems with shared dynamics can often be reformulated by "baking" the dynamics into the cost function via trajectory rollout. See `test/olse/` for an example where the OLSE (Open-Loop Stackelberg Equilibrium) problem with shared dynamics is solved by embedding the dynamics in the cost functions rather than as explicit constraints.
 
 3. **DAG hierarchy**: The leader-follower structure must be a directed acyclic graph (DAG). Cyclic dependencies and self-loops are not allowed.
 
@@ -186,6 +213,9 @@ julia --project=. -e 'using MixedHierarchyGames'
 # Use Claude Code for AI-assisted development
 claude
 
+# Or with auto-approve enabled (for sandboxed environments)
+claude --allow-dangerously-skip-permissions
+
 # Use GitHub CLI for PR management
 gh pr create
 ```
@@ -200,8 +230,19 @@ docker compose build --no-cache dev
 
 ## Citation
 
-<!-- TODO: Add proper citation -->
-TBD
+If you use this software in your research, please cite:
+
+```
+Manuscript in preparation. Please check back for updated citation information.
+
+For now, please cite the repository:
+@software{MixedHierarchyGames,
+  author = {CLeAR Robotics Lab},
+  title = {MixedHierarchyGames.jl: A Julia Package for Mixed Hierarchy Games},
+  url = {https://github.com/CLeARoboticsLab/MixedHierarchyGames.jl},
+  year = {2024}
+}
+```
 
 ## License
 

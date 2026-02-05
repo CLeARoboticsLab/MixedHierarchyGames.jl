@@ -35,11 +35,11 @@ using MixedHierarchyGames:
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
         # Build MCP and solve
-        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, Dict(1 => θ_vec), Dict(1 => [1.0, 2.0]))
+        sol, status, info = solve_with_path(πs_solve, vars.all_variables, Dict(1 => θ_vec), Dict(1 => [1.0, 2.0]))
 
         @test status == PATHSolver.MCP_Solved
         # Solution should be z = θ = [1.0, 2.0]
-        @test isapprox(z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(sol[1:2], [1.0, 2.0], atol=1e-6)
     end
 
     @testset "Solves 2-player Stackelberg" begin
@@ -70,15 +70,15 @@ using MixedHierarchyGames:
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
         param_values = Dict(1 => [1.0, 2.0], 2 => [3.0, 4.0])
-        z_sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, param_values)
+        sol, status, info = solve_with_path(πs_solve, vars.all_variables, θs, param_values)
 
         @test status == PATHSolver.MCP_Solved
     end
 end
 
 @testset "QP Solver - qp_game_linsolve" begin
-    @testset "Solves linear system for LQ game" begin
-        # For LQ games, KKT system is linear: Ax = b
+    @testset "Solves linear system for QP game" begin
+        # For QP games, KKT system is linear: Ax = b
         # Test with simple 2x2 system
         A = [2.0 1.0; 1.0 3.0]
         b = [3.0, 4.0]
@@ -115,7 +115,7 @@ end
         result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices; θ=θ_vec)
         πs_solve = strip_policy_constraints(result.πs, G, vars.zs, gs)
 
-        z_sol, status, _ = solve_with_path(πs_solve, vars.all_variables, Dict(1 => θ_vec), Dict(1 => [1.0, 2.0]))
+        sol, status, _ = solve_with_path(πs_solve, vars.all_variables, Dict(1 => θ_vec), Dict(1 => [1.0, 2.0]))
 
         # Evaluate KKT residual at solution
         # The residual should be near zero
@@ -141,7 +141,7 @@ end
         result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:linear)
 
         @test result.status == :solved
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result.sol[1:2], [1.0, 2.0], atol=1e-6)
     end
 
     @testset "Solves 2-player Stackelberg" begin
@@ -171,8 +171,8 @@ end
 
         @test result.status == :solved
         # Check that solution satisfies constraints
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
-        @test isapprox(result.z_sol[3:4], [3.0, 4.0], atol=1e-6)
+        @test isapprox(result.sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result.sol[3:4], [3.0, 4.0], atol=1e-6)
     end
 
     @testset "Returns vars and kkt_result" begin
@@ -207,7 +207,7 @@ end
         result = _run_qp_solver(G, Js, gs, primal_dims, θs, parameter_values; solver=:path)
 
         @test result.status == PATHSolver.MCP_Solved
-        @test isapprox(result.z_sol[1:2], [1.0, 2.0], atol=1e-6)
+        @test isapprox(result.sol[1:2], [1.0, 2.0], atol=1e-6)
     end
 end
 
@@ -225,7 +225,7 @@ end
 
         solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
 
-        @test solver.problem isa MixedHierarchyGames.QPProblem
+        @test solver.problem isa HierarchyProblem
         @test solver.solver_type == :linear
         @test solver.precomputed isa QPPrecomputed
         @test hasproperty(solver.precomputed, :vars)
@@ -247,7 +247,7 @@ end
         result = MixedHierarchyGames.solve_raw(solver, Dict(1 => [1.0]))
 
         @test result.status == :solved
-        @test result.z_sol[1] ≈ 1.0 atol=1e-6  # x0 = θ = 1.0
+        @test result.sol[1] ≈ 1.0 atol=1e-6  # x0 = θ = 1.0
     end
 
     @testset "solve() returns JointStrategy" begin
@@ -388,6 +388,6 @@ end
             proximal_perturbation = 1e-3
         )
 
-        @test result.z_sol[1] ≈ 1.0 atol=1e-6
+        @test result.sol[1] ≈ 1.0 atol=1e-6
     end
 end

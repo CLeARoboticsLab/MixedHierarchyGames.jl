@@ -3,6 +3,27 @@
 =#
 
 """
+    _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
+
+Extract per-player trajectories from solution vector and build JointStrategy.
+Shared helper used by both QPSolver and NonlinearSolver.
+"""
+function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
+    N = length(primal_dims)
+    substrategies = Vector{OpenLoopStrategy}(undef, N)
+
+    offset = 1
+    for i in 1:N
+        zi = sol[offset:(offset + primal_dims[i] - 1)]
+        offset += primal_dims[i]
+        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
+        substrategies[i] = OpenLoopStrategy(xs, us)
+    end
+
+    return JointStrategy(substrategies)
+end
+
+"""
     solve(solver::QPSolver, parameter_values::Dict; kwargs...)
 
 Solve the QP hierarchy game with given parameter values (typically initial states).
@@ -40,9 +61,9 @@ function solve(
     _validate_parameter_values(parameter_values, θs)
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
+        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
     elseif solver_type == :path
-        z_sol, status, _ = solve_with_path(
+        sol, status, _ = solve_with_path(
             parametric_mcp, θs, parameter_values;
             verbose, iteration_limit, proximal_perturbation, use_basics, use_start
         )
@@ -50,23 +71,12 @@ function solve(
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
-    # Extract per-player trajectories and build JointStrategy
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        # Extract player i's portion of z_sol
-        zi = z_sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
-
-        # Unflatten into states and controls
-        (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-
-        substrategies[i] = OpenLoopStrategy(xs, us)
+    # Check for solver failure
+    if status == :failed
+        error("QPSolver failed to find a solution. The KKT system may be singular or ill-conditioned.")
     end
 
-    return JointStrategy(substrategies)
+    return _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 end
 
 """
@@ -82,7 +92,11 @@ Solve and return raw solution vector (for debugging/analysis).
 - `use_start::Bool=true` - Use starting point from PATH (only used with :path)
 
 # Returns
-Named tuple with z_sol, status, info, vars
+Named tuple with fields:
+- `sol::Vector{Float64}` - Solution vector (concatenated player decision variables)
+- `status::Symbol` - Solver status (`:solved` or `:failed`)
+- `info` - PATH solver info (only for `:path` backend, `nothing` for `:linear`)
+- `vars` - Symbolic variables from precomputation
 """
 function solve_raw(
     solver::QPSolver,
@@ -98,10 +112,10 @@ function solve_raw(
     (; θs) = problem
 
     if solver_type == :linear
-        z_sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
+        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
         info = nothing
     elseif solver_type == :path
-        z_sol, status, info = solve_with_path(
+        sol, status, info = solve_with_path(
             parametric_mcp, θs, parameter_values;
             verbose, iteration_limit, proximal_perturbation, use_basics, use_start
         )
@@ -109,7 +123,7 @@ function solve_raw(
         error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
-    return (; z_sol, status, info, vars)
+    return (; sol, status, info, vars)
 end
 
 """
@@ -154,6 +168,118 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 end
 
 """
+    solve(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+
+Solve the nonlinear hierarchy game with given parameter values (typically initial states).
+
+Uses precomputed symbolic components for efficiency.
+
+# Arguments
+- `solver::NonlinearSolver` - The nonlinear solver with precomputed components
+- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+
+# Keyword Arguments
+- `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- Additional options override solver.options
+
+# Returns
+- `JointStrategy` containing `OpenLoopStrategy` for each player
+"""
+function solve(
+    solver::NonlinearSolver,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    max_iters::Union{Nothing, Int} = nothing,
+    tol::Union{Nothing, Float64} = nothing,
+    verbose::Union{Nothing, Bool} = nothing,
+    use_armijo::Union{Nothing, Bool} = nothing
+)
+    (; problem, precomputed, options) = solver
+    (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
+
+    # Validate parameter_values
+    _validate_parameter_values(parameter_values, θs)
+
+    # Use options from solver unless overridden
+    actual_max_iters = something(max_iters, options.max_iters)
+    actual_tol = something(tol, options.tol)
+    actual_verbose = something(verbose, options.verbose)
+    actual_use_armijo = something(use_armijo, options.use_armijo)
+
+    # Run the nonlinear solver
+    result = run_nonlinear_solver(
+        precomputed,
+        parameter_values,
+        hierarchy_graph;
+        initial_guess = initial_guess,
+        max_iters = actual_max_iters,
+        tol = actual_tol,
+        verbose = actual_verbose,
+        use_armijo = actual_use_armijo
+    )
+
+    return _extract_joint_strategy(result.sol, primal_dims, state_dim, control_dim)
+end
+
+"""
+    solve_raw(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+
+Solve and return raw solution with convergence info (for debugging/analysis).
+
+# Keyword Arguments
+- `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- `max_iters::Int` - Maximum iterations (default from solver.options)
+- `tol::Float64` - Convergence tolerance (default from solver.options)
+- `verbose::Bool` - Print iteration info (default from solver.options)
+- `use_armijo::Bool` - Use Armijo line search (default from solver.options)
+
+# Returns
+Named tuple with fields:
+- `sol::Vector{Float64}` - Solution vector (concatenated player decision variables)
+- `converged::Bool` - Whether solver converged to tolerance
+- `iterations::Int` - Number of iterations taken
+- `residual::Float64` - Final KKT residual norm
+- `status::Symbol` - Solver status:
+  - `:solved` - Converged successfully
+  - `:solved_initial_point` - Initial guess was already a solution
+  - `:max_iters_reached` - Did not converge within iteration limit
+  - `:linear_solver_error` - Newton step computation failed
+  - `:numerical_error` - NaN or Inf encountered
+"""
+function solve_raw(
+    solver::NonlinearSolver,
+    parameter_values::Dict;
+    initial_guess::Union{Nothing, Vector} = nothing,
+    max_iters::Union{Nothing, Int} = nothing,
+    tol::Union{Nothing, Float64} = nothing,
+    verbose::Union{Nothing, Bool} = nothing,
+    use_armijo::Union{Nothing, Bool} = nothing
+)
+    (; problem, precomputed, options) = solver
+    (; hierarchy_graph) = problem
+
+    # Use options from solver unless overridden
+    actual_max_iters = something(max_iters, options.max_iters)
+    actual_tol = something(tol, options.tol)
+    actual_verbose = something(verbose, options.verbose)
+    actual_use_armijo = something(use_armijo, options.use_armijo)
+
+    # Run the nonlinear solver
+    result = run_nonlinear_solver(
+        precomputed,
+        parameter_values,
+        hierarchy_graph;
+        initial_guess = initial_guess,
+        max_iters = actual_max_iters,
+        tol = actual_tol,
+        verbose = actual_verbose,
+        use_armijo = actual_use_armijo
+    )
+
+    return result
+end
+
+"""
     TrajectoryGamesBase.solve_trajectory_game!(
         solver::NonlinearSolver,
         game::HierarchyGame,
@@ -166,7 +292,7 @@ Solve a nonlinear hierarchy game.
 # Arguments
 - `solver::NonlinearSolver` - The nonlinear solver instance
 - `game::HierarchyGame` - The hierarchy game to solve
-- `initial_state` - Initial state (BlockVector or Vector)
+- `initial_state` - Initial state per player (Dict{Int, Vector} or Vector of Vectors)
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start
@@ -183,11 +309,17 @@ function TrajectoryGamesBase.solve_trajectory_game!(
     verbose::Bool = false,
     kwargs...
 )
-    # TODO: Implement
-    # 1. Extract initial states per player from initial_state
-    # 2. Call run_nonlinear_solver with precomputed components
-    # 3. Convert solution to JointStrategy of OpenLoopStrategys
-    error("Not implemented: solve_trajectory_game! for NonlinearSolver")
+    # Convert initial_state to parameter_values Dict
+    if initial_state isa Dict
+        parameter_values = initial_state
+    elseif initial_state isa AbstractVector && eltype(initial_state) <: AbstractVector
+        # Vector of vectors → Dict
+        parameter_values = Dict(i => initial_state[i] for i in 1:length(initial_state))
+    else
+        error("initial_state must be Dict{Int, Vector} or Vector of Vectors")
+    end
+
+    return solve(solver, parameter_values; initial_guess, verbose)
 end
 
 #=
@@ -214,7 +346,7 @@ Solve KKT system using PATH solver via ParametricMCPs.jl with cached MCP.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved, :failed, etc.)
 - `info` - PATH solver info
 """
@@ -238,7 +370,7 @@ function solve_with_path(
     z0 = initial_guess !== nothing ? initial_guess : zeros(n)
 
     # Solve
-    z_sol, status, info = ParametricMCPs.solve(
+    sol, status, info = ParametricMCPs.solve(
         parametric_mcp,
         all_param_vals_vec;
         initial_guess = z0,
@@ -249,7 +381,7 @@ function solve_with_path(
         use_start = use_start,
     )
 
-    return z_sol, status, info
+    return sol, status, info
 end
 
 """
@@ -273,7 +405,7 @@ Solve KKT system using PATH solver via ParametricMCPs.jl (builds MCP internally)
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved, :failed, etc.)
 - `info` - PATH solver info
 """
@@ -353,7 +485,7 @@ where J is the Jacobian and F is the KKT residual.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved or :failed)
 """
 function solve_qp_linear(
@@ -378,17 +510,31 @@ function solve_qp_linear(
 
     # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
     # Note: No regularization is applied. For ill-conditioned systems, this may fail
-    # or produce inaccurate results. See task StackelbergHierarchyGames.jl-ulv for
-    # planned Tikhonov regularization and automatic scaling.
+    # or produce inaccurate results. See Phase 5 bead for planned Tikhonov regularization.
     try
-        z_sol = J \ (-F)
-        verbose && println("Linear solve successful")
-        return z_sol, :solved
+        sol = J \ (-F)
+
+        # Check for NaN/Inf in solution (can occur with near-singular matrices)
+        if any(!isfinite, sol)
+            verbose && @warn "Linear solve produced non-finite values (possible near-singular matrix)"
+            return fill(NaN, n), :failed
+        end
+
+        # Check residual quality
+        residual = norm(J * sol + F)
+        if residual > 1e-6 * max(1.0, norm(F))
+            verbose && @warn "Linear solve has unexpectedly high residual: $residual"
+        end
+
+        verbose && println("Linear solve successful (residual: $residual)")
+        return sol, :solved
     catch e
         # Only catch expected linear algebra failures; rethrow programming errors
         if e isa SingularException || e isa LAPACKException
             verbose && @warn "Linear solve failed: $e"
-            return zeros(n), :failed
+            # Return NaN-filled vector to clearly signal invalid solution
+            # (zeros could be a valid solution for some problems)
+            return fill(NaN, n), :failed
         end
         rethrow()
     end
@@ -413,7 +559,7 @@ where J is the Jacobian and F is the KKT residual.
 
 # Returns
 Tuple of:
-- `z_sol::Vector` - Solution vector
+- `sol::Vector` - Solution vector
 - `status::Symbol` - Solver status (:solved or :failed)
 """
 function solve_qp_linear(
@@ -472,12 +618,12 @@ end
 =#
 
 """
-    extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
+    extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
 
 Extract state and control trajectories from flattened solution vector.
 
 # Arguments
-- `z_sol::Vector` - Flattened solution
+- `sol::Vector` - Flattened solution
 - `dims::NamedTuple` - Dimension info per player
 - `T::Int` - Time horizon
 - `n_players::Int` - Number of players
@@ -486,7 +632,7 @@ Extract state and control trajectories from flattened solution vector.
 - `xs::Dict{Int, Vector{Vector}}` - State trajectories per player
 - `us::Dict{Int, Vector{Vector}}` - Control trajectories per player
 """
-function extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
+function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::Int)
     xs = Dict{Int, Vector{Vector{Float64}}}()
     us = Dict{Int, Vector{Vector{Float64}}}()
 
@@ -498,14 +644,14 @@ function extract_trajectories(z_sol::Vector, dims::NamedTuple, T::Int, n_players
         # Extract states: T+1 states (t=0 to t=T)
         xs[i] = Vector{Vector{Float64}}()
         for t in 1:(T+1)
-            push!(xs[i], z_sol[idx:idx+state_dim-1])
+            push!(xs[i], sol[idx:idx+state_dim-1])
             idx += state_dim
         end
 
         # Extract controls: T controls (t=0 to t=T-1)
         us[i] = Vector{Vector{Float64}}()
         for t in 1:T
-            push!(us[i], z_sol[idx:idx+control_dim-1])
+            push!(us[i], sol[idx:idx+control_dim-1])
             idx += control_dim
         end
     end
