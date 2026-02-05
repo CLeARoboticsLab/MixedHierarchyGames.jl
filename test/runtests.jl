@@ -24,6 +24,9 @@ include("testing_utils.jl")
     # Phase F: Nonlinear Solver (TDD)
     include("test_nonlinear_solver.jl")
 
+    # KKT Verification Utilities (TDD)
+    include("test_kkt_verification.jl")
+
     # Phase G: Interface (TDD)
     include("test_interface.jl")
 
