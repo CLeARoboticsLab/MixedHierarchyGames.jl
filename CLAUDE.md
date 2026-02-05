@@ -1,5 +1,10 @@
 # Claude Code Instructions
 
+## Starting a PR
+
+- **Review this file (CLAUDE.md) at the start of every PR.** Skim all sections to refresh on requirements before writing any code.
+- **Suggest PR splits if the task involves too many changes.** If a task spans multiple unrelated concerns (e.g., new feature + refactoring + documentation overhaul), propose splitting into separate PRs. Discuss with the user before proceeding with a large-scope PR.
+
 ## Git
 
 - Use merge instead of rebase
@@ -57,6 +62,7 @@ When pushing a branch, always create or update the associated PR with a clear, a
 - **Run tests frequently**: After every change, verify the test status
 - **Porting existing code**: Even when porting from reference implementations, write tests first that define the expected behavior, then port the code to satisfy those tests
 - **Bug fixes**: Write a failing test that reproduces the bug before fixing it
+- **Use `@test_broken` to define behavior early**: When planning multiple features, use `@test_broken` to sketch expected behavior before implementation. However, **`@test_broken` must never exist on main**. All broken tests must be resolved before merge unless the user gives explicit approval for an interface design PR.
 
 ### Violations
 
