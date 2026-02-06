@@ -171,9 +171,9 @@ A Docker container is provided for a consistent development environment with all
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
-- GitHub CLI authenticated on host (`gh auth login`)
-- Claude Code API key (set `ANTHROPIC_API_KEY` environment variable or authenticate via `claude` CLI)
+- [Docker Desktop](https://docs.docker.com/get-docker/) (macOS; Linux users need to adjust SSH socket path in `docker-compose.yml`)
+- SSH key loaded in agent: `ssh-add --apple-use-keychain ~/.ssh/id_rsa`
+- Claude Code authenticated on host (via `claude` CLI login or `ANTHROPIC_API_KEY` env var)
 
 ### Quick Start
 

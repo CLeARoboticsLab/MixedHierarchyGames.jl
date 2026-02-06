@@ -7,18 +7,16 @@ services:
     volumes:
       # Mount source code (changes reflected immediately)
       - .:/workspace
-      # Mount git credentials for gh/git operations (devuser home, not root)
+      # Mount git config for user identity (name, email)
       - ~/.gitconfig:/home/devuser/.gitconfig:ro
-      # Mount only known_hosts for SSH host verification (keys via agent)
+      # Mount SSH known_hosts for host verification
       - ~/.ssh/known_hosts:/home/devuser/.ssh/known_hosts:ro
-      # Mount GitHub CLI config
-      - ~/.config/gh:/home/devuser/.config/gh
-      # Mount Claude config for API key
+      # Mount Claude config for auth
       - ~/.claude:/home/devuser/.claude
-      # SSH agent forwarding (macOS)
-      - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+      # SSH agent forwarding (Docker Desktop for Mac only; Linux users need ${SSH_AUTH_SOCK} instead)
+      - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock
     environment:
-      - SSH_AUTH_SOCK=/ssh-agent
+      - SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock
       - PATH_LICENSE_STRING=1259252040&Courtesy&&&USR&GEN2035&5_1_2026&1000&PATH&GEN&31_12_2035&0_0_0&6000&0_0
       # Pass through ANTHROPIC_API_KEY if set on host
       - ANTHROPIC_API_KEY

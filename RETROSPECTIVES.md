@@ -150,6 +150,72 @@ Implemented the complete nonlinear solver for mixed hierarchy games, including N
 
 ---
 
+## PR: feature/docker-gh-token-auth
+
+**Date:** 2026-02-06
+**Commits:** 2
+**Tests:** 450 passing (no new tests — infrastructure only)
+
+### Summary
+
+Fix Docker container GitHub push auth using Docker Desktop for Mac SSH agent forwarding. Consolidate Dockerfile apt layers. Update README prerequisites.
+
+### TDD Compliance
+
+**Score: N/A** — Infrastructure change, no application code. Manual integration testing (SSH forwarding, git ls-remote, tool verification).
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Consolidated three apt-get layers into one after DevOps review
+  - Entrypoint script is minimal (5 lines)
+  - Sudoers rule tightly scoped to one command
+- **What went wrong:**
+  - Initial credential helper had wrong `gh` path (`~/.local/bin/gh` vs `/usr/bin/gh`)
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Clean separation of build-time config vs runtime entrypoint
+  - Socket permissions handled at entrypoint, not baked into image
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Two focused commits: Docker auth changes, then README docs
+  - Each commit is self-contained and descriptive
+- **What went wrong:**
+  - Iterative debugging (token approach → SSH pivot) happened in working tree, not captured in commits. Fine for this case but shows the value of committing intermediate states.
+
+### CLAUDE.md Compliance
+
+**Score: Good (8/10)**
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Pre-merge checklist completed
+- [x] Retrospective recorded
+- [x] Documentation updated (README prerequisites)
+- [x] Security + DevOps review requested and applied
+
+### Key Learnings
+
+1. **Check org PAT policies before creating tokens.** Fine-grained PATs for org repos may need admin approval. Could have saved 30 minutes by checking first.
+2. **Docker Desktop for Mac has its own SSH socket path.** `/run/host-services/ssh-auth.sock`, not `$SSH_AUTH_SOCK`. This is a common gotcha.
+3. **Host volume mounts override build-time config.** The `~/.gitconfig` mount overwrote our build-time `git config --global` settings. Solved with `GIT_CONFIG_SYSTEM` pointing to a separate file (though ultimately not needed after SSH pivot).
+
+### Action Items for Next PR
+
+- [ ] Revisit fine-grained PAT approach when org admin can approve
+- [ ] Consider adding `ssh-add` check to entrypoint with helpful error message
+
+---
+
 *Template for future retrospectives:*
 
 ```markdown
