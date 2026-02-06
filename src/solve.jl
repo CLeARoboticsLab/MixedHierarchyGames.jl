@@ -52,7 +52,6 @@ function solve(
     proximal_perturbation::Float64 = 1e-2,
     use_basics::Bool = true,
     use_start::Bool = true,
-    to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp) = precomputed
@@ -61,17 +60,15 @@ function solve(
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
 
-    @timeit to "QPSolver solve" begin
-        if solver_type == :linear
-            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
-        elseif solver_type == :path
-            sol, status, _ = solve_with_path(
-                parametric_mcp, θs, parameter_values;
-                verbose, iteration_limit, proximal_perturbation, use_basics, use_start
-            )
-        else
-            error("Unknown solver type: $solver_type. Use :linear or :path")
-        end
+    if solver_type == :linear
+        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
+    elseif solver_type == :path
+        sol, status, _ = solve_with_path(
+            parametric_mcp, θs, parameter_values;
+            verbose, iteration_limit, proximal_perturbation, use_basics, use_start
+        )
+    else
+        error("Unknown solver type: $solver_type. Use :linear or :path")
     end
 
     # Check for solver failure
@@ -195,8 +192,7 @@ function solve(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing,
-    to::TimerOutput = TimerOutput()
+    use_armijo::Union{Nothing, Bool} = nothing
 )
     (; problem, precomputed, options) = solver
     (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
@@ -211,19 +207,16 @@ function solve(
     actual_use_armijo = something(use_armijo, options.use_armijo)
 
     # Run the nonlinear solver
-    @timeit to "NonlinearSolver solve" begin
-        result = run_nonlinear_solver(
-            precomputed,
-            parameter_values,
-            hierarchy_graph;
-            initial_guess = initial_guess,
-            max_iters = actual_max_iters,
-            tol = actual_tol,
-            verbose = actual_verbose,
-            use_armijo = actual_use_armijo,
-            to = to
-        )
-    end
+    result = run_nonlinear_solver(
+        precomputed,
+        parameter_values,
+        hierarchy_graph;
+        initial_guess = initial_guess,
+        max_iters = actual_max_iters,
+        tol = actual_tol,
+        verbose = actual_verbose,
+        use_armijo = actual_use_armijo
+    )
 
     return _extract_joint_strategy(result.sol, primal_dims, state_dim, control_dim)
 end
@@ -499,8 +492,7 @@ function solve_qp_linear(
     parametric_mcp,
     θs::Dict,
     parameter_values::Dict;
-    verbose::Bool = false,
-    to::TimerOutput = TimerOutput()
+    verbose::Bool = false
 )
     # Order parameters by player index
     order = sort(collect(keys(θs)))
@@ -513,44 +505,38 @@ function solve_qp_linear(
 
     # Evaluate at zero (for LQ, any point works since system is linear)
     z0 = zeros(n)
-    @timeit to "residual evaluation" begin
-        parametric_mcp.f!(F, z0, all_param_vals_vec)
-    end
-    @timeit to "Jacobian evaluation" begin
-        parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
-    end
+    parametric_mcp.f!(F, z0, all_param_vals_vec)
+    parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
 
     # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
     # Note: No regularization is applied. For ill-conditioned systems, this may fail
     # or produce inaccurate results. See Phase 5 bead for planned Tikhonov regularization.
-    @timeit to "linear solve" begin
-        try
-            sol = J \ (-F)
+    try
+        sol = J \ (-F)
 
-            # Check for NaN/Inf in solution (can occur with near-singular matrices)
-            if any(!isfinite, sol)
-                verbose && @warn "Linear solve produced non-finite values (possible near-singular matrix)"
-                return fill(NaN, n), :failed
-            end
-
-            # Check residual quality
-            residual = norm(J * sol + F)
-            if residual > 1e-6 * max(1.0, norm(F))
-                verbose && @warn "Linear solve has unexpectedly high residual: $residual"
-            end
-
-            verbose && println("Linear solve successful (residual: $residual)")
-            return sol, :solved
-        catch e
-            # Only catch expected linear algebra failures; rethrow programming errors
-            if e isa SingularException || e isa LAPACKException
-                verbose && @warn "Linear solve failed: $e"
-                # Return NaN-filled vector to clearly signal invalid solution
-                # (zeros could be a valid solution for some problems)
-                return fill(NaN, n), :failed
-            end
-            rethrow()
+        # Check for NaN/Inf in solution (can occur with near-singular matrices)
+        if any(!isfinite, sol)
+            verbose && @warn "Linear solve produced non-finite values (possible near-singular matrix)"
+            return fill(NaN, n), :failed
         end
+
+        # Check residual quality
+        residual = norm(J * sol + F)
+        if residual > 1e-6 * max(1.0, norm(F))
+            verbose && @warn "Linear solve has unexpectedly high residual: $residual"
+        end
+
+        verbose && println("Linear solve successful (residual: $residual)")
+        return sol, :solved
+    catch e
+        # Only catch expected linear algebra failures; rethrow programming errors
+        if e isa SingularException || e isa LAPACKException
+            verbose && @warn "Linear solve failed: $e"
+            # Return NaN-filled vector to clearly signal invalid solution
+            # (zeros could be a valid solution for some problems)
+            return fill(NaN, n), :failed
+        end
+        rethrow()
     end
 end
 
