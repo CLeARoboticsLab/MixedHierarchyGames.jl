@@ -109,21 +109,24 @@ function solve_raw(
     proximal_perturbation::Float64 = 1e-2,
     use_basics::Bool = true,
     use_start::Bool = true,
+    to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp) = precomputed
     (; θs) = problem
 
-    if solver_type == :linear
-        sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose)
-        info = nothing
-    elseif solver_type == :path
-        sol, status, info = solve_with_path(
-            parametric_mcp, θs, parameter_values;
-            verbose, iteration_limit, proximal_perturbation, use_basics, use_start
-        )
-    else
-        error("Unknown solver type: $solver_type. Use :linear or :path")
+    @timeit to "QPSolver solve" begin
+        if solver_type == :linear
+            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
+            info = nothing
+        elseif solver_type == :path
+            sol, status, info = solve_with_path(
+                parametric_mcp, θs, parameter_values;
+                verbose, iteration_limit, proximal_perturbation, use_basics, use_start
+            )
+        else
+            error("Unknown solver type: $solver_type. Use :linear or :path")
+        end
     end
 
     return (; sol, status, info, vars)
@@ -260,7 +263,8 @@ function solve_raw(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing
+    use_armijo::Union{Nothing, Bool} = nothing,
+    to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
     (; hierarchy_graph) = problem
@@ -272,16 +276,19 @@ function solve_raw(
     actual_use_armijo = something(use_armijo, options.use_armijo)
 
     # Run the nonlinear solver
-    result = run_nonlinear_solver(
-        precomputed,
-        parameter_values,
-        hierarchy_graph;
-        initial_guess = initial_guess,
-        max_iters = actual_max_iters,
-        tol = actual_tol,
-        verbose = actual_verbose,
-        use_armijo = actual_use_armijo
-    )
+    @timeit to "NonlinearSolver solve" begin
+        result = run_nonlinear_solver(
+            precomputed,
+            parameter_values,
+            hierarchy_graph;
+            initial_guess = initial_guess,
+            max_iters = actual_max_iters,
+            tol = actual_tol,
+            verbose = actual_verbose,
+            use_armijo = actual_use_armijo,
+            to = to
+        )
+    end
 
     return result
 end
