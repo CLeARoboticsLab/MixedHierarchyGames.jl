@@ -274,70 +274,61 @@ function preoptimize_nonlinear_solver(
     state_dim::Int = 2,
     control_dim::Int = 2,
     backend = default_backend(),
-    verbose::Bool = false,
-    to::TimerOutput = TimerOutput()
+    verbose::Bool = false
 )
     N = nv(hierarchy_graph)
 
     # Setup symbolic variables
-    @timeit to "variable setup" begin
-        problem_vars = setup_problem_variables(hierarchy_graph, primal_dims, gs; backend)
-        all_variables = problem_vars.all_variables
-        zs = problem_vars.zs
-        λs = problem_vars.λs
-        μs = problem_vars.μs
-        ws = problem_vars.ws
-        ys = problem_vars.ys
-    end
+    problem_vars = setup_problem_variables(hierarchy_graph, primal_dims, gs; backend)
+    all_variables = problem_vars.all_variables
+    zs = problem_vars.zs
+    λs = problem_vars.λs
+    μs = problem_vars.μs
+    ws = problem_vars.ws
+    ys = problem_vars.ys
 
     # Setup approximate KKT solver (creates symbolic M/N functions)
-    @timeit to "approximate KKT setup" begin
-        all_augmented_variables, setup_info = setup_approximate_kkt_solver(
-            hierarchy_graph, Js, zs, λs, μs, gs, ws, ys, θs,
-            all_variables, backend;
-            verbose
-        )
+    all_augmented_variables, setup_info = setup_approximate_kkt_solver(
+        hierarchy_graph, Js, zs, λs, μs, gs, ws, ys, θs,
+        all_variables, backend;
+        verbose
+    )
 
-        πs = setup_info.πs
-        K_syms = setup_info.K_syms
+    πs = setup_info.πs
+    K_syms = setup_info.K_syms
 
-        # Build flattened K symbols vector for use as parameters
-        all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
+    # Build flattened K symbols vector for use as parameters
+    all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
 
-        # Build parameter vector (θ values + K matrix values)
-        θ_order = sort(collect(keys(θs)))
-        θ_syms_flat = vcat([θs[k] for k in θ_order]...)
-        all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
+    # Build parameter vector (θ values + K matrix values)
+    θ_order = sort(collect(keys(θs)))
+    θ_syms_flat = vcat([θs[k] for k in θ_order]...)
+    all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
 
-        # Strip policy constraints for MCP construction
-        πs_solve = strip_policy_constraints(πs, hierarchy_graph, zs, gs)
-        π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
+    # Strip policy constraints for MCP construction
+    πs_solve = strip_policy_constraints(πs, hierarchy_graph, zs, gs)
+    π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
 
-        # Build MCP function vector
-        π_order = sort(collect(keys(πs_solve)))
-        F_sym = Symbolics.Num.(vcat([πs_solve[k] for k in π_order]...))
-    end
+    # Build MCP function vector
+    π_order = sort(collect(keys(πs_solve)))
+    F_sym = Symbolics.Num.(vcat([πs_solve[k] for k in π_order]...))
 
     # Build ParametricMCP
-    @timeit to "ParametricMCP build" begin
-        z_lower = fill(-Inf, length(F_sym))
-        z_upper = fill(Inf, length(F_sym))
+    z_lower = fill(-Inf, length(F_sym))
+    z_upper = fill(Inf, length(F_sym))
 
-        verbose && @info "Preoptimization: $(length(all_variables)) variables, $(length(F_sym)) conditions"
+    verbose && @info "Preoptimization: $(length(all_variables)) variables, $(length(F_sym)) conditions"
 
-        params_syms_vec = Symbolics.Num.(all_param_syms_vec)
-        mcp_obj = ParametricMCPs.ParametricMCP(
-            F_sym, all_variables, params_syms_vec, z_lower, z_upper;
-            compute_sensitivities = false
-        )
-    end
+    params_syms_vec = Symbolics.Num.(all_param_syms_vec)
+    mcp_obj = ParametricMCPs.ParametricMCP(
+        F_sym, all_variables, params_syms_vec, z_lower, z_upper;
+        compute_sensitivities = false
+    )
 
     # Initialize linear solver
-    @timeit to "linear solver init" begin
-        F_size = length(F_sym)
-        linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
-        linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
-    end
+    F_size = length(F_sym)
+    linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
+    linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
 
     return (;
         problem_vars,
@@ -522,8 +513,7 @@ function run_nonlinear_solver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true,
-    to::TimerOutput = TimerOutput()
+    use_armijo::Bool = true
 )
     # Unpack precomputed components
     problem_vars = precomputed.problem_vars
@@ -563,15 +553,11 @@ function run_nonlinear_solver(
     # Main iteration loop
     while true
         # Evaluate K matrices at current z
-        @timeit to "compute K evals" begin
-            param_vec, all_K_vec = params_for_z(z_est)
-        end
+        param_vec, all_K_vec = params_for_z(z_est)
 
         # Check convergence
-        @timeit to "residual evaluation" begin
-            mcp_obj.f!(F_eval, z_est, param_vec)
-            convergence_criterion = norm(F_eval)
-        end
+        mcp_obj.f!(F_eval, z_est, param_vec)
+        convergence_criterion = norm(F_eval)
 
         # Guard against NaN/Inf in residual computation
         if !isfinite(convergence_criterion)
@@ -596,15 +582,11 @@ function run_nonlinear_solver(
         num_iterations += 1
 
         # Solve linearized system: ∇F * δz = -F
-        @timeit to "Jacobian evaluation" begin
-            mcp_obj.jacobian_z!(∇F, z_est, param_vec)
-        end
+        mcp_obj.jacobian_z!(∇F, z_est, param_vec)
+        linsolver.A = ∇F
+        linsolver.b = -F_eval
 
-        @timeit to "Newton step" begin
-            linsolver.A = ∇F
-            linsolver.b = -F_eval
-            solution = solve!(linsolver)
-        end
+        solution = solve!(linsolver)
 
         if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
             verbose && @warn "Linear solve failed: $(solution.retcode)"
@@ -615,21 +597,19 @@ function run_nonlinear_solver(
         δz = solution.u
 
         # Line search for step size
-        @timeit to "line search" begin
-            α = 1.0
-            F_eval_current_norm = norm(F_eval)
+        α = 1.0
+        F_eval_current_norm = norm(F_eval)
 
-            if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
+        if use_armijo
+            for _ in 1:LINESEARCH_MAX_ITERS
+                z_trial = z_est .+ α .* δz
+                param_trial, _ = params_for_z(z_trial)
+                mcp_obj.f!(F_eval, z_trial, param_trial)
 
-                    if norm(F_eval) < F_eval_current_norm
-                        break
-                    end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
+                if norm(F_eval) < F_eval_current_norm
+                    break
                 end
+                α *= LINESEARCH_BACKTRACK_FACTOR
             end
         end
 
