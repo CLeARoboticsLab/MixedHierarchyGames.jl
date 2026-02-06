@@ -239,31 +239,40 @@ function QPSolver(
     θs::Dict,
     state_dim::Int,
     control_dim::Int;
-    solver::Symbol = :linear
+    solver::Symbol = :linear,
+    to::TimerOutput = TimerOutput()
 )
-    # Validate inputs
-    _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+    @timeit to "QPSolver construction" begin
+        # Validate inputs
+        _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
-    problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
+        problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
-    # Precompute symbolic variables and KKT conditions
-    # Note: setup_problem_variables validates constraint function signatures internally
-    vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
+        # Precompute symbolic variables and KKT conditions
+        # Note: setup_problem_variables validates constraint function signatures internally
+        vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
-    θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
-    kkt_result = get_qp_kkt_conditions(
-        hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
-        θ = θ_all, verbose = false
-    )
-    πs_solve = strip_policy_constraints(kkt_result.πs, hierarchy_graph, vars.zs, gs)
+        @timeit to "KKT conditions" begin
+            θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
+            kkt_result = get_qp_kkt_conditions(
+                hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
+                θ = θ_all, verbose = false
+            )
+            πs_solve = strip_policy_constraints(kkt_result.πs, hierarchy_graph, vars.zs, gs)
+        end
 
-    # Build and cache ParametricMCP for solving
-    parametric_mcp = _build_parametric_mcp(πs_solve, vars.all_variables, θs)
+        # Build and cache ParametricMCP for solving
+        @timeit to "ParametricMCP build" begin
+            parametric_mcp = _build_parametric_mcp(πs_solve, vars.all_variables, θs)
+        end
 
-    # Verify the system is linear (QP assumption) during construction
-    _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
+        # Verify the system is linear (QP assumption) during construction
+        @timeit to "linearity check" begin
+            _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
+        end
 
-    precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp)
+        precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp)
+    end
 
     return QPSolver(problem, solver, precomputed)
 end
@@ -283,9 +292,10 @@ function QPSolver(
     θs::Dict,
     state_dim::Int,
     control_dim::Int;
-    solver::Symbol = :linear
+    solver::Symbol = :linear,
+    to::TimerOutput = TimerOutput()
 )
-    return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver)
+    return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver, to)
 end
 
 """
@@ -337,24 +347,28 @@ function NonlinearSolver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true
+    use_armijo::Bool = true,
+    to::TimerOutput = TimerOutput()
 )
-    # Validate inputs
-    _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
+    @timeit to "NonlinearSolver construction" begin
+        # Validate inputs
+        _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
-    # Create problem specification
-    problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
+        # Create problem specification
+        problem = HierarchyProblem(hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim)
 
-    # Precompute symbolic components
-    precomputed = preoptimize_nonlinear_solver(
-        hierarchy_graph, Js, gs, primal_dims, θs;
-        state_dim = state_dim,
-        control_dim = control_dim,
-        verbose = verbose
-    )
+        # Precompute symbolic components
+        precomputed = preoptimize_nonlinear_solver(
+            hierarchy_graph, Js, gs, primal_dims, θs;
+            state_dim = state_dim,
+            control_dim = control_dim,
+            verbose = verbose,
+            to = to
+        )
 
-    # Store solver options
-    options = (; max_iters, tol, verbose, use_armijo)
+        # Store solver options
+        options = (; max_iters, tol, verbose, use_armijo)
+    end
 
     return NonlinearSolver(problem, precomputed, options)
 end
@@ -372,7 +386,8 @@ function NonlinearSolver(
     θs::Dict,
     state_dim::Int,
     control_dim::Int;
+    to::TimerOutput = TimerOutput(),
     kwargs...
 )
-    return NonlinearSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; kwargs...)
+    return NonlinearSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; to, kwargs...)
 end
