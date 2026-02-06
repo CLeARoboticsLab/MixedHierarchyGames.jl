@@ -42,4 +42,7 @@ include("testing_utils.jl")
 
     # Type Stability Tests
     include("test_type_stability.jl")
+
+    # TimerOutputs Integration
+    include("test_timer.jl")
 end
