@@ -25,6 +25,9 @@ experiments/
 ├── convergence_analysis/        # Solver robustness testing
 │   ├── README.md
 │   ├── config.jl, run.jl, support.jl
+├── benchmarks/                  # Performance benchmarks
+│   ├── README.md               # Findings and methodology
+│   └── benchmark_all.jl        # Run all experiments with TimerOutputs
 └── three_player_chain_validation.jl  # Validation script
 ```
 
@@ -68,6 +71,7 @@ include("experiments/lq_three_player_chain/run.jl")
 | [nonlinear_lane_change](nonlinear_lane_change/README.md) | P1 → P2 → P4 (P3 Nash) | Unicycle | 4-vehicle highway merge scenario |
 | [pursuer_protector_vip](pursuer_protector_vip/README.md) | P2 → P1, P2 → P3 | Single integrator | 3-agent pursuit-protection game |
 | [convergence_analysis](convergence_analysis/README.md) | (uses lane change) | Unicycle | Multi-run solver robustness testing |
+| [benchmarks](benchmarks/README.md) | All | Various | Performance profiling with TimerOutputs |
 
 See individual experiment README files for detailed documentation.
 

@@ -6,7 +6,7 @@
     from solve (repeated) timing.
 
     Usage:
-        julia --project=experiments experiments/benchmark_all.jl
+        julia --project=experiments experiments/benchmarks/benchmark_all.jl
 =#
 
 using MixedHierarchyGames
@@ -16,9 +16,9 @@ using Graphs: SimpleDiGraph, add_edge!
 using LinearAlgebra: norm
 
 # Include common utilities
-include(joinpath(@__DIR__, "common", "dynamics.jl"))
-include(joinpath(@__DIR__, "common", "collision_avoidance.jl"))
-include(joinpath(@__DIR__, "common", "trajectory_utils.jl"))
+include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+include(joinpath(@__DIR__, "..", "common", "collision_avoidance.jl"))
+include(joinpath(@__DIR__, "..", "common", "trajectory_utils.jl"))
 
 # ─────────────────────────────────────────────────────
 # Experiment 1: LQ Three Player Chain
@@ -31,9 +31,9 @@ module BenchLQ
     using Graphs: SimpleDiGraph, add_edge!
     using LinearAlgebra: norm
 
-    include(joinpath(@__DIR__, "common", "dynamics.jl"))
-    include(joinpath(@__DIR__, "lq_three_player_chain", "config.jl"))
-    include(joinpath(@__DIR__, "lq_three_player_chain", "support.jl"))
+    include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+    include(joinpath(@__DIR__, "..", "lq_three_player_chain", "config.jl"))
+    include(joinpath(@__DIR__, "..", "lq_three_player_chain", "support.jl"))
 
     function run(; num_solves=5)
         println("=" ^ 70)
@@ -108,11 +108,11 @@ module BenchLaneChange
     using Graphs: SimpleDiGraph, add_edge!
     using LinearAlgebra: norm
 
-    include(joinpath(@__DIR__, "common", "dynamics.jl"))
-    include(joinpath(@__DIR__, "common", "collision_avoidance.jl"))
-    include(joinpath(@__DIR__, "common", "trajectory_utils.jl"))
-    include(joinpath(@__DIR__, "nonlinear_lane_change", "config.jl"))
-    include(joinpath(@__DIR__, "nonlinear_lane_change", "support.jl"))
+    include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+    include(joinpath(@__DIR__, "..", "common", "collision_avoidance.jl"))
+    include(joinpath(@__DIR__, "..", "common", "trajectory_utils.jl"))
+    include(joinpath(@__DIR__, "..", "nonlinear_lane_change", "config.jl"))
+    include(joinpath(@__DIR__, "..", "nonlinear_lane_change", "support.jl"))
 
     function run(; num_solves=3)
         println("=" ^ 70)
@@ -177,9 +177,9 @@ module BenchPPV
     using Graphs: SimpleDiGraph, add_edge!
     using LinearAlgebra: norm
 
-    include(joinpath(@__DIR__, "common", "dynamics.jl"))
-    include(joinpath(@__DIR__, "pursuer_protector_vip", "config.jl"))
-    include(joinpath(@__DIR__, "pursuer_protector_vip", "support.jl"))
+    include(joinpath(@__DIR__, "..", "common", "dynamics.jl"))
+    include(joinpath(@__DIR__, "..", "pursuer_protector_vip", "config.jl"))
+    include(joinpath(@__DIR__, "..", "pursuer_protector_vip", "support.jl"))
 
     function run(; num_solves=3)
         println("=" ^ 70)
