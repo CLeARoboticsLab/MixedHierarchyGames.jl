@@ -74,6 +74,14 @@ using MixedHierarchyGames: _extract_joint_strategy
         @test blks[3] == collect(11.0:15.0)
     end
 
+    @testset "split_solution_vector rejects mismatched dimensions" begin
+        sol = [1.0, 2.0, 3.0, 4.0, 5.0]
+        # block_sizes sum (4) < vector length (5) — would silently drop data without check
+        @test_throws DimensionMismatch MixedHierarchyGames.split_solution_vector(sol, [2, 2])
+        # block_sizes sum (6) > vector length (5)
+        @test_throws DimensionMismatch MixedHierarchyGames.split_solution_vector(sol, [3, 3])
+    end
+
     @testset "_extract_joint_strategy uses block splitting correctly" begin
         # unflatten_trajectory expects interleaved format: z = [x0; u0; x1; u1; ...]
         # state_dim=2, control_dim=1, T=2

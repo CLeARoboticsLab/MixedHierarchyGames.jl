@@ -22,6 +22,13 @@ player_blocks = split_solution_vector(sol, [2, 3])
 ```
 """
 function split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+    expected = sum(block_sizes)
+    actual = length(sol)
+    if expected != actual
+        throw(DimensionMismatch(
+            "block_sizes sum ($expected) must equal vector length ($actual)"
+        ))
+    end
     return blocks(PseudoBlockVector(sol, block_sizes))
 end
 
@@ -30,13 +37,17 @@ end
 
 Extract per-player trajectories from solution vector and build JointStrategy.
 Shared helper used by both QPSolver and NonlinearSolver.
+
+The solution vector may contain dual variables (λ, μ) after the primal variables.
+Only the first `sum(primal_dims)` elements are used.
 """
 function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
-    substrategies = map(split_solution_vector(sol, primal_dims)) do zi
+    primal_sol = @view sol[1:sum(primal_dims)]
+    substrategies = map(split_solution_vector(primal_sol, primal_dims)) do zi
         (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
         OpenLoopStrategy(xs, us)
     end
-    return JointStrategy(collect(substrategies))
+    return JointStrategy(substrategies)
 end
 
 """
