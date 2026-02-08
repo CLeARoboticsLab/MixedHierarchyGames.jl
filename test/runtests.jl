@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # Project metadata
+    include("test_compat_bounds.jl")
 end
