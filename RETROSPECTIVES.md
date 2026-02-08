@@ -216,6 +216,66 @@ Fix Docker container GitHub push auth using Docker Desktop for Mac SSH agent for
 
 ---
 
+## PR: feature/timer-outputs-benchmarking-v2
+
+**Date:** 2026-02-07
+**Commits:** 4
+**Tests:** 450 passing
+
+### Summary
+
+Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehensive benchmarks on all three experiments, and confirmed through direct old-vs-new comparison that the new `src/` solver is algorithmically identical to the old `examples/` solver. Also moved the collision weight from inside `smooth_collision_all` to the caller cost functions.
+
+### TDD Compliance
+**Score: 8/10**
+- What went well: 23 new timer tests written before/alongside the TimerOutputs integration. Tests verify the `to` kwarg flows through correctly and sections appear in timer output.
+- What went wrong: The collision weight refactor (moving 0.1 from function to caller) was a pure experiment-side change with no new tests. Acceptable since it only affects experiment config, not `src/` code.
+- Improvement: N/A — this PR is primarily benchmarking/instrumentation, not new solver logic.
+
+### Clean Code Practices
+**Score: 8/10**
+- What went well: Collision weight moved from hidden inside `smooth_collision_all` to explicit `COLLISION_WEIGHT` constant at call sites — more transparent. Benchmark README documents methodology and findings clearly.
+- What went wrong: `benchmark_all.jl` is a long script (~250 lines) that could benefit from helper extraction, but acceptable for a one-off benchmark runner.
+- Improvement: Consider breaking benchmark scripts into per-experiment modules if they grow further.
+
+### Clean Architecture Practices
+**Score: 9/10**
+- What went well: TimerOutputs integration uses optional `to` kwarg — zero overhead when not passed. Clean separation between `src/` instrumentation and `experiments/benchmarks/` runner.
+- What went wrong: Nothing significant.
+
+### Commit Hygiene
+**Score: 7/10**
+- What went well: Commits are logically organized (instrumentation → benchmark script → results → collision weight refactor).
+- What went wrong: The "Add benchmark results" commit is large, bundling README content with script relocation. Some of the benchmark investigation work spanned multiple sessions and the intermediate findings were squashed into one commit.
+- Improvement: Break large documentation commits into smaller pieces (results vs methodology vs investigation findings).
+
+### CLAUDE.md Compliance
+**Score: 8/10**
+- What went well: TDD followed for timer tests, experiments structure followed, PR description kept up to date, retrospective conducted.
+- What went wrong: Debug scripts were created in scratchpad (correct) but the investigation process involved many ad-hoc scripts that weren't tracked via beads until the end.
+- Improvement: Create beads for investigation tasks earlier in the process.
+
+### Beads Created
+- `0ip` — Explore sparse/block-structured M\N solve
+- `zkn` — Enable CSE in compiled symbolic functions
+- `ahv` — Re-run allocation benchmarks on nonlinear problem
+
+### Beads Closed
+- `b9w` — Verify optimized code performance
+
+### Key Learnings
+1. **Shared-process benchmarks are unreliable.** GC warming and JIT artifacts create 15-30% ordering effects. Always benchmark in separate Julia processes.
+2. **Bit-for-bit comparison is the gold standard.** Wall-time comparisons are noisy; comparing iteration counts, residuals, and solution vectors to machine precision gives deterministic answers.
+3. **Hidden constants in utility functions cause subtle bugs.** The 0.1 inside `smooth_collision_all` caused a long debugging session tracking down an apparent convergence difference that was actually a different optimization problem.
+4. **Matrix dimension scaling dominates per-iteration cost.** Lane change (330x480 M matrix) vs LQ (56x56) explains the 80x per-iteration difference through cubic LU scaling.
+
+### Action Items for Next PR
+- [ ] Implement skip-K-in-line-search optimization (bead `kmv`) — 1.63x speedup verified
+- [ ] Investigate CSE in Symbolics.jl `build_function` (bead `zkn`)
+- [ ] Re-run allocation benchmarks on nonlinear problem (bead `ahv`)
+
+---
+
 *Template for future retrospectives:*
 
 ```markdown
