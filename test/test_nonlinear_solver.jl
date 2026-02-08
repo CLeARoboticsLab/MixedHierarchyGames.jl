@@ -1,10 +1,13 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort
 using LinearAlgebra: norm, I
+using SparseArrays: spzeros, sparse
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using MixedHierarchyGames:
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
     compute_K_evals,
+    compute_newton_step,
     check_convergence,
     setup_approximate_kkt_solver,
     setup_problem_variables,
@@ -762,5 +765,77 @@ end
         @test hasproperty(result, :status)
         @test result.converged isa Bool
         @test result.status isa Symbol
+    end
+end
+
+#=
+    Tests for compute_newton_step helper
+=#
+
+@testset "compute_newton_step" begin
+    # Helper to create a LinearSolve solver instance
+    function make_linsolver(n)
+        algorithm = LinearSolve.UMFPACKFactorization()
+        init(LinearProblem(spzeros(n, n), zeros(n)), algorithm)
+    end
+
+    @testset "Solves simple 2x2 linear system correctly" begin
+        # System: [2 0; 0 3] * δz = [4; 9]  =>  δz = [2; 3]
+        linsolver = make_linsolver(2)
+        jacobian = sparse([2.0 0.0; 0.0 3.0])
+        neg_residual = [4.0, 9.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ [2.0, 3.0] atol=1e-10
+    end
+
+    @testset "Returns named tuple with correct fields" begin
+        linsolver = make_linsolver(2)
+        jacobian = sparse([1.0 0.0; 0.0 1.0])
+        neg_residual = [1.0, 1.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test hasproperty(result, :step)
+        @test hasproperty(result, :success)
+        @test result.step isa AbstractVector
+        @test result.success isa Bool
+    end
+
+    @testset "Solves identity system (δz = -F)" begin
+        n = 5
+        linsolver = make_linsolver(n)
+        jacobian = sparse(Float64.(I(n)))
+        neg_residual = randn(n)
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ neg_residual atol=1e-10
+    end
+
+    @testset "Solves non-trivial 3x3 system" begin
+        # A * x = b where A = [1 2 0; 0 1 1; 1 0 1], b = [5; 3; 4]
+        # Solution: x = [1; 2; 1]
+        linsolver = make_linsolver(3)
+        jacobian = sparse([1.0 2.0 0.0; 0.0 1.0 1.0; 1.0 0.0 1.0])
+        neg_residual = [5.0, 3.0, 4.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ [1.0, 2.0, 1.0] atol=1e-10
+    end
+
+    @testset "Handles singular matrix gracefully" begin
+        linsolver = make_linsolver(2)
+        jacobian = sparse([1.0 1.0; 1.0 1.0])  # Singular
+        neg_residual = [1.0, 2.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == false
     end
 end
