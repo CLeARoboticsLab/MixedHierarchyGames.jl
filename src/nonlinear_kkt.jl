@@ -594,36 +594,37 @@ end
         precomputed::NamedTuple,
         initial_states::Dict,
         hierarchy_graph::SimpleDiGraph;
-        initial_guess::Union{Nothing, Vector{Float64}} = nothing,
-        max_iters::Int = 100,
-        tol::Float64 = 1e-6,
-        verbose::Bool = false,
-        use_armijo::Bool = true
+        initial_guess=nothing, max_iters=100, tol=1e-6,
+        verbose=false, use_armijo=true, to=TimerOutput()
     )
 
-Iterative nonlinear solver using quasi-linear policy approximation.
+Orchestrates the Newton iteration loop for solving nonlinear hierarchy games.
 
-Uses Armijo backtracking line search for step size selection.
+Each iteration: evaluate the KKT residual, check convergence, compute a Newton
+step via [`compute_newton_step`](@ref), and select a step size via
+[`perform_linesearch`](@ref). Convergence is checked by [`check_convergence`](@ref).
 
 # Arguments
-- `precomputed::NamedTuple` - Precomputed symbolic components from `preoptimize_nonlinear_solver`
-- `initial_states::Dict` - Initial state for each player (parameter values)
-- `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
+- `precomputed::NamedTuple` - Precomputed symbolic components from [`preoptimize_nonlinear_solver`](@ref)
+- `initial_states::Dict` - Initial state for each player (keyed by player index)
+- `hierarchy_graph::SimpleDiGraph` - Player hierarchy graph
 
 # Keyword Arguments
-- `initial_guess::Vector` - Starting point (or nothing for zero initialization)
-- `max_iters::Int=100` - Maximum iterations
-- `tol::Float64=1e-6` - Convergence tolerance on KKT residual
-- `verbose::Bool=false` - Print iteration info
-- `use_armijo::Bool=true` - Use Armijo line search
+- `initial_guess::Union{Nothing, Vector{Float64}}=nothing` - Starting point (zero-initialized if `nothing`)
+- `max_iters::Int=100` - Maximum Newton iterations
+- `tol::Float64=1e-6` - Convergence tolerance on KKT residual norm
+- `verbose::Bool=false` - Print per-iteration convergence info
+- `use_armijo::Bool=true` - Use backtracking line search (full Newton step if `false`)
+- `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
-Named tuple containing:
-- `sol::Vector` - Solution vector
-- `converged::Bool` - Whether solver converged
-- `iterations::Int` - Number of iterations taken
+Named tuple `(; sol, converged, iterations, residual, status)`:
+- `sol::Vector{Float64}` - Solution vector
+- `converged::Bool` - Whether the solver reached the tolerance
+- `iterations::Int` - Number of iterations performed
 - `residual::Float64` - Final KKT residual norm
-- `status::Symbol` - Solver status (:solved, :max_iters_reached, :linear_solver_error)
+- `status::Symbol` - One of `:solved`, `:solved_initial_point`, `:max_iters_reached`,
+  `:linear_solver_error`, `:numerical_error`
 """
 function run_nonlinear_solver(
     precomputed::NamedTuple,
@@ -656,9 +657,8 @@ function run_nonlinear_solver(
 
     # Solver state
     num_iterations = 0
-    convergence_criterion = Inf
-    status = :in_progress
-    converged = false
+    residual_norm = Inf
+    status = :max_iters_reached
 
     # Allocate buffers
     n = length(all_variables)
@@ -679,13 +679,13 @@ function run_nonlinear_solver(
             param_vec, all_K_vec = params_for_z(z_est)
         end
 
-        # Check convergence
+        # Evaluate residual and check convergence
         @timeit to "residual evaluation" begin
             mcp_obj.f!(F_eval, z_est, param_vec)
-            convergence_criterion = norm(F_eval)
+            residual_norm = norm(F_eval)
         end
 
-        conv = check_convergence(convergence_criterion, tol; verbose, iteration=num_iterations)
+        conv = check_convergence(residual_norm, tol; verbose, iteration=num_iterations)
 
         if conv.status == :numerical_error
             status = :numerical_error
@@ -694,12 +694,10 @@ function run_nonlinear_solver(
 
         if conv.converged
             status = num_iterations > 0 ? :solved : :solved_initial_point
-            converged = true
             break
         end
 
         if num_iterations >= max_iters
-            status = :max_iters_reached
             break
         end
 
@@ -724,15 +722,13 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            F_eval_current_norm = norm(F_eval)
-
-            residual_norm_fn = function(z_trial)
+            trial_residual_fn = function(z_trial)
                 param_trial, _ = params_for_z(z_trial)
                 mcp_obj.f!(F_trial, z_trial, param_trial)
                 return norm(F_trial)
             end
 
-            α = perform_linesearch(residual_norm_fn, z_est, δz, F_eval_current_norm;
+            α = perform_linesearch(trial_residual_fn, z_est, δz, residual_norm;
                                    use_armijo)
         end
 
@@ -749,9 +745,9 @@ function run_nonlinear_solver(
 
     return (;
         sol = z_est,
-        converged,
+        converged = status in (:solved, :solved_initial_point),
         iterations = num_iterations,
-        residual = convergence_criterion,
+        residual = residual_norm,
         status
     )
 end
