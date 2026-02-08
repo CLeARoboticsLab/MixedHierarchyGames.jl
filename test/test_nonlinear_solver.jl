@@ -818,7 +818,7 @@ end
 
     @testset "Solves non-trivial 3x3 system" begin
         # A * x = b where A = [1 2 0; 0 1 1; 1 0 1], b = [5; 3; 4]
-        # Solution: x = [1; 2; 1]
+        # Solution: x = [7/3; 4/3; 5/3]
         linsolver = make_linsolver(3)
         jacobian = sparse([1.0 2.0 0.0; 0.0 1.0 1.0; 1.0 0.0 1.0])
         neg_residual = [5.0, 3.0, 4.0]
@@ -826,7 +826,7 @@ end
         result = compute_newton_step(linsolver, jacobian, neg_residual)
 
         @test result.success == true
-        @test result.step ≈ [1.0, 2.0, 1.0] atol=1e-10
+        @test result.step ≈ [7/3, 4/3, 5/3] atol=1e-10
     end
 
     @testset "Handles singular matrix gracefully" begin

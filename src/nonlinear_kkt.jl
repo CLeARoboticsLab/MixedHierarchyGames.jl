@@ -53,6 +53,39 @@ function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing
 end
 
 """
+    compute_newton_step(linsolver, jacobian, neg_residual)
+
+Solve the Newton step linear system `jacobian * δz = neg_residual`.
+
+Uses the provided LinearSolve solver instance for the factorization and solve.
+Handles singular matrix errors gracefully by returning `success=false`.
+
+# Arguments
+- `linsolver` - Initialized LinearSolve solver (mutated in place)
+- `jacobian` - Jacobian matrix (∇F)
+- `neg_residual` - Negative residual vector (-F)
+
+# Returns
+Named tuple `(step, success)` where:
+- `step::Vector` - Newton step direction δz (undefined if `success=false`)
+- `success::Bool` - Whether the linear solve succeeded
+"""
+function compute_newton_step(linsolver, jacobian, neg_residual)
+    linsolver.A = jacobian
+    linsolver.b = neg_residual
+    try
+        solution = solve!(linsolver)
+        success = SciMLBase.successful_retcode(solution) || solution.retcode === SciMLBase.ReturnCode.Default
+        return (; step=solution.u, success)
+    catch e
+        if e isa SingularException || e isa LAPACKException
+            return (; step=neg_residual, success=false)
+        end
+        rethrow()
+    end
+end
+
+"""
     _construct_augmented_variables(ii, all_variables, K_syms, G)
 
 Build augmented variable list for player ii including follower K matrices.
