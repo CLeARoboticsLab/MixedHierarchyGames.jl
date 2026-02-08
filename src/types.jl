@@ -33,7 +33,7 @@ Used by both QPSolver and NonlinearSolver.
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
-struct HierarchyProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+struct HierarchyProblem{TG<:SimpleDiGraph, TJ<:AbstractDict, TC<:AbstractVector, TP<:AbstractDict}
     hierarchy_graph::TG
     Js::TJ
     gs::TC
@@ -51,7 +51,7 @@ Precomputed components for QPSolver, cached during construction for efficient re
 # Type Parameters
 - `TV` - Type of problem variables (from setup_problem_variables)
 - `TK` - Type of KKT conditions result (from get_qp_kkt_conditions)
-- `TP` - Type of stripped policy constraints (Dict)
+- `TP<:AbstractDict` - Type of stripped policy constraints (Dict)
 - `TM` - Type of parametric MCP (ParametricMCP)
 
 # Fields
@@ -60,7 +60,7 @@ Precomputed components for QPSolver, cached during construction for efficient re
 - `πs_solve::TP` - Stripped policy constraints for solving
 - `parametric_mcp::TM` - Cached ParametricMCP for solving
 """
-struct QPPrecomputed{TV, TK, TP, TM}
+struct QPPrecomputed{TV, TK, TP<:AbstractDict, TM}
     vars::TV
     kkt_result::TK
     πs_solve::TP
@@ -310,7 +310,7 @@ Uses iterative quasi-linear policy approximation with Armijo line search.
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
 - `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
 """
-struct NonlinearSolver{TP<:HierarchyProblem, TC}
+struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
     precomputed::TC
     options::NamedTuple
