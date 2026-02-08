@@ -26,7 +26,7 @@ using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, ind
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
-using BlockArrays: BlockArrays, mortar, blocks
+using BlockArrays: BlockArrays, mortar, blocks, PseudoBlockVector
 using LinearAlgebra: norm, I, SingularException, LAPACKException
 using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
@@ -58,6 +58,6 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 # Solvers
 include("solve.jl")
 export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_nonlinear_solver
-export extract_trajectories, solution_to_joint_strategy
+export extract_trajectories, solution_to_joint_strategy, split_solution_vector
 
 end # module

@@ -3,24 +3,40 @@
 =#
 
 """
+    split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+
+Split a flat solution vector into per-player blocks using BlockArrays.
+
+Returns an iterable of blocks where each block corresponds to one player's
+decision variables. Uses `PseudoBlockVector` for a zero-copy view.
+
+# Arguments
+- `sol` - Flat solution vector (concatenated player decision variables)
+- `block_sizes` - Size of each player's block (e.g., `primal_dims`)
+
+# Example
+```julia
+sol = [1.0, 2.0, 3.0, 4.0, 5.0]
+player_blocks = split_solution_vector(sol, [2, 3])
+# blocks: [[1.0, 2.0], [3.0, 4.0, 5.0]]
+```
+"""
+function split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+    return blocks(PseudoBlockVector(sol, block_sizes))
+end
+
+"""
     _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 
 Extract per-player trajectories from solution vector and build JointStrategy.
 Shared helper used by both QPSolver and NonlinearSolver.
 """
 function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        zi = sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
+    substrategies = map(split_solution_vector(sol, primal_dims)) do zi
         (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-        substrategies[i] = OpenLoopStrategy(xs, us)
+        OpenLoopStrategy(xs, us)
     end
-
-    return JointStrategy(substrategies)
+    return JointStrategy(collect(substrategies))
 end
 
 """
@@ -657,24 +673,22 @@ function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::
     xs = Dict{Int, Vector{Vector{Float64}}}()
     us = Dict{Int, Vector{Vector{Float64}}}()
 
-    idx = 1
-    for i in 1:n_players
+    # Split solution into per-player blocks
+    player_block_sizes = [(T + 1) * dims.state_dims[i] + T * dims.control_dims[i] for i in 1:n_players]
+    player_blocks = split_solution_vector(sol, player_block_sizes)
+
+    for (i, player_sol) in enumerate(player_blocks)
         state_dim = dims.state_dims[i]
         control_dim = dims.control_dims[i]
 
-        # Extract states: T+1 states (t=0 to t=T)
-        xs[i] = Vector{Vector{Float64}}()
-        for t in 1:(T+1)
-            push!(xs[i], sol[idx:idx+state_dim-1])
-            idx += state_dim
-        end
+        # Within each player's block: [x0, x1, ..., xT, u0, u1, ..., uT-1]
+        # Split into state and control segments
+        state_block_size = (T + 1) * state_dim
+        state_data = @view player_sol[1:state_block_size]
+        control_data = @view player_sol[(state_block_size + 1):end]
 
-        # Extract controls: T controls (t=0 to t=T-1)
-        us[i] = Vector{Vector{Float64}}()
-        for t in 1:T
-            push!(us[i], sol[idx:idx+control_dim-1])
-            idx += control_dim
-        end
+        xs[i] = [state_data[((t-1)*state_dim + 1):(t*state_dim)] for t in 1:(T+1)]
+        us[i] = [control_data[((t-1)*control_dim + 1):(t*control_dim)] for t in 1:T]
     end
 
     return xs, us
