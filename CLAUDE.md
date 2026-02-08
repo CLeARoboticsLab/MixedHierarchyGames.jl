@@ -121,7 +121,9 @@ Before closing a task:
 
 ## Code Reviews
 
-When requested, perform code reviews from the perspective of specific expert roles. Available roles:
+**Before landing any PR with `src/` changes, proactively offer a code review.** Don't wait to be asked — once the main implementation is written and tests pass, suggest running a review with relevant expert roles before merging.
+
+When requested (or proactively offered), perform code reviews from the perspective of specific expert roles. Available roles:
 
 ### Engineering Roles
 - **Master Software Engineer**: Architecture, design patterns, code quality, maintainability, SOLID principles
