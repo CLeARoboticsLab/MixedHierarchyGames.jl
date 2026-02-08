@@ -23,8 +23,8 @@ ENV JULIA_DEPOT_PATH=/home/devuser/.julia
 ENV PATH="/home/devuser/.local/bin:${PATH}"
 ENV HOME=/home/devuser
 
-# Install system dependencies, GitHub CLI, and sudo (single apt layer)
-# Install core tools first, then add gh repo key and install gh in same layer
+# Install system dependencies, GitHub CLI, Node.js, and sudo (single apt layer)
+# Node.js is required for GSD workflow tools (.claude/get-shit-done/bin/gsd-tools.js)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -36,8 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get update \
-    && apt-get install -y gh \
+    && apt-get install -y gh nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
