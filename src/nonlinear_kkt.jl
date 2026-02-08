@@ -17,6 +17,42 @@ const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
 """
+    check_convergence(residual, tol; verbose=false, iteration=nothing)
+
+Check whether the solver has converged based on the KKT residual norm.
+
+Returns a named tuple `(converged, status)` where:
+- `converged::Bool` - whether the residual is below tolerance
+- `status::Symbol` - `:solved`, `:not_converged`, or `:numerical_error`
+
+# Arguments
+- `residual::Real` - Current KKT residual norm
+- `tol::Real` - Convergence tolerance
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print convergence info
+- `iteration::Union{Nothing,Int}=nothing` - Current iteration number (for verbose output)
+"""
+function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing)
+    # Guard against NaN/Inf
+    if !isfinite(residual)
+        verbose && @warn "Residual contains NaN or Inf values"
+        return (; converged=false, status=:numerical_error)
+    end
+
+    if verbose
+        iter_str = isnothing(iteration) ? "" : "Iteration $iteration: "
+        @info "$(iter_str)residual = $residual"
+    end
+
+    if residual < tol
+        return (; converged=true, status=:solved)
+    end
+
+    return (; converged=false, status=:not_converged)
+end
+
+"""
     _construct_augmented_variables(ii, all_variables, K_syms, G)
 
 Build augmented variable list for player ii including follower K matrices.
@@ -573,16 +609,14 @@ function run_nonlinear_solver(
             convergence_criterion = norm(F_eval)
         end
 
-        # Guard against NaN/Inf in residual computation
-        if !isfinite(convergence_criterion)
-            verbose && @warn "Residual contains NaN or Inf values, terminating"
+        conv = check_convergence(convergence_criterion, tol; verbose, iteration=num_iterations)
+
+        if conv.status == :numerical_error
             status = :numerical_error
             break
         end
 
-        verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
-
-        if convergence_criterion < tol
+        if conv.converged
             status = num_iterations > 0 ? :solved : :solved_initial_point
             converged = true
             break
