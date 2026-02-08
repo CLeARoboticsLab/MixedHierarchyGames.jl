@@ -40,6 +40,12 @@ include("testing_utils.jl")
     include("olse/test_qp_solver.jl")
     include("olse/test_nonlinear_solver.jl")
 
+    # Solver Options
+    include("test_solver_options.jl")
+
+    # Type Parameter Bounds
+    include("test_type_bounds.jl")
+
     # Type Stability Tests
     include("test_type_stability.jl")
 

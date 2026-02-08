@@ -33,7 +33,7 @@ Used by both QPSolver and NonlinearSolver.
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
-struct HierarchyProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+struct HierarchyProblem{TG<:SimpleDiGraph, TJ<:AbstractDict, TC<:AbstractVector, TP<:AbstractDict}
     hierarchy_graph::TG
     Js::TJ
     gs::TC
@@ -60,7 +60,7 @@ Precomputed components for QPSolver, cached during construction for efficient re
 - `πs_solve::TP` - Stripped policy constraints for solving
 - `parametric_mcp::TM` - Cached ParametricMCP for solving
 """
-struct QPPrecomputed{TV, TK, TP, TM}
+struct QPPrecomputed{TV<:NamedTuple, TK<:NamedTuple, TP<:AbstractDict, TM<:ParametricMCPs.ParametricMCP}
     vars::TV
     kkt_result::TK
     πs_solve::TP
@@ -160,7 +160,7 @@ function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index for consistency
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
     all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Unconstrained bounds (equality-only KKT)
@@ -196,7 +196,7 @@ function _verify_linear_system(mcp, n::Int, θs::Dict)
     z1, z2 = randn(n), randn(n)
 
     # Create dummy parameter values (actual values don't affect linearity check)
-    order = sort(collect(keys(θs)))
+    order = ordered_player_indices(θs)
     θ_vals = reduce(vcat, (zeros(length(θs[k])) for k in order))
 
     # Allocate Jacobian buffers
@@ -253,7 +253,7 @@ function QPSolver(
         vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
         @timeit to "KKT conditions" begin
-            θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
+            θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
             kkt_result = get_qp_kkt_conditions(
                 hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
                 θ = θ_all, verbose = false
@@ -299,6 +299,43 @@ function QPSolver(
 end
 
 """
+    NonlinearSolverOptions
+
+Concrete options struct for the NonlinearSolver.
+
+# Fields
+- `max_iters::Int` - Maximum iterations (default: 100)
+- `tol::Float64` - Convergence tolerance (default: 1e-6)
+- `verbose::Bool` - Print iteration info (default: false)
+- `use_armijo::Bool` - Use Armijo line search (default: true)
+"""
+struct NonlinearSolverOptions
+    max_iters::Int
+    tol::Float64
+    verbose::Bool
+    use_armijo::Bool
+end
+
+function NonlinearSolverOptions(; max_iters::Int=100, tol::Real=1e-6, verbose::Bool=false, use_armijo::Bool=true)
+    return NonlinearSolverOptions(max_iters, Float64(tol), verbose, use_armijo)
+end
+
+"""
+    NonlinearSolverOptions(nt::NamedTuple)
+
+Convert a NamedTuple with option fields to a NonlinearSolverOptions struct.
+Provides backward compatibility for code that passes options as a NamedTuple.
+"""
+function NonlinearSolverOptions(nt::NamedTuple)
+    return NonlinearSolverOptions(
+        max_iters=get(nt, :max_iters, 100),
+        tol=get(nt, :tol, 1e-6),
+        verbose=get(nt, :verbose, false),
+        use_armijo=get(nt, :use_armijo, true),
+    )
+end
+
+"""
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
@@ -308,12 +345,17 @@ Uses iterative quasi-linear policy approximation with Armijo line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
+- `options::NonlinearSolverOptions` - Solver options (max_iters, tol, verbose, use_armijo)
 """
-struct NonlinearSolver{TP<:HierarchyProblem, TC}
+struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
     precomputed::TC
-    options::NamedTuple
+    options::NonlinearSolverOptions
+end
+
+# Backward compatibility: convert NamedTuple options to NonlinearSolverOptions
+function NonlinearSolver(problem::HierarchyProblem, precomputed::NamedTuple, options::NamedTuple)
+    return NonlinearSolver(problem, precomputed, NonlinearSolverOptions(options))
 end
 
 """
@@ -367,7 +409,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, use_armijo)
+        options = NonlinearSolverOptions(; max_iters, tol, verbose, use_armijo)
     end
 
     return NonlinearSolver(problem, precomputed, options)

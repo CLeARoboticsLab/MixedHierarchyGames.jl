@@ -36,6 +36,7 @@ using TimerOutputs: TimerOutput, @timeit
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
+export ordered_player_indices
 export evaluate_kkt_residuals, verify_kkt_solution
 
 # Problem setup (symbolic variable creation)
@@ -46,7 +47,7 @@ export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
-export QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
+export QPSolver, NonlinearSolver, NonlinearSolverOptions, HierarchyGame, HierarchyProblem, QPPrecomputed
 
 # KKT construction
 include("qp_kkt.jl")

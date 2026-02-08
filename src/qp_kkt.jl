@@ -290,7 +290,7 @@ function _run_qp_solver(
     vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
     # Build KKT conditions
-    θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
+    θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
     result = get_qp_kkt_conditions(
         hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
         θ = θ_all, verbose = verbose

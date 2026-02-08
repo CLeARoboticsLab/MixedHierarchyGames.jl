@@ -75,6 +75,20 @@ function get_all_followers(G::SimpleDiGraph, node::Int)
 end
 
 #=
+    Player ordering utilities
+=#
+
+"""
+    ordered_player_indices(d::Dict)
+
+Return the keys of `d` sorted in ascending order.
+
+Used throughout the codebase to iterate over player-indexed dictionaries in a
+consistent, deterministic order (e.g., parameter dicts, KKT condition dicts).
+"""
+ordered_player_indices(d::Dict) = sort(collect(keys(d)))
+
+#=
     Solution validation utilities
 =#
 
@@ -120,7 +134,7 @@ function evaluate_kkt_residuals(
     should_enforce::Bool = false
 )
     # Order players consistently by index
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
 
     # Concatenate all KKT conditions into a single vector
     all_πs = if isempty(order)
@@ -130,7 +144,7 @@ function evaluate_kkt_residuals(
     end
 
     # Build combined variable vector: [decision vars; parameters]
-    θ_order = sort(collect(keys(θs)))
+    θ_order = ordered_player_indices(θs)
     θ_vec = if isempty(θ_order)
         eltype(all_variables)[]
     else

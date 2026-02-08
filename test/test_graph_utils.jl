@@ -1,6 +1,7 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!
-using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all_followers
+using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all_followers,
+    ordered_player_indices
 
 @testset "Graph Utilities" begin
     @testset "Chain hierarchy: 1→2→3" begin
@@ -78,6 +79,33 @@ using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all
         @test get_all_leaders(G, 3) == [2]
         @test get_all_followers(G, 2) == [3]
         @test get_all_followers(G, 1) == []
+    end
+
+    @testset "ordered_player_indices" begin
+        @testset "returns sorted keys from Dict" begin
+            d = Dict(3 => "c", 1 => "a", 2 => "b")
+            @test ordered_player_indices(d) == [1, 2, 3]
+        end
+
+        @testset "single-element Dict" begin
+            d = Dict(5 => [1.0, 2.0])
+            @test ordered_player_indices(d) == [5]
+        end
+
+        @testset "empty Dict" begin
+            d = Dict{Int, Any}()
+            @test ordered_player_indices(d) == Int[]
+        end
+
+        @testset "already sorted keys" begin
+            d = Dict(1 => :a, 2 => :b, 3 => :c)
+            @test ordered_player_indices(d) == [1, 2, 3]
+        end
+
+        @testset "non-contiguous keys" begin
+            d = Dict(10 => "x", 2 => "y", 7 => "z")
+            @test ordered_player_indices(d) == [2, 7, 10]
+        end
     end
 
     @testset "Diamond hierarchy: 1→{2,3}→4" begin
