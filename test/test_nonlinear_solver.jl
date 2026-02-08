@@ -9,6 +9,7 @@ using MixedHierarchyGames:
     compute_K_evals,
     compute_newton_step,
     check_convergence,
+    perform_linesearch,
     setup_approximate_kkt_solver,
     setup_problem_variables,
     setup_problem_parameter_variables,
@@ -837,5 +838,149 @@ end
         result = compute_newton_step(linsolver, jacobian, neg_residual)
 
         @test result.success == false
+    end
+end
+
+#=
+    Tests for perform_linesearch helper
+=#
+
+@testset "perform_linesearch" begin
+    @testset "Returns α=1.0 when use_armijo=false (fixed step)" begin
+        # With armijo disabled, should always return α=1.0 regardless of residual
+        residual_norm_fn = z -> 1000.0  # Always large residual
+        z_est = [1.0, 1.0]
+        δz = [-1.0, -1.0]
+        current_residual_norm = 10.0
+
+        α = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                               use_armijo=false)
+
+        @test α == 1.0
+    end
+
+    @testset "Returns α=1.0 when first trial already reduces residual" begin
+        # f(z + δz) has smaller norm than f(z), so full step should be accepted
+        residual_norm_fn = z -> 0.1  # Trial always has small residual
+        z_est = [2.0, 2.0]
+        δz = [-1.0, -1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        @test α == 1.0
+    end
+
+    @testset "Backtracks when full step increases residual" begin
+        # First trial (α=1) increases residual, subsequent trials decrease it
+        call_count = Ref(0)
+        function residual_fn_backtrack(z)
+            call_count[] += 1
+            # α=1 gives z=[0,0] -> residual 10.0 (worse than 5.0)
+            # α=0.5 gives z=[0.5,0.5] -> residual 0.1 (better)
+            if sum(abs.(z)) < 0.6
+                return 0.1
+            else
+                return 10.0
+            end
+        end
+
+        z_est = [1.0, 1.0]
+        δz = [-1.0, -1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_backtrack, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        @test α < 1.0
+        @test α > 0.0
+    end
+
+    @testset "Step size is halved each backtrack iteration" begin
+        # Track all α values tried via the z_trial values
+        trials = Float64[]
+        function residual_fn_track(z)
+            push!(trials, z[1])  # Track z_trial[1] = z_est[1] + α * δz[1]
+            # Only accept at very small α
+            if abs(z[1] - 1.0) < 0.1  # z_est=1, so α*δz must be small
+                return 0.01
+            end
+            return 100.0
+        end
+
+        z_est = [1.0]
+        δz = [-1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_track, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        # Verify backtracking factor of 0.5: trials should show z at α=1, 0.5, 0.25, ...
+        # trials[1] = 1.0 + 1.0*(-1.0) = 0.0
+        # trials[2] = 1.0 + 0.5*(-1.0) = 0.5
+        # trials[3] = 1.0 + 0.25*(-1.0) = 0.75
+        @test length(trials) >= 2
+        if length(trials) >= 2
+            @test trials[1] ≈ 0.0 atol=1e-10   # α=1.0
+            @test trials[2] ≈ 0.5 atol=1e-10   # α=0.5
+        end
+    end
+
+    @testset "Respects max_iters limit" begin
+        # Residual never decreases, so should exhaust all iterations
+        call_count = Ref(0)
+        function residual_fn_never_decrease(z)
+            call_count[] += 1
+            return 100.0  # Always worse than current
+        end
+
+        z_est = [1.0]
+        δz = [-1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_never_decrease, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        # Should have tried exactly LINESEARCH_MAX_ITERS times (10 by default)
+        @test call_count[] == 10
+        # α should be 0.5^10 ≈ 9.77e-4 (last tried value)
+        @test α ≈ 0.5^10 atol=1e-10
+    end
+
+    @testset "Returns named tuple with α field" begin
+        # Verify return type matches what the solver expects
+        residual_norm_fn = z -> 0.1
+        z_est = [1.0]
+        δz = [-0.5]
+        current_residual_norm = 5.0
+
+        result = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                                    use_armijo=true)
+
+        # Should return a scalar Float64 step size
+        @test result isa Float64
+        @test result > 0.0
+        @test result <= 1.0
+    end
+
+    @testset "Evaluates residual_norm_fn at correct trial points" begin
+        # Verify z_trial = z_est + α * δz is computed correctly
+        evaluated_points = Vector{Float64}[]
+        function residual_fn_capture(z)
+            push!(evaluated_points, copy(z))
+            return 0.01  # Accept first trial
+        end
+
+        z_est = [3.0, -2.0]
+        δz = [1.0, 0.5]
+        current_residual_norm = 5.0
+
+        perform_linesearch(residual_fn_capture, z_est, δz, current_residual_norm;
+                           use_armijo=true)
+
+        # First (and only) evaluation should be at z_est + 1.0 * δz
+        @test length(evaluated_points) == 1
+        @test evaluated_points[1] ≈ [4.0, -1.5] atol=1e-10
     end
 end
