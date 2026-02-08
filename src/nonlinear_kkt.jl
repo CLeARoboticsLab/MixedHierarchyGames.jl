@@ -143,7 +143,7 @@ function setup_approximate_kkt_solver(
     # Second pass: build KKT conditions and M/N functions
     for ii in reverse_order
         # Compute π_sizes (total KKT conditions for player ii)
-        # Structure: [grad_self | grad_followers | policy_constraints | own_constraints]
+        # Structure: [grad_self | grad_f1 | policy_f1 | ... | own_constraints]
         π_sizes[ii] = length(gs[ii](zs[ii]))  # Own constraints
         for jj in BFSIterator(G, ii)
             π_sizes[ii] += length(zs[jj])  # Gradient w.r.t. each player in subtree
