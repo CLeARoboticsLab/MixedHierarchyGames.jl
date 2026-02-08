@@ -14,6 +14,8 @@
 
 ### Pull Request Requirements
 
+**Every `git push` MUST be accompanied by a PR description update.** The PR description is the source of truth for reviewers — if it's stale, the PR is not ready. Update the Changes list, Changelog, and any claims (test counts, file lists, findings) to match the actual state of the branch after every push.
+
 When pushing a branch, always create or update the associated PR with a clear, auditable description:
 
 1. **New branches**: Create a PR immediately after pushing with:
@@ -82,6 +84,7 @@ If you find yourself writing implementation code without a failing test:
 
 - **Dead code**: When encountering dead code (unused functions, unreachable branches, stub functions that throw errors), mark it for removal. Delete it if clearly unused, or flag for review if uncertain.
 - **Duplicated code**: When encountering duplicated logic, mark it for consolidation. Extract shared functionality into helper functions or common modules.
+- **No hidden scaling in shared functions**: Constants that affect behavior (weights, thresholds, scaling factors) must be explicit parameters or live in config, never buried inside utility functions.
 
 ## Planning
 
