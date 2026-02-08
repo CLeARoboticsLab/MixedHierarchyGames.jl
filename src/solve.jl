@@ -3,36 +3,6 @@
 =#
 
 """
-    split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
-
-Split a flat solution vector into per-player blocks using BlockArrays.
-
-Returns an iterable of blocks where each block corresponds to one player's
-decision variables. Uses `PseudoBlockVector` for a zero-copy view.
-
-# Arguments
-- `sol` - Flat solution vector (concatenated player decision variables)
-- `block_sizes` - Size of each player's block (e.g., `primal_dims`)
-
-# Example
-```julia
-sol = [1.0, 2.0, 3.0, 4.0, 5.0]
-player_blocks = split_solution_vector(sol, [2, 3])
-# blocks: [[1.0, 2.0], [3.0, 4.0, 5.0]]
-```
-"""
-function split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
-    expected = sum(block_sizes)
-    actual = length(sol)
-    if expected != actual
-        throw(DimensionMismatch(
-            "block_sizes sum ($expected) must equal vector length ($actual)"
-        ))
-    end
-    return blocks(PseudoBlockVector(sol, block_sizes))
-end
-
-"""
     _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 
 Extract per-player trajectories from solution vector and build JointStrategy.

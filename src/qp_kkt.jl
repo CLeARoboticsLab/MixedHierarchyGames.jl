@@ -43,7 +43,8 @@ Construct KKT conditions for all players in reverse topological order.
 
 Handles both leaf and non-leaf players differently:
 - Leaf players: Standard KKT (stationarity + constraints)
-- Non-leaf players: KKT with policy constraints from followers
+- Non-leaf players: KKT with policy constraints from followers, stored as `BlockVector`
+  via `mortar` to preserve the interleaved block structure
 
 # Arguments
 - `G::SimpleDiGraph` - DAG of leader-follower relationships
@@ -60,10 +61,10 @@ Handles both leaf and non-leaf players differently:
 
 # Returns
 Named tuple containing:
-- `πs::Dict` - KKT conditions per player
+- `πs::Dict` - KKT conditions per player (BlockVector for leaders, Vector for leaves)
 - `Ms::Dict` - M matrices for followers (from Mw + Ny = 0)
 - `Ns::Dict` - N matrices for followers
-- `Ks::Dict` - Policy matrices K = M \\ N
+- `Ks::Dict` - Policy matrices K = M \\\\ N
 """
 function get_qp_kkt_conditions(
     G::SimpleDiGraph,
@@ -125,25 +126,26 @@ function get_qp_kkt_conditions(
                 end
             end
 
-            # Build KKT: stationarity w.r.t own vars + follower vars + policy constraints
-            πᵢ = Symbolics.gradient(Lᵢ, zi)
+            # Build KKT blocks: [grad_self, grad_f1, policy_f1, ..., own_constraints]
+            # Using mortar to preserve block structure for strip_policy_constraints.
+            kkt_blocks = Vector{eltype(zs_dict[ii])}[Symbolics.gradient(Lᵢ, zi)]
 
             for jj in get_all_followers(G, ii)
                 # Stationarity w.r.t follower variables
-                πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs_dict[jj]))
+                push!(kkt_blocks, Symbolics.gradient(Lᵢ, zs_dict[jj]))
 
                 # Policy constraint
                 if haskey(Ks, jj)
                     zj_indices = ws_z_indices[jj][jj]
                     extractor = _build_extractor(zj_indices, length(ws[jj]))
                     Φⱼ = -extractor * Ks[jj] * ys[jj]
-                    πᵢ = vcat(πᵢ, zs_dict[jj] - Φⱼ)
+                    push!(kkt_blocks, zs_dict[jj] - Φⱼ)
                 end
             end
 
             # Own constraints
-            πᵢ = vcat(πᵢ, gs[ii](zi))
-            πs[ii] = πᵢ
+            push!(kkt_blocks, gs[ii](zi))
+            πs[ii] = mortar(kkt_blocks)
         end
 
         # Compute M, N, K for followers (players with leaders)
@@ -154,8 +156,10 @@ function get_qp_kkt_conditions(
         # If you hit performance issues here, consider using the nonlinear solver or
         # reducing problem size.
         if has_leader(G, ii)
-            Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
-            Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
+            # collect() ensures plain Matrix for symbolic \ (BlockMatrix \ is unsupported)
+            πs_flat = collect(πs[ii])
+            Ms[ii] = Symbolics.jacobian(πs_flat, ws[ii])
+            Ns[ii] = Symbolics.jacobian(πs_flat, ys[ii])
             Ks[ii] = Ms[ii] \ Ns[ii]
         end
 
@@ -182,13 +186,14 @@ Used for solving the reduced KKT system.
 - `πs_stripped::Dict` - KKT conditions without policy constraint rows
 
 # Notes
-The KKT conditions from `get_qp_kkt_conditions` have an **interleaved** structure:
+The KKT conditions have an **interleaved** structure for leaders:
 ```
 [grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | ... | own_constraints]
 ```
 
-This function iterates through in the same order and extracts only the gradient
-and constraint rows, skipping the policy constraint blocks.
+When `πs[ii]` is a `BlockVector` (from `get_qp_kkt_conditions`), blocks are accessed directly.
+For plain vectors (from the nonlinear solver), block sizes are computed and `split_solution_vector`
+is used. In both cases, policy blocks at indices 3, 5, 7, ... are removed.
 """
 function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph, zs::Dict, gs)
     N = nv(hierarchy_graph)
@@ -199,40 +204,39 @@ function strip_policy_constraints(πs::Dict, hierarchy_graph::SimpleDiGraph, zs:
             # Leaf players: KKT unchanged (stationarity + constraints)
             πs_stripped[ii] = πs[ii]
         else
-            # Leader: KKT has interleaved structure from get_qp_kkt_conditions:
+            # Leader KKT has interleaved structure:
             # [grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | ... | own_constraints]
-            #
-            # We extract gradient rows and skip policy constraint rows for each follower.
-
-            πᵢ = πs[ii]
-            parts = Any[]
-            idx = 1
-
-            # First: self gradient (no policy constraint for self)
-            len_zi = length(zs[ii])
-            push!(parts, πᵢ[idx:(idx + len_zi - 1)])
-            idx += len_zi
-
-            # Then: for each follower, gradient followed by policy constraint
             followers = get_all_followers(hierarchy_graph, ii)
-            for jj in followers
-                len_zj = length(zs[jj])
-                # Keep: gradient w.r.t. follower variables
-                push!(parts, πᵢ[idx:(idx + len_zj - 1)])
-                idx += len_zj
-                # Skip: policy constraint block
-                idx += len_zj
+            n_followers = length(followers)
+
+            # Get KKT blocks — use BlockVector structure if available, otherwise split
+            if πs[ii] isa BlockArrays.BlockVector
+                kkt_blocks = collect(blocks(πs[ii]))
+            else
+                # Compute block sizes matching the interleaved structure
+                block_sizes = Int[length(zs[ii])]  # grad_self
+                for jj in followers
+                    len_zj = length(zs[jj])
+                    push!(block_sizes, len_zj)  # gradient
+                    push!(block_sizes, len_zj)  # policy
+                end
+                push!(block_sizes, length(gs[ii](zs[ii])))  # constraints
+                kkt_blocks = collect(split_solution_vector(πs[ii], block_sizes))
             end
 
-            # Finally: own constraints
-            len_g = length(gs[ii](zs[ii]))
-            push!(parts, πᵢ[idx:(idx + len_g - 1)])
-            idx += len_g
-
-            if idx - 1 != length(πᵢ)
-                throw(DimensionMismatch("strip_policy_constraints: expected $(idx-1) rows, got $(length(πᵢ)) for player $ii"))
+            expected_n_blocks = 1 + 2 * n_followers + 1
+            if length(kkt_blocks) != expected_n_blocks
+                throw(DimensionMismatch(
+                    "strip_policy_constraints: expected $expected_n_blocks blocks for player $ii " *
+                    "(1 + 2*$n_followers followers + 1), got $(length(kkt_blocks))"
+                ))
             end
-            πs_stripped[ii] = vcat(parts...)
+
+            # Keep: 1 (grad_self), 2,4,6,... (grad_follower), last (constraints)
+            # Skip: 3,5,7,... (policy constraints)
+            policy_indices = Set(2k + 1 for k in 1:n_followers)
+            kept = [kkt_blocks[k] for k in eachindex(kkt_blocks) if k ∉ policy_indices]
+            πs_stripped[ii] = vcat(kept...)
         end
     end
 

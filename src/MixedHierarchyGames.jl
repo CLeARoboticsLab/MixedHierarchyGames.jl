@@ -36,7 +36,7 @@ using TimerOutputs: TimerOutput, @timeit
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
-export evaluate_kkt_residuals, verify_kkt_solution
+export evaluate_kkt_residuals, verify_kkt_solution, split_solution_vector
 
 # Problem setup (symbolic variable creation)
 include("problem_setup.jl")
@@ -58,6 +58,6 @@ export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_eva
 # Solvers
 include("solve.jl")
 export solve, solve_raw, solve_with_path, solve_qp_linear, qp_game_linsolve, run_nonlinear_solver
-export extract_trajectories, solution_to_joint_strategy, split_solution_vector
+export extract_trajectories, solution_to_joint_strategy
 
 end # module
