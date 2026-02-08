@@ -692,14 +692,14 @@ function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::
         state_dim = dims.state_dims[i]
         control_dim = dims.control_dims[i]
 
-        # Within each player's block: [x0, x1, ..., xT, u0, u1, ..., uT-1]
-        # Split into state and control segments
+        # Split player block into state and control segments
         state_block_size = (T + 1) * state_dim
-        state_data = @view player_sol[1:state_block_size]
-        control_data = @view player_sol[(state_block_size + 1):end]
+        control_block_size = T * control_dim
+        state_data, control_data = split_solution_vector(player_sol, [state_block_size, control_block_size])
 
-        xs[i] = [state_data[((t-1)*state_dim + 1):(t*state_dim)] for t in 1:(T+1)]
-        us[i] = [control_data[((t-1)*control_dim + 1):(t*control_dim)] for t in 1:T]
+        # Split into per-timestep vectors
+        xs[i] = collect(split_solution_vector(state_data, fill(state_dim, T + 1)))
+        us[i] = collect(split_solution_vector(control_data, fill(control_dim, T)))
     end
 
     return xs, us

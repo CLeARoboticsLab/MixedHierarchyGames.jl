@@ -146,4 +146,101 @@ using MixedHierarchyGames: _extract_joint_strategy
         @test us[2][1] ≈ [15.0] atol=1e-14
         @test us[2][2] ≈ [16.0] atol=1e-14
     end
+
+    @testset "extract_trajectories with heterogeneous player dimensions" begin
+        # 3 players with different state/control dimensions
+        # P1: state_dim=4, control_dim=2, T=3
+        # P2: state_dim=2, control_dim=1, T=3
+        # P3: state_dim=6, control_dim=3, T=3
+        T = 3
+        state_dims = [4, 2, 6]
+        control_dims = [2, 1, 3]
+        dims = (state_dims=state_dims, control_dims=control_dims)
+        n_players = 3
+
+        # Build per-player blocks manually, then concatenate
+        # P1: (T+1)*4 + T*2 = 16 + 6 = 22
+        # P2: (T+1)*2 + T*1 = 8 + 3 = 11
+        # P3: (T+1)*6 + T*3 = 24 + 9 = 33
+        p1_states = randn(16)  # 4 state vectors of dim 4
+        p1_controls = randn(6) # 3 control vectors of dim 2
+        p2_states = randn(8)   # 4 state vectors of dim 2
+        p2_controls = randn(3) # 3 control vectors of dim 1
+        p3_states = randn(24)  # 4 state vectors of dim 6
+        p3_controls = randn(9) # 3 control vectors of dim 3
+
+        sol = vcat(p1_states, p1_controls, p2_states, p2_controls, p3_states, p3_controls)
+
+        xs, us = MixedHierarchyGames.extract_trajectories(sol, dims, T, n_players)
+
+        # Verify correct number of timesteps per player
+        for i in 1:3
+            @test length(xs[i]) == T + 1
+            @test length(us[i]) == T
+        end
+
+        # Verify dimensions of extracted vectors
+        for i in 1:3
+            for t in 1:(T+1)
+                @test length(xs[i][t]) == state_dims[i]
+            end
+            for t in 1:T
+                @test length(us[i][t]) == control_dims[i]
+            end
+        end
+
+        # Verify actual values for P1
+        for t in 1:(T+1)
+            @test xs[1][t] ≈ p1_states[((t-1)*4+1):(t*4)] atol=1e-14
+        end
+        for t in 1:T
+            @test us[1][t] ≈ p1_controls[((t-1)*2+1):(t*2)] atol=1e-14
+        end
+
+        # Verify actual values for P2
+        for t in 1:(T+1)
+            @test xs[2][t] ≈ p2_states[((t-1)*2+1):(t*2)] atol=1e-14
+        end
+        for t in 1:T
+            @test us[2][t] ≈ p2_controls[((t-1)*1+1):(t*1)] atol=1e-14
+        end
+
+        # Verify actual values for P3
+        for t in 1:(T+1)
+            @test xs[3][t] ≈ p3_states[((t-1)*6+1):(t*6)] atol=1e-14
+        end
+        for t in 1:T
+            @test us[3][t] ≈ p3_controls[((t-1)*3+1):(t*3)] atol=1e-14
+        end
+    end
+
+    @testset "split_solution_vector for uniform per-timestep splitting" begin
+        # Verify split_solution_vector handles uniform blocks (used for timestep extraction)
+        # Simulate extracting T+1 state vectors of dim 4 from a flat state segment
+        state_dim = 4
+        T = 5
+        state_data = collect(1.0:(state_dim * (T + 1)))  # 24 elements
+
+        timestep_blocks = collect(MixedHierarchyGames.split_solution_vector(
+            state_data, fill(state_dim, T + 1)
+        ))
+
+        @test length(timestep_blocks) == T + 1
+        for t in 1:(T+1)
+            @test timestep_blocks[t] == state_data[((t-1)*state_dim+1):(t*state_dim)]
+        end
+
+        # Same for control vectors: T blocks of control_dim
+        control_dim = 2
+        control_data = collect(1.0:(control_dim * T))  # 10 elements
+
+        control_blocks = collect(MixedHierarchyGames.split_solution_vector(
+            control_data, fill(control_dim, T)
+        ))
+
+        @test length(control_blocks) == T
+        for t in 1:T
+            @test control_blocks[t] == control_data[((t-1)*control_dim+1):(t*control_dim)]
+        end
+    end
 end
