@@ -75,6 +75,20 @@ function get_all_followers(G::SimpleDiGraph, node::Int)
 end
 
 #=
+    Player ordering utilities
+=#
+
+"""
+    ordered_player_indices(d::Dict)
+
+Return the keys of `d` as a sorted vector, providing a canonical player ordering.
+
+This is a convenience wrapper around `sort(collect(keys(d)))` used throughout the
+codebase to iterate over player-indexed dictionaries in a deterministic order.
+"""
+ordered_player_indices(d::Dict) = sort(collect(keys(d)))
+
+#=
     Solution validation utilities
 =#
 
