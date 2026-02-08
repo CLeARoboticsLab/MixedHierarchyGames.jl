@@ -214,6 +214,117 @@ using MixedHierarchyGames: _extract_joint_strategy
         end
     end
 
+    @testset "all_variables preserves block structure from setup_problem_variables" begin
+        using Graphs: SimpleDiGraph, add_edge!
+        using MixedHierarchyGames: setup_problem_variables
+        using Symbolics: Num
+
+        # 3-player chain: 1→2→3
+        G = SimpleDiGraph(3)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 3)
+
+        primal_dims = [4, 3, 5]
+        gs = [z -> zeros(Num, 2) for _ in 1:3]
+
+        vars = setup_problem_variables(G, primal_dims, gs)
+
+        # all_variables should be a plain vector (compatible with ParametricMCPs)
+        @test vars.all_variables isa AbstractVector
+
+        # Verify total length: sum of zs + λs + μs
+        # zs: 4 + 3 + 5 = 12
+        # λs: 2 + 2 + 2 = 6
+        # μs: (1,2) dim 3, (1,3) dim 5, (2,3) dim 5 = 13
+        #   (P1 leads P2 directly and P3 transitively)
+        # Total: 12 + 6 + 13 = 31
+        expected_z = sum(primal_dims)
+        expected_λ = 6  # 2 constraints per player
+        expected_μ = sum(length(v) for v in values(vars.μs))
+        @test length(vars.all_variables) == expected_z + expected_λ + expected_μ
+
+        # Verify the variables match the concatenation of zs, λs, μs
+        all_zs = vcat([vars.zs[i] for i in 1:3]...)
+        all_λs = vcat([vars.λs[i] for i in 1:3]...)
+        @test isequal(vars.all_variables[1:expected_z], all_zs)
+        @test isequal(vars.all_variables[(expected_z+1):(expected_z+expected_λ)], all_λs)
+    end
+
+    @testset "strip_policy_constraints matches manual offset extraction" begin
+        using Graphs: SimpleDiGraph, add_edge!
+        using MixedHierarchyGames: setup_problem_variables, get_qp_kkt_conditions, strip_policy_constraints
+        using Symbolics: Num
+
+        # 2-player Stackelberg: 1→2
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [3, 3]
+        gs = [z -> [z[1] + z[2] - 1.0], z -> [z[1] - z[2]]]
+
+        vars = setup_problem_variables(G, primal_dims, gs)
+
+        Js = Dict(
+            1 => (zs...; θ=nothing) -> sum(vars.zs[1].^2) + sum(vars.zs[2].^2),
+            2 => (zs...; θ=nothing) -> sum(vars.zs[2].^2),
+        )
+
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs,
+            vars.ws, vars.ys, vars.ws_z_indices)
+        πs_stripped = strip_policy_constraints(result.πs, G, vars.zs, gs)
+
+        # Leader KKT structure: [grad_self(3) | grad_follower(3) | policy(3) | constraints(1)]
+        # Stripped: [grad_self(3) | grad_follower(3) | constraints(1)] = 7
+        @test length(result.πs[1]) == 10  # Full: 3 + 3 + 3 + 1
+        @test length(πs_stripped[1]) == 7  # Stripped: 3 + 3 + 1
+
+        # Leaf unchanged
+        @test length(πs_stripped[2]) == length(result.πs[2])
+        @test isequal(πs_stripped[2], result.πs[2])
+    end
+
+    @testset "strip_policy_constraints 3-player chain" begin
+        using Graphs: SimpleDiGraph, add_edge!
+        using MixedHierarchyGames: setup_problem_variables, get_qp_kkt_conditions, strip_policy_constraints
+        using Symbolics: Num
+
+        # 3-player chain: 1→2→3
+        G = SimpleDiGraph(3)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 3)
+
+        primal_dims = [2, 2, 2]
+        gs = [z -> [z[1]], z -> [z[1]], z -> [z[1]]]
+
+        vars = setup_problem_variables(G, primal_dims, gs)
+
+        Js = Dict(
+            1 => (zs...; θ=nothing) -> sum(vars.zs[1].^2) + sum(vars.zs[2].^2),
+            2 => (zs...; θ=nothing) -> sum(vars.zs[2].^2) + sum(vars.zs[3].^2),
+            3 => (zs...; θ=nothing) -> sum(vars.zs[3].^2),
+        )
+
+        result = get_qp_kkt_conditions(G, Js, vars.zs, vars.λs, vars.μs, gs,
+            vars.ws, vars.ys, vars.ws_z_indices)
+        πs_stripped = strip_policy_constraints(result.πs, G, vars.zs, gs)
+
+        # P3 (leaf): stationarity(2) + constraints(1) = 3
+        @test length(result.πs[3]) == 3
+        @test length(πs_stripped[3]) == 3
+        @test isequal(πs_stripped[3], result.πs[3])
+
+        # P2 (mid-chain, leader of 3): grad_self(2) + [grad_f3(2) + policy(2)] + constraints(1) = 7
+        @test length(result.πs[2]) == 7
+        # Stripped: grad_self(2) + grad_f3(2) + constraints(1) = 5
+        @test length(πs_stripped[2]) == 5
+
+        # P1 (root, leader of 2 AND 3 transitively):
+        # grad_self(2) + [grad_f2(2) + policy(2)] + [grad_f3(2) + policy(2)] + constraints(1) = 11
+        @test length(result.πs[1]) == 11
+        # Stripped: grad_self(2) + grad_f2(2) + grad_f3(2) + constraints(1) = 7
+        @test length(πs_stripped[1]) == 7
+    end
+
     @testset "split_solution_vector for uniform per-timestep splitting" begin
         # Verify split_solution_vector handles uniform blocks (used for timestep extraction)
         # Simulate extracting T+1 state vectors of dim 4 from a flat state segment
