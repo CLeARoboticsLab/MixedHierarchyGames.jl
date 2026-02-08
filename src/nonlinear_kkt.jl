@@ -668,18 +668,16 @@ function run_nonlinear_solver(
         end
 
         @timeit to "Newton step" begin
-            linsolver.A = ∇F
-            linsolver.b = -F_eval
-            solution = solve!(linsolver)
+            newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
         end
 
-        if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
-            verbose && @warn "Linear solve failed: $(solution.retcode)"
+        if !newton_result.success
+            verbose && @warn "Linear solve failed"
             status = :linear_solver_error
             break
         end
 
-        δz = solution.u
+        δz = newton_result.step
 
         # Line search for step size
         @timeit to "line search" begin
