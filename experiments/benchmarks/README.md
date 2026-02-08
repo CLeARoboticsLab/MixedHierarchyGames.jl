@@ -24,52 +24,52 @@ Runs all three experiments (LQ chain, lane change, PPV) with TimerOutputs instru
 
 | Section | Time | % of Total | Allocations |
 |---------|------|-----------|-------------|
-| **QPSolver construction** | **6.85s** | **83.0%** | **1.58 GiB** |
-| &emsp; KKT conditions | 2.40s | 29.2% | 592 MiB |
-| &emsp; ParametricMCP build | 3.24s | 39.2% | 704 MiB |
-| &emsp; linearity check | 119ms | 1.4% | 3.49 MiB |
-| **QPSolver solve** (6 calls) | **3.76ms** | **0.0%** | **821 KiB** |
-| &emsp; linear solve | 3.74ms | — | 765 KiB |
-| &emsp; residual evaluation | 2.04μs | — | 6.09 KiB |
-| &emsp; Jacobian evaluation | 1.62μs | — | 6.09 KiB |
+| **QPSolver construction** | **6.70s** | **81.9%** | **1.58 GiB** |
+| &emsp; KKT conditions | 2.36s | 28.9% | 592 MiB |
+| &emsp; ParametricMCP build | 3.14s | 38.4% | 704 MiB |
+| &emsp; linearity check | 122ms | 1.5% | 3.49 MiB |
+| **QPSolver solve** (6 calls) | **2.79ms** | **0.0%** | **821 KiB** |
+| &emsp; linear solve | 2.77ms | — | 765 KiB |
+| &emsp; residual evaluation | 5.29μs | — | 6.09 KiB |
+| &emsp; Jacobian evaluation | 1.83μs | — | 6.09 KiB |
 
-**Per-solve: ~627μs** (dominated by linear solve)
+**Per-solve: ~465μs** (dominated by linear solve)
 
 #### NonlinearSolver (same LQ problem)
 
 | Section | Time | % of Total | Allocations |
 |---------|------|-----------|-------------|
-| **NonlinearSolver construction** | **2.78s** | **73.3%** | **712 MiB** |
-| &emsp; approximate KKT setup | 1.57s | 41.5% | 367 MiB |
-| &emsp; ParametricMCP build | 1.18s | 31.3% | 342 MiB |
-| &emsp; linear solver init | 17.5ms | 0.5% | 2.88 MiB |
-| &emsp; variable setup | 1.11ms | 0.0% | 583 KiB |
-| **NonlinearSolver solve** (6 calls) | **742ms** | **19.6%** | **80.1 MiB** |
-| &emsp; compute K evals (12 calls) | 525ms | 13.8% | 74.2 MiB |
-| &emsp; Jacobian evaluation | 3.67ms | 0.1% | 204 KiB |
-| &emsp; line search | 2.61ms | 0.1% | 2.91 MiB |
-| &emsp; residual evaluation (12 calls) | 2.15ms | 0.1% | 136 KiB |
-| &emsp; Newton step | 264μs | 0.0% | 590 KiB |
+| **NonlinearSolver construction** | **2.60s** | **72.9%** | **712 MiB** |
+| &emsp; approximate KKT setup | 1.43s | 40.0% | 367 MiB |
+| &emsp; ParametricMCP build | 1.16s | 32.4% | 341 MiB |
+| &emsp; linear solver init | 16.0ms | 0.4% | 2.88 MiB |
+| &emsp; variable setup | 1.24ms | 0.0% | 583 KiB |
+| **NonlinearSolver solve** (6 calls) | **698ms** | **19.6%** | **80.1 MiB** |
+| &emsp; compute K evals (12 calls) | 497ms | 13.9% | 74.2 MiB |
+| &emsp; Jacobian evaluation | 3.68ms | 0.1% | 204 KiB |
+| &emsp; line search | 2.65ms | 0.1% | 2.91 MiB |
+| &emsp; residual evaluation (12 calls) | 2.07ms | 0.1% | 136 KiB |
+| &emsp; Newton step | 293μs | 0.0% | 590 KiB |
 
-**Per-solve: ~124ms** (1 Newton iteration each, dominated by K evaluation)
+**Per-solve: ~116ms** (1 Newton iteration each, dominated by K evaluation)
 
 ### Experiment 2: Nonlinear Lane Change (4 players, unicycle, T=14)
 
 | Section | Time | % of Total | Allocations |
 |---------|------|-----------|-------------|
-| **NonlinearSolver construction** | **339s** | **62.6%** | **159 GiB** |
-| &emsp; approximate KKT setup | 221s | 40.7% | 103 GiB |
-| &emsp; ParametricMCP build | 118s | 21.8% | 56.0 GiB |
-| &emsp; variable setup | 85.2ms | 0.0% | 18.3 MiB |
-| &emsp; linear solver init | 100μs | 0.0% | 21.5 KiB |
-| **NonlinearSolver solve** (4 calls) | **202s** | **37.4%** | **56.5 GiB** |
-| &emsp; compute K evals (208 calls) | 114s | 21.0% | 14.3 GiB |
-| &emsp; line search (204 steps) | 87.9s | 16.2% | 41.5 GiB |
-| &emsp; Newton step | 340ms | 0.1% | 496 MiB |
-| &emsp; Jacobian evaluation | 211ms | 0.0% | 140 MiB |
-| &emsp; residual evaluation | 36.3ms | 0.0% | 143 MiB |
+| **NonlinearSolver construction** | **345s** | **61.6%** | **159 GiB** |
+| &emsp; approximate KKT setup | 223s | 39.8% | 103 GiB |
+| &emsp; ParametricMCP build | 122s | 21.7% | 56.1 GiB |
+| &emsp; variable setup | 94.5ms | 0.0% | 18.3 MiB |
+| &emsp; linear solver init | 99.2μs | 0.0% | 21.5 KiB |
+| **NonlinearSolver solve** (4 calls) | **215s** | **38.4%** | **64.3 GiB** |
+| &emsp; compute K evals (236 calls) | 116s | 20.6% | 15.3 GiB |
+| &emsp; line search (232 steps) | 98.7s | 17.6% | 48.1 GiB |
+| &emsp; Newton step | 318ms | 0.1% | 561 MiB |
+| &emsp; Jacobian evaluation | 247ms | 0.0% | 160 MiB |
+| &emsp; residual evaluation | 47.0ms | 0.0% | 162 MiB |
 
-**Per-solve: ~50.6s** (~51 iterations, converges with residual ~6.6e-11)
+**Per-solve: ~53.8s** (~58 iterations, converges with residual ~2.5e-12)
 
 Note: Construction allocates 159 GiB due to symbolic KKT expression tree compilation. This experiment OOM-killed in Docker (8 GB limit) but runs successfully on host with 24 GB RAM.
 
@@ -77,17 +77,17 @@ Note: Construction allocates 159 GiB due to symbolic KKT expression tree compila
 
 | Section | Time | % of Total | Allocations |
 |---------|------|-----------|-------------|
-| **NonlinearSolver construction** | **68.4s** | **96.9%** | **19.6 GiB** |
-| &emsp; approximate KKT setup | 41.6s | 58.9% | 10.5 GiB |
-| &emsp; ParametricMCP build | 26.8s | 37.9% | 9.07 GiB |
-| &emsp; variable setup | 65.0ms | 0.1% | 9.94 MiB |
-| &emsp; linear solver init | 82.6μs | 0.0% | 14.0 KiB |
+| **NonlinearSolver construction** | **69.5s** | **96.9%** | **19.6 GiB** |
+| &emsp; approximate KKT setup | 42.8s | 59.6% | 10.5 GiB |
+| &emsp; ParametricMCP build | 26.7s | 37.2% | 9.06 GiB |
+| &emsp; variable setup | 67.3ms | 0.1% | 9.94 MiB |
+| &emsp; linear solver init | 52.5μs | 0.0% | 14.0 KiB |
 | **NonlinearSolver solve** (4 calls) | **1.90s** | **2.7%** | **291 MiB** |
-| &emsp; compute K evals (8 calls) | 1.64s | 2.3% | 241 MiB |
-| &emsp; line search | 69.3ms | 0.1% | 38.6 MiB |
-| &emsp; Jacobian evaluation | 4.50ms | 0.0% | 1.26 MiB |
-| &emsp; Newton step | 3.57ms | 0.0% | 5.84 MiB |
-| &emsp; residual evaluation | 2.46ms | 0.0% | 2.25 MiB |
+| &emsp; compute K evals (8 calls) | 1.63s | 2.3% | 241 MiB |
+| &emsp; line search | 80.7ms | 0.1% | 38.6 MiB |
+| &emsp; Jacobian evaluation | 4.59ms | 0.0% | 1.26 MiB |
+| &emsp; Newton step | 3.41ms | 0.0% | 5.84 MiB |
+| &emsp; residual evaluation | 2.49ms | 0.0% | 2.25 MiB |
 
 **Per-solve: ~476ms** (1 Newton iteration each, converges with residual ~6.3e-14)
 
@@ -95,10 +95,10 @@ Note: Construction allocates 159 GiB due to symbolic KKT expression tree compila
 
 | Experiment | Construction | Per-Solve | Iterations | Solver |
 |------------|-------------|-----------|------------|--------|
-| LQ Chain (QPSolver) | 6.85s | **627μs** | N/A (direct) | QPSolver |
-| LQ Chain (NonlinearSolver) | 2.78s | **124ms** | 1 | NonlinearSolver |
-| Lane Change (4-player unicycle) | 339s | **50.6s** | ~51 | NonlinearSolver |
-| PPV (3-player) | 68.4s | **476ms** | 1 | NonlinearSolver |
+| LQ Chain (QPSolver) | 6.70s | **465μs** | N/A (direct) | QPSolver |
+| LQ Chain (NonlinearSolver) | 2.60s | **116ms** | 1 | NonlinearSolver |
+| Lane Change (4-player unicycle) | 345s | **53.8s** | ~58 | NonlinearSolver |
+| PPV (3-player) | 69.5s | **476ms** | 1 | NonlinearSolver |
 
 ## Performance Investigation Findings (Feb 2026)
 
