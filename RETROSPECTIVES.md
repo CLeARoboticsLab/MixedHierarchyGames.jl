@@ -218,24 +218,25 @@ Fix Docker container GitHub push auth using Docker Desktop for Mac SSH agent for
 
 ## PR: feature/timer-outputs-benchmarking-v2
 
-**Date:** 2026-02-07
-**Commits:** 4
+**Date:** 2026-02-06 – 2026-02-07
+**Commits:** 8
 **Tests:** 450 passing
+**Sessions:** 3 (spanned context window resets)
 
 ### Summary
 
-Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehensive benchmarks on all three experiments, and confirmed through direct old-vs-new comparison that the new `src/` solver is algorithmically identical to the old `examples/` solver. Also moved the collision weight from inside `smooth_collision_all` to the caller cost functions.
+Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehensive benchmarks on all three experiments, and confirmed through direct old-vs-new solver comparison that the new `src/` code is algorithmically identical to the old `examples/` code. Discovered and fixed a hidden collision weight mismatch. Moved the weight to caller cost functions. Added two new CLAUDE.md rules from lessons learned.
 
 ### TDD Compliance
 **Score: 8/10**
-- What went well: 23 new timer tests written before/alongside the TimerOutputs integration. Tests verify the `to` kwarg flows through correctly and sections appear in timer output.
-- What went wrong: The collision weight refactor (moving 0.1 from function to caller) was a pure experiment-side change with no new tests. Acceptable since it only affects experiment config, not `src/` code.
+- What went well: 23 new timer tests written before/alongside TimerOutputs integration. Tests verify the `to` kwarg flows through correctly and timer sections appear in output.
+- What went wrong: Collision weight refactor (moving 0.1 from function to caller) had no new tests. Acceptable since it only affects experiment config, not `src/`.
 - Improvement: N/A — this PR is primarily benchmarking/instrumentation, not new solver logic.
 
 ### Clean Code Practices
 **Score: 8/10**
-- What went well: Collision weight moved from hidden inside `smooth_collision_all` to explicit `COLLISION_WEIGHT` constant at call sites — more transparent. Benchmark README documents methodology and findings clearly.
-- What went wrong: `benchmark_all.jl` is a long script (~250 lines) that could benefit from helper extraction, but acceptable for a one-off benchmark runner.
+- What went well: Hidden collision weight discovered and moved to explicit `COLLISION_WEIGHT` constant. This finding was codified as a new CLAUDE.md rule ("no hidden scaling in shared functions").
+- What went wrong: `benchmark_all.jl` is ~250 lines that could benefit from helper extraction, but acceptable for a one-off benchmark runner.
 - Improvement: Consider breaking benchmark scripts into per-experiment modules if they grow further.
 
 ### Clean Architecture Practices
@@ -245,15 +246,19 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 
 ### Commit Hygiene
 **Score: 7/10**
-- What went well: Commits are logically organized (instrumentation → benchmark script → results → collision weight refactor).
-- What went wrong: The "Add benchmark results" commit is large, bundling README content with script relocation. Some of the benchmark investigation work spanned multiple sessions and the intermediate findings were squashed into one commit.
-- Improvement: Break large documentation commits into smaller pieces (results vs methodology vs investigation findings).
+- What went well: Later commits (collision weight refactor, CLAUDE.md rules, benchmark re-run) are small and focused.
+- What went wrong: Early commits from Session 1 are large — "Add benchmark results" bundles README + script relocation + investigation findings. Spanned 3 sessions, which makes it hard to keep commits granular.
+- Improvement: Break large documentation commits into smaller pieces. When a PR spans sessions, review commit history at the start of each new session.
 
 ### CLAUDE.md Compliance
-**Score: 8/10**
-- What went well: TDD followed for timer tests, experiments structure followed, PR description kept up to date, retrospective conducted.
-- What went wrong: Debug scripts were created in scratchpad (correct) but the investigation process involved many ad-hoc scripts that weren't tracked via beads until the end.
-- Improvement: Create beads for investigation tasks earlier in the process.
+**Score: 7/10**
+- What went well: TDD for timer tests, experiments structure, retrospective conducted, learnings fed back into CLAUDE.md.
+- What went wrong:
+  1. **PR description went stale** — after multiple pushes, the description still referenced old benchmark numbers and was missing files from the Changes list. Fixed, and added a new CLAUDE.md rule requiring PR description updates on every push.
+  2. **Beads created late** — optimization opportunities (CSE, sparse M\N) discovered mid-investigation but beads not created until user prompted.
+  3. **Benchmarks not re-run after code changes** — collision weight refactor changed the cost function but benchmarks weren't re-run until the user asked "are the benchmark results still correct?"
+- Improvement: After any code change that affects experiment behavior, immediately re-run benchmarks and update numbers. Don't wait to be asked.
+- Verifiable Solution: New CLAUDE.md rule ensures PR descriptions stay current. Benchmark results now match the actual committed code.
 
 ### Beads Created
 - `0ip` — Explore sparse/block-structured M\N solve
@@ -266,11 +271,13 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 ### Key Learnings
 1. **Shared-process benchmarks are unreliable.** GC warming and JIT artifacts create 15-30% ordering effects. Always benchmark in separate Julia processes.
 2. **Bit-for-bit comparison is the gold standard.** Wall-time comparisons are noisy; comparing iteration counts, residuals, and solution vectors to machine precision gives deterministic answers.
-3. **Hidden constants in utility functions cause subtle bugs.** The 0.1 inside `smooth_collision_all` caused a long debugging session tracking down an apparent convergence difference that was actually a different optimization problem.
-4. **Matrix dimension scaling dominates per-iteration cost.** Lane change (330x480 M matrix) vs LQ (56x56) explains the 80x per-iteration difference through cubic LU scaling.
+3. **Hidden constants in utility functions cause subtle bugs.** The 0.1 inside `smooth_collision_all` caused a long debugging session tracking an apparent convergence difference that was actually a different optimization problem. Now a CLAUDE.md rule.
+4. **Matrix dimension scaling dominates per-iteration cost.** Lane change (330×480 M matrix) vs LQ (56×56) explains the 80× per-iteration difference through cubic LU scaling.
+5. **PR descriptions rot fast.** Every push should update the description. Stale claims (old benchmark numbers, missing file lists) erode reviewer trust. Now a CLAUDE.md rule.
+6. **Re-run benchmarks after code changes.** Even "equivalent" refactors can change Symbolics expression trees, producing different iteration counts. Always verify numbers match the committed code.
 
 ### Action Items for Next PR
-- [ ] Implement skip-K-in-line-search optimization (bead `kmv`) — 1.63x speedup verified
+- [ ] Implement skip-K-in-line-search optimization (bead `kmv`) — 1.63× speedup verified
 - [ ] Investigate CSE in Symbolics.jl `build_function` (bead `zkn`)
 - [ ] Re-run allocation benchmarks on nonlinear problem (bead `ahv`)
 
