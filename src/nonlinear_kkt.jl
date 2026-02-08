@@ -663,6 +663,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    F_trial = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
 
     # Helper: compute parameters (θ, K) for a given z
@@ -723,21 +724,16 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            α = 1.0
             F_eval_current_norm = norm(F_eval)
 
-            if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
-
-                    if norm(F_eval) < F_eval_current_norm
-                        break
-                    end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
-                end
+            residual_norm_fn = function(z_trial)
+                param_trial, _ = params_for_z(z_trial)
+                mcp_obj.f!(F_trial, z_trial, param_trial)
+                return norm(F_trial)
             end
+
+            α = perform_linesearch(residual_norm_fn, z_est, δz, F_eval_current_norm;
+                                   use_armijo)
         end
 
         # Update estimate (in-place to avoid allocation)
