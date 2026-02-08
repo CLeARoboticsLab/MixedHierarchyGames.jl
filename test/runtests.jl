@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # BlockArrays Utilities
+    include("test_block_arrays.jl")
 end
