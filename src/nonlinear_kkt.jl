@@ -154,7 +154,7 @@ function setup_approximate_kkt_solver(
 
         # Build Lagrangian using symbolic K matrices
         # Get θ for this player (flatten if needed)
-        θ_order = sort(collect(keys(θs)))
+        θ_order = ordered_player_indices(θs)
         θ_all = vcat([θs[k] for k in θ_order]...)
 
         all_zs = [zs[j] for j in 1:N]
@@ -305,7 +305,7 @@ function preoptimize_nonlinear_solver(
         all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
 
         # Build parameter vector (θ values + K matrix values)
-        θ_order = sort(collect(keys(θs)))
+        θ_order = ordered_player_indices(θs)
         θ_syms_flat = vcat([θs[k] for k in θ_order]...)
         all_param_syms_vec = vcat(θ_syms_flat, all_K_syms_vec)
 
@@ -314,7 +314,7 @@ function preoptimize_nonlinear_solver(
         π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
 
         # Build MCP function vector
-        π_order = sort(collect(keys(πs_solve)))
+        π_order = ordered_player_indices(πs_solve)
         F_sym = Symbolics.Num.(vcat([πs_solve[k] for k in π_order]...))
     end
 
@@ -533,7 +533,7 @@ function run_nonlinear_solver(
     all_variables = precomputed.all_variables
 
     # Build parameter values vector
-    θs_order = sort(collect(keys(initial_states)))
+    θs_order = ordered_player_indices(initial_states)
     θ_vals_vec = vcat([initial_states[k] for k in θs_order]...)
 
     # Initialize z estimate
