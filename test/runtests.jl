@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # Dependency Hygiene
+    include("test_dependency_hygiene.jl")
 end
