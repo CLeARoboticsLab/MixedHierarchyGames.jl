@@ -5,6 +5,7 @@ using MixedHierarchyGames:
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
     compute_K_evals,
+    check_convergence,
     setup_approximate_kkt_solver,
     setup_problem_variables,
     setup_problem_parameter_variables,
@@ -698,5 +699,68 @@ end
         # Missing player 2 in parameter_values
         parameter_values = Dict(1 => [1.0, 0.0])
         @test_throws ArgumentError solve(solver, parameter_values)
+    end
+end
+
+#=
+    Tests for check_convergence helper
+=#
+
+@testset "check_convergence" begin
+    @testset "Returns converged=true when residual < tol" begin
+        result = check_convergence(1e-8, 1e-6)
+        @test result.converged == true
+        @test result.status == :solved
+    end
+
+    @testset "Returns converged=false when residual >= tol" begin
+        result = check_convergence(1e-4, 1e-6)
+        @test result.converged == false
+        @test result.status == :not_converged
+    end
+
+    @testset "Returns converged=true at exact tolerance boundary" begin
+        # Residual exactly equal to tol should NOT converge (strict <)
+        result = check_convergence(1e-6, 1e-6)
+        @test result.converged == false
+        @test result.status == :not_converged
+    end
+
+    @testset "Returns numerical_error for NaN residual" begin
+        result = check_convergence(NaN, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Returns numerical_error for Inf residual" begin
+        result = check_convergence(Inf, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Returns numerical_error for -Inf residual" begin
+        result = check_convergence(-Inf, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Handles zero residual" begin
+        result = check_convergence(0.0, 1e-6)
+        @test result.converged == true
+        @test result.status == :solved
+    end
+
+    @testset "Verbose mode does not error" begin
+        # Just verify it doesn't throw when verbose=true
+        result = check_convergence(1e-8, 1e-6; verbose=true, iteration=5)
+        @test result.converged == true
+    end
+
+    @testset "Returns named tuple with correct fields" begin
+        result = check_convergence(1e-3, 1e-6)
+        @test hasproperty(result, :converged)
+        @test hasproperty(result, :status)
+        @test result.converged isa Bool
+        @test result.status isa Symbol
     end
 end
