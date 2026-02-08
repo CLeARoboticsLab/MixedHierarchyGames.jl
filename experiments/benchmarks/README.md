@@ -182,3 +182,51 @@ Verified that the NonlinearSolver applied to LQ problems behaves correctly:
 - **Separate Julia processes** eliminate cross-contamination and produce reliable results.
 - **TimerOutputs** is effective for per-section profiling within a single solver run.
 - **Functional correctness tests** (same iterations, same solution, same α values) are deterministic and more useful than wall-time comparisons for detecting real algorithmic differences.
+
+## Old vs New Solver Convergence Comparison (Feb 2026)
+
+### Setup
+
+We compared the old (`examples/test_automatic_solver.jl`) and new (`src/NonlinearSolver`) solvers on the 4-player nonlinear lane change with Mixed A hierarchy (P1→P2, P2→P4, P1→P3), T=10, Δt=0.5.
+
+### Initial Observation
+
+The new solver appeared to converge in 119 iterations while the old solver stalled at ~0.21 for 500+ iterations. Both started at residual 50.27, diverged by ~7×10⁻⁹ at iteration 8.
+
+### Root Cause: `smooth_collision_all` Weight Mismatch
+
+The apparent convergence difference was caused by **different collision cost weights**, not a solver bug:
+
+- **Old code** (`examples/test_automatic_solver.jl:1223`): `total += 0.1 * smooth_collision(...)` — **0.1× multiplier** inside `smooth_collision_all`
+- **New code** (`experiments/common/collision_avoidance.jl:64`): `total += smooth_collision(...)` — **no multiplier** (was missing the 0.1)
+
+This made the collision cost **10× stronger** in the new experiments, creating a different optimization problem. The two solvers were solving different KKT systems — the identical initial residuals were coincidental because collision costs are negligible at the initial guess (vehicles start far apart, softplus ≈ 0).
+
+### Verification
+
+After restoring the `0.1` multiplier to `experiments/common/collision_avoidance.jl`, both solvers produce **bit-for-bit identical** residuals through all 500 iterations:
+
+| Iteration | New solver residual | Old solver residual |
+|-----------|--------------------|--------------------|
+| 0 | 50.27443404278393 | 50.27443404278393 |
+| 8 | 43.90884191226509 | 43.90884191226509 |
+| 100 | 0.21219945497264966 | 0.21219945497264966 |
+| 500 | 0.21580864774733108 | 0.21580864774733108 |
+
+All 500 iterations match to 17 significant digits. The solvers are algorithmically identical.
+
+### Additional Finding: `get_all_leaders` Ordering Is Irrelevant
+
+We also tested whether the `get_all_leaders` ordering (closest-first vs root-first) affects results. It does not — Symbolics.jl canonicalizes expression trees:
+
+| Config | Closest-first (iters) | Root-first (iters) |
+|--------|----------------------|-------------------|
+| Default | 119 | 119 |
+| P3 further back | 1043 | 1043 |
+| P3 faster | 82 | 82 |
+| Tighter spacing | 2235 | 2235 |
+| Wider spacing | 295 | 295 |
+
+### Conclusion
+
+The new `src/` solver is a correct, algorithmically identical port of the old `examples/` solver. The `0.1` collision weight has been moved from inside `smooth_collision_all` to the cost functions in `config.jl` as `COLLISION_WEIGHT = 0.1`.

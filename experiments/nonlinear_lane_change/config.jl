@@ -27,6 +27,7 @@ const CONTROL_WEIGHT_P2 = 1.0
 const CONTROL_WEIGHT_P4 = 1.0
 const Y_DEVIATION_WEIGHT = 5.0
 const HEADING_WEIGHT = 1.0
+const COLLISION_WEIGHT = 0.1
 const VELOCITY_WEIGHT = 1.0
 
 # Cost weights for merging vehicle (P3)

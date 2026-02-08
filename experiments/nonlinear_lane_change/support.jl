@@ -27,7 +27,7 @@ function make_cost_functions(state_dim, control_dim, T, R)
         xs⁴ = xs
 
         control = CONTROL_WEIGHT_P1 * sum(sum(u .^ 2) for u in us¹)
-        collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+        collision = COLLISION_WEIGHT * smooth_collision_all(xs¹, xs², xs³, xs⁴)
         velocity = VELOCITY_WEIGHT * sum((x¹[4] - TARGET_VELOCITY)^2 for x¹ in xs¹)
         y_deviation = Y_DEVIATION_WEIGHT * sum((x¹[2] - R)^2 for x¹ in xs¹)
         zero_heading = HEADING_WEIGHT * sum((x¹[3])^2 for x¹ in xs¹)
@@ -47,7 +47,7 @@ function make_cost_functions(state_dim, control_dim, T, R)
         xs⁴ = xs
 
         control = CONTROL_WEIGHT_P2 * sum(sum(u .^ 2) for u in us²)
-        collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+        collision = COLLISION_WEIGHT * smooth_collision_all(xs¹, xs², xs³, xs⁴)
         velocity = VELOCITY_WEIGHT * sum((x²[4] - TARGET_VELOCITY)^2 for x² in xs²)
         y_deviation = Y_DEVIATION_WEIGHT * sum((x²[2] - R)^2 for x² in xs²)
         zero_heading = HEADING_WEIGHT * sum((x²[3])^2 for x² in xs²)
@@ -69,7 +69,7 @@ function make_cost_functions(state_dim, control_dim, T, R)
         # Track quarter circle for first half (stay on circular path of radius R)
         tracking = TRACKING_WEIGHT_P3 * sum((sum(x³[1:2] .^ 2) - R^2)^2 for x³ in xs³[2:div(T, 2)])
         control = CONTROL_WEIGHT_P3 * sum(sum(u³ .^ 2) for u³ in us³)
-        collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+        collision = COLLISION_WEIGHT * smooth_collision_all(xs¹, xs², xs³, xs⁴)
         velocity = VELOCITY_WEIGHT * sum((x³[4] - TARGET_VELOCITY)^2 for x³ in xs³)
         # Second half: merge into lane
         y_deviation = Y_DEVIATION_WEIGHT_P3 * sum((x³[2] - R)^2 for x³ in xs³[div(T, 2):T])
@@ -90,7 +90,7 @@ function make_cost_functions(state_dim, control_dim, T, R)
         xs⁴, us⁴ = xs, us
 
         control = CONTROL_WEIGHT_P4 * sum(sum(u .^ 2) for u in us⁴)
-        collision = smooth_collision_all(xs¹, xs², xs³, xs⁴)
+        collision = COLLISION_WEIGHT * smooth_collision_all(xs¹, xs², xs³, xs⁴)
         velocity = VELOCITY_WEIGHT * sum((x⁴[4] - TARGET_VELOCITY)^2 for x⁴ in xs⁴)
         y_deviation = sum((x⁴[2] - R)^2 for x⁴ in xs⁴)  # Lower weight for P4
         zero_heading = HEADING_WEIGHT * sum((x⁴[3])^2 for x⁴ in xs⁴)
