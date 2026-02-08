@@ -14,6 +14,8 @@
 
 ### Pull Request Requirements
 
+**Every `git push` MUST be accompanied by a PR description update.** The PR description is the source of truth for reviewers — if it's stale, the PR is not ready. Update the Changes list, Changelog, and any claims (test counts, file lists, findings) to match the actual state of the branch after every push.
+
 When pushing a branch, always create or update the associated PR with a clear, auditable description:
 
 1. **New branches**: Create a PR immediately after pushing with:
