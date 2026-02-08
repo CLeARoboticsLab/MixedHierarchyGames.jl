@@ -873,21 +873,21 @@ end
     end
 
     @testset "Backtracks when full step increases residual" begin
-        # First trial (α=1) increases residual, subsequent trials decrease it
+        # Full step (α=1): z_trial = [1,1]+1*[1,1] = [2,2] -> norm 10.0 (worse than 5.0)
+        # Half step (α=0.5): z_trial = [1,1]+0.5*[1,1] = [1.5,1.5] -> norm 0.1 (better)
         call_count = Ref(0)
         function residual_fn_backtrack(z)
             call_count[] += 1
-            # α=1 gives z=[0,0] -> residual 10.0 (worse than 5.0)
-            # α=0.5 gives z=[0.5,0.5] -> residual 0.1 (better)
-            if sum(abs.(z)) < 0.6
-                return 0.1
+            # Large z values give large residual, small z values give small residual
+            if maximum(abs.(z)) > 1.8
+                return 10.0  # Worse than current (5.0)
             else
-                return 10.0
+                return 0.1   # Better than current (5.0)
             end
         end
 
         z_est = [1.0, 1.0]
-        δz = [-1.0, -1.0]
+        δz = [1.0, 1.0]  # Step that overshoots at full α
         current_residual_norm = 5.0
 
         α = perform_linesearch(residual_fn_backtrack, z_est, δz, current_residual_norm;

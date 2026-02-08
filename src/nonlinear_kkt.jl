@@ -86,6 +86,48 @@ function compute_newton_step(linsolver, jacobian, neg_residual)
 end
 
 """
+    perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm; use_armijo=true)
+
+Perform backtracking line search to select step size for Newton update.
+
+When `use_armijo=true`, backtracks from α=1.0 by halving until the trial point
+has a smaller residual norm than the current point, or max iterations are reached.
+When `use_armijo=false`, returns α=1.0 (full Newton step).
+
+# Arguments
+- `residual_norm_fn` - Function `z_trial -> Float64` returning residual norm at trial point
+- `z_est::Vector` - Current iterate
+- `δz::Vector` - Newton step direction
+- `current_residual_norm::Float64` - Residual norm at current iterate
+
+# Keyword Arguments
+- `use_armijo::Bool=true` - Whether to perform backtracking line search
+
+# Returns
+- `α::Float64` - Selected step size
+"""
+function perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                            use_armijo::Bool=true)
+    α = 1.0
+
+    if !use_armijo
+        return α
+    end
+
+    for _ in 1:LINESEARCH_MAX_ITERS
+        z_trial = z_est .+ α .* δz
+        trial_residual_norm = residual_norm_fn(z_trial)
+
+        if trial_residual_norm < current_residual_norm
+            break
+        end
+        α *= LINESEARCH_BACKTRACK_FACTOR
+    end
+
+    return α
+end
+
+"""
     _construct_augmented_variables(ii, all_variables, K_syms, G)
 
 Build augmented variable list for player ii including follower K matrices.
