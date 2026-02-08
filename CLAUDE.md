@@ -82,6 +82,7 @@ If you find yourself writing implementation code without a failing test:
 
 - **Dead code**: When encountering dead code (unused functions, unreachable branches, stub functions that throw errors), mark it for removal. Delete it if clearly unused, or flag for review if uncertain.
 - **Duplicated code**: When encountering duplicated logic, mark it for consolidation. Extract shared functionality into helper functions or common modules.
+- **No hidden scaling in shared functions**: Constants that affect behavior (weights, thresholds, scaling factors) must be explicit parameters or live in config, never buried inside utility functions.
 
 ## Planning
 
