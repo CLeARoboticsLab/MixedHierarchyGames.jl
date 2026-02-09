@@ -10,7 +10,9 @@ using MixedHierarchyGames:
     setup_problem_parameter_variables,
     make_symbolic_vector,
     default_backend,
-    get_all_followers
+    get_all_followers,
+    NonlinearSolver,
+    solve_raw
 
 using TrajectoryGamesBase: unflatten_trajectory
 
@@ -698,5 +700,147 @@ end
         # Missing player 2 in parameter_values
         parameter_values = Dict(1 => [1.0, 0.0])
         @test_throws ArgumentError solve(solver, parameter_values)
+    end
+end
+
+#=
+    Tests for recompute_K_in_linesearch option
+=#
+
+@testset "recompute_K_in_linesearch option" begin
+    @testset "run_nonlinear_solver accepts recompute_K_in_linesearch kwarg" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Should not throw with recompute_K_in_linesearch=false (default behavior)
+        result_skip = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=false
+        )
+        @test result_skip.converged
+
+        # Should not throw with recompute_K_in_linesearch=true
+        result_recompute = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=true
+        )
+        @test result_recompute.converged
+    end
+
+    @testset "Default is false (skip K recomputation)" begin
+        prob = make_two_player_chain_problem()
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+        @test solver.options.recompute_K_in_linesearch == false
+    end
+
+    @testset "Constructor stores recompute_K_in_linesearch option" begin
+        prob = make_two_player_chain_problem()
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            recompute_K_in_linesearch=true
+        )
+        @test solver.options.recompute_K_in_linesearch == true
+    end
+
+    @testset "Solutions match with both settings (2-player chain)" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result_skip = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=false
+        )
+
+        result_recompute = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=true
+        )
+
+        @test result_skip.converged
+        @test result_recompute.converged
+        @test result_skip.sol ≈ result_recompute.sol atol=1e-6
+    end
+
+    @testset "Solutions match with both settings (3-player chain)" begin
+        prob = make_three_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5], 3 => [1.0, 1.0])
+
+        result_skip = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=false
+        )
+
+        result_recompute = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            use_armijo=true,
+            recompute_K_in_linesearch=true
+        )
+
+        @test result_skip.converged
+        @test result_recompute.converged
+        @test result_skip.sol ≈ result_recompute.sol atol=1e-6
+    end
+
+    @testset "solve_raw passes recompute_K_in_linesearch through" begin
+        prob = make_two_player_chain_problem()
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            recompute_K_in_linesearch=false
+        )
+        parameter_values = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = solve_raw(solver, parameter_values)
+        @test result.converged
+
+        # Also test runtime override
+        result_override = solve_raw(solver, parameter_values; recompute_K_in_linesearch=true)
+        @test result_override.converged
+        @test result.sol ≈ result_override.sol atol=1e-6
     end
 end
