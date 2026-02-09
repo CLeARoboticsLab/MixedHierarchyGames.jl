@@ -10,8 +10,9 @@
 # Note: something() returns the first non-nothing value, so something(x, default)
 # is equivalent to isnothing(x) ? default : x
 
-# Line search constants for run_nonlinear_solver
-# Note: These differ from armijo_backtracking defaults (20 iters).
+# Line search constants for run_nonlinear_solver.
+# Passed to armijo_backtracking/geometric_reduction from src/linesearch.jl.
+# Note: These differ from the linesearch module defaults (20 iters).
 const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
@@ -486,12 +487,12 @@ end
         max_iters::Int = 100,
         tol::Float64 = 1e-6,
         verbose::Bool = false,
-        use_armijo::Bool = true
+        linesearch_method::Symbol = :geometric
     )
 
 Iterative nonlinear solver using quasi-linear policy approximation.
 
-Uses Armijo backtracking line search for step size selection.
+Uses configurable line search for step size selection.
 
 # Arguments
 - `precomputed::NamedTuple` - Precomputed symbolic components from `preoptimize_nonlinear_solver`
@@ -503,7 +504,7 @@ Uses Armijo backtracking line search for step size selection.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
-- `use_armijo::Bool=true` - Use Armijo line search
+- `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 
 # Returns
 Named tuple containing:
@@ -521,7 +522,7 @@ function run_nonlinear_solver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true,
+    linesearch_method::Symbol = :geometric,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -615,20 +616,24 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            α = 1.0
-            F_eval_current_norm = norm(F_eval)
+            # Residual function closure that recomputes K at each trial point
+            function residual_at(z)
+                param_trial, _ = params_for_z(z)
+                F_trial = similar(F_eval)
+                mcp_obj.f!(F_trial, z, param_trial)
+                return F_trial
+            end
 
-            if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
-
-                    if norm(F_eval) < F_eval_current_norm
-                        break
-                    end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
-                end
+            if linesearch_method == :armijo
+                α = armijo_backtracking(residual_at, z_est, δz, 1.0;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+            elseif linesearch_method == :geometric
+                α = geometric_reduction(residual_at, z_est, δz, 1.0;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+            elseif linesearch_method == :constant
+                α = 1.0
+            else
+                error("Unknown linesearch_method: $linesearch_method")
             end
         end
 
