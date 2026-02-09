@@ -335,7 +335,11 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
-- `cse::Bool=false` - Enable Common Subexpression Elimination in compiled M/N functions
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
