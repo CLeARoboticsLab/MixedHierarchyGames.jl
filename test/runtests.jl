@@ -18,6 +18,9 @@ include("testing_utils.jl")
     # Phase D: QP Solver (TDD)
     include("test_qp_solver.jl")
 
+    # QP Solver Failure Modes (singular/ill-conditioned KKT systems)
+    include("test_qp_failure_modes.jl")
+
     # Phase E: Linesearch (TDD)
     include("test_linesearch.jl")
 
