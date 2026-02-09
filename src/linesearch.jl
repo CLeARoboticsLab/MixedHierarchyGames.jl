@@ -103,3 +103,23 @@ function geometric_reduction(
     @warn "Geometric reduction line search failed to find decrease after $max_iters iterations"
     return 0.0
 end
+
+"""
+    constant_step(alpha)
+
+Create a constant step-size line search that always returns `alpha`.
+
+Returns a closure with the same interface as other line search methods
+`(f, x, d, alpha_init) -> α`, but ignores all arguments and returns the fixed step size.
+
+Useful as a baseline or when the appropriate step size is known a priori.
+
+# Arguments
+- `alpha::Float64` - The fixed step size to return
+
+# Returns
+- A function `(f, x, d, alpha_init) -> alpha` that always returns the fixed step size
+"""
+function constant_step(alpha::Float64)
+    return (f, x, d, alpha_init) -> alpha
+end

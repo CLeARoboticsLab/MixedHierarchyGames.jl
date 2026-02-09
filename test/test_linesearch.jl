@@ -1,6 +1,6 @@
 using Test
 using LinearAlgebra: norm
-using MixedHierarchyGames: armijo_backtracking, geometric_reduction
+using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_step
 
 @testset "Armijo Backtracking Linesearch" begin
     @testset "Full step accepted for well-scaled descent" begin
@@ -221,5 +221,64 @@ end
 
         @test α == 1.0
         @test norm(r(x .+ α .* d)) < 1e-14
+    end
+end
+
+@testset "Constant Step Linesearch" begin
+    @testset "Returns the fixed step size regardless of objective" begin
+        # constant_step returns a closure that always returns the same alpha
+        ls = constant_step(0.42)
+
+        # Same interface as other methods: (f, x, d, alpha_init) -> α
+        r(x) = x
+        x = [2.0]
+        d = [-2.0]
+
+        α = ls(r, x, d, 1.0)
+        @test α == 0.42
+    end
+
+    @testset "Ignores the objective function entirely" begin
+        ls = constant_step(0.1)
+
+        # Even with a pathological residual, constant_step returns the fixed value
+        r_pathological(x) = [Inf]
+        x = [1.0]
+        d = [-1.0]
+
+        α = ls(r_pathological, x, d, 1.0)
+        @test α == 0.1
+    end
+
+    @testset "Ignores alpha_init argument" begin
+        ls = constant_step(0.5)
+
+        r(x) = x
+        x = [1.0]
+        d = [-1.0]
+
+        # alpha_init is 0.01, but constant_step should ignore it
+        α = ls(r, x, d, 0.01)
+        @test α == 0.5
+    end
+
+    @testset "Works with different fixed step sizes" begin
+        for fixed_alpha in [0.001, 0.01, 0.1, 0.5, 1.0, 2.0]
+            ls = constant_step(fixed_alpha)
+            r(x) = x
+            α = ls(r, [1.0], [-1.0], 1.0)
+            @test α == fixed_alpha
+        end
+    end
+
+    @testset "Multidimensional problem" begin
+        ls = constant_step(0.25)
+
+        r(x) = x
+        x = [1.0, 2.0, 3.0, 4.0, 5.0]
+        d = -x
+
+        α = ls(r, x, d, 1.0)
+        @test α == 0.25
     end
 end
