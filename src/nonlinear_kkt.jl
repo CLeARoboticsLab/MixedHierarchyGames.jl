@@ -89,6 +89,14 @@ compiled functions for evaluating M and N numerically, avoiding expression blowu
 - `all_variables::Vector` - All symbolic variables
 - `backend` - SymbolicTracingUtils backend
 
+# Keyword Arguments
+- `verbose::Bool=false` - Print debug info
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
+
 # Returns
 Tuple of:
 - `all_augmented_variables::Vector` - Variables including K matrix symbols
@@ -252,7 +260,11 @@ and compile them to efficient numerical functions.
 - `control_dim::Int=2` - Control dimension (for trajectory extraction)
 - `backend` - SymbolicTracingUtils backend
 - `verbose::Bool=false` - Print debug info
-- `cse::Bool=false` - Enable Common Subexpression Elimination in compiled M/N functions
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
 
 # Returns
 Named tuple containing:
