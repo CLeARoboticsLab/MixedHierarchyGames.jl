@@ -340,3 +340,76 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 - [ ] Item 1
 - [ ] Item 2
 ```
+
+---
+
+## PR #86: perf/sparse-mn-solve (bead 0ip)
+
+**Date:** 2026-02-09
+**Commits:** 2
+**Tests:** 481 passing (31 new)
+
+### Summary
+
+Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` flag through the full solver stack. Found sparse solve gives 2-11x speedup for large M matrices (>100 rows) but hurts small matrices. Comprehensive benchmarking across 2/3/4-player chains with sparsity analysis and block structure investigation.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Tests written first (`db8abc6` Add sparse M\N solve investigation tests) before implementation (`490683b` Add use_sparse flag)
+  - 31 new tests covering numerical equivalence, sparsity analysis, timing, and flag validation
+  - Tests verify sparse and dense give identical results to machine epsilon (~1e-15)
+
+- **What could improve:**
+  - Only 2 commits — the test commit likely included some implementation scaffolding. Finer commits (test file alone, then implementation, then benchmarks) would be cleaner.
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Flag defaults to `false` preserving backward compatibility
+  - Threaded cleanly through entire stack (compute_K_evals → run_nonlinear_solver → NonlinearSolver → solve)
+  - Thorough docstrings updated at each level
+  - PR description is exemplary — detailed tables, clear recommendation, technical notes
+
+- **What could improve:**
+  - Global flag applies to all players equally — a per-player adaptive approach would be better (addressed by follow-up bead sp1)
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- Flag propagation follows existing patterns (same as `use_armijo`)
+- No new dependencies in core package (SparseArrays only in test)
+- Investigation correctly identified that block elimination is not viable (irregular sparsity)
+
+### Commit Hygiene
+
+**Score: Fair (6/10)**
+
+- Only 2 commits for a non-trivial change. Could have been split:
+  1. Test file with failing tests
+  2. Implementation of use_sparse flag
+  3. Benchmark results and documentation
+- Process was interrupted by API stall before retrospective could be written
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests first)
+- [x] Tolerances tight (1e-15 verification)
+- [x] PR description complete with Summary, Changes, Testing, Changelog
+- [ ] Retrospective not written (stalled before completion — written retroactively here)
+
+### Key Learnings
+
+1. Sparse UMFPACK LU beats dense for M matrices >100 rows with <5% fill, but loses for small matrices due to symbolic analysis overhead
+2. `sparse(M) \ sparse(N)` is not supported in Julia — must use `sparse(M) \ N` (dense RHS)
+3. KKT Jacobian sparsity is structural (independent of operating point), making it predictable
+
+### Action Items for Next PR
+
+- [ ] bead sp1: Replace global `use_sparse::Bool` with adaptive `:auto`/`:always`/`:never` that selects per-player based on leader vs leaf
+- [ ] Benchmark Nash vs Stackelberg chain structures to validate adaptive strategy
