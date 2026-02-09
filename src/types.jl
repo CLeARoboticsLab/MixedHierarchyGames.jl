@@ -335,6 +335,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
+- `cse::Bool=false` - Enable Common Subexpression Elimination in compiled M/N functions
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -348,6 +349,7 @@ function NonlinearSolver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
+    cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
@@ -363,6 +365,7 @@ function NonlinearSolver(
             state_dim = state_dim,
             control_dim = control_dim,
             verbose = verbose,
+            cse = cse,
             to = to
         )
 
