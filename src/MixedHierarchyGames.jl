@@ -27,7 +27,7 @@ using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks
-using LinearAlgebra: norm, I, SingularException, LAPACKException
+using LinearAlgebra: norm, I, SingularException, LAPACKException, lu, lu!, ldiv!
 using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase

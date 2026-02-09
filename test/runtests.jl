@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # In-place pre-allocation strategies
+    include("test_inplace_strategies.jl")
 end

@@ -96,8 +96,10 @@ Tuple of:
   - `graph` - Hierarchy graph
   - `πs` - KKT conditions per player
   - `K_syms` - Symbolic K matrices per player
-  - `M_fns` - Compiled M matrix evaluation functions
-  - `N_fns` - Compiled N matrix evaluation functions
+  - `M_fns` - Compiled M matrix evaluation functions (out-of-place)
+  - `N_fns` - Compiled N matrix evaluation functions (out-of-place)
+  - `M_fns!` - Compiled M matrix evaluation functions (in-place)
+  - `N_fns!` - Compiled N matrix evaluation functions (in-place)
   - `π_sizes` - KKT condition sizes per player
 """
 function setup_approximate_kkt_solver(
@@ -123,6 +125,8 @@ function setup_approximate_kkt_solver(
     πs = Dict{Int, Vector{Symbolics.Num}}()
     M_fns = Dict{Int, Function}()
     N_fns = Dict{Int, Function}()
+    M_fns! = Dict{Int, Function}()
+    N_fns! = Dict{Int, Function}()
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -204,9 +208,13 @@ function setup_approximate_kkt_solver(
             Mᵢ = Symbolics.jacobian(πs[ii], ws[ii])
             Nᵢ = Symbolics.jacobian(πs[ii], ys[ii])
 
-            # Compile to functions
+            # Compile to functions (out-of-place for baseline)
             M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=false)
             N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=false)
+
+            # Compile in-place variants for Strategy A (write into pre-allocated buffers)
+            M_fns![ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true)
+            N_fns![ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true)
         else
             augmented_variables[ii] = all_variables
         end
@@ -218,7 +226,7 @@ function setup_approximate_kkt_solver(
     all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
     all_augmented_variables = vcat(all_variables, all_K_syms_vec)
 
-    return all_augmented_variables, (; graph=G, πs, K_syms, M_fns, N_fns, π_sizes)
+    return all_augmented_variables, (; graph=G, πs, K_syms, M_fns, N_fns, M_fns!, N_fns!, π_sizes)
 end
 
 """
@@ -430,13 +438,16 @@ Tuple of:
 function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
-    setup_info::NamedTuple
+    setup_info::NamedTuple;
+    inplace_MN::Bool = false,
+    inplace_ldiv::Bool = false,
+    inplace_lu::Bool = false
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
     zs = problem_vars.zs
-    M_fns = setup_info.M_fns
-    N_fns = setup_info.N_fns
+    M_fns_oop = setup_info.M_fns
+    N_fns_oop = setup_info.N_fns
     π_sizes = setup_info.π_sizes
     graph = setup_info.graph
 
@@ -448,22 +459,79 @@ function compute_K_evals(
     follower_cache = Dict{Int, Vector{Int}}()
     buffer_cache = Dict{Int, Vector{Float64}}()
 
+    # Pre-allocated buffers for in-place strategies
+    # These are allocated once per call and reused across players
+    M_buf = Dict{Int, Matrix{Float64}}()
+    N_buf = Dict{Int, Matrix{Float64}}()
+    K_buf = Dict{Int, Matrix{Float64}}()
+    M_scratch = Dict{Int, Matrix{Float64}}()  # For lu! (destroys input)
+
     # Process in reverse topological order (leaves first)
     for ii in reverse(topological_sort_by_dfs(graph))
         if has_leader(graph, ii)
             # Build augmented z with follower K evaluations
             augmented_z = _build_augmented_z_est(ii, z_current, K_evals, graph, follower_cache, buffer_cache)
 
-            # Evaluate M and N
-            M_raw = M_fns[ii](augmented_z)
-            N_raw = N_fns[ii](augmented_z)
+            m_rows = π_sizes[ii]
+            m_cols = length(ws[ii])
+            n_cols = length(ys[ii])
 
-            # Reshape to correct dimensions
-            M_evals[ii] = reshape(M_raw, π_sizes[ii], length(ws[ii]))
-            N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
+            if inplace_MN
+                # Strategy A: In-place M/N evaluation
+                M_fns_ip = setup_info.var"M_fns!"
+                N_fns_ip = setup_info.var"N_fns!"
+
+                # Allocate flat buffers for in-place evaluation
+                if !haskey(M_buf, ii)
+                    M_buf[ii] = Matrix{Float64}(undef, m_rows, m_cols)
+                    N_buf[ii] = Matrix{Float64}(undef, m_rows, n_cols)
+                end
+
+                # In-place functions write into flat arrays
+                M_flat = Vector{Float64}(undef, m_rows * m_cols)
+                N_flat = Vector{Float64}(undef, m_rows * n_cols)
+                M_fns_ip[ii](M_flat, augmented_z)
+                N_fns_ip[ii](N_flat, augmented_z)
+
+                M_evals[ii] = reshape(M_flat, m_rows, m_cols)
+                N_evals[ii] = reshape(N_flat, m_rows, n_cols)
+            else
+                # Baseline: out-of-place M/N evaluation
+                M_raw = M_fns_oop[ii](augmented_z)
+                N_raw = N_fns_oop[ii](augmented_z)
+
+                M_evals[ii] = reshape(M_raw, m_rows, m_cols)
+                N_evals[ii] = reshape(N_raw, m_rows, n_cols)
+            end
 
             # Solve K = M \ N
-            K_evals[ii] = M_evals[ii] \ N_evals[ii]
+            # Note: M is π_sizes[ii] × length(ws[ii]), which may be non-square.
+            # For square M, lu/lu! is appropriate.
+            # For non-square M, backslash uses QR internally — we can't use lu.
+            is_square = m_rows == m_cols
+
+            if inplace_lu && is_square
+                # Strategy C: lu! + ldiv! (in-place LU factorization + in-place solve)
+                if !haskey(K_buf, ii)
+                    K_buf[ii] = Matrix{Float64}(undef, m_cols, n_cols)
+                    M_scratch[ii] = Matrix{Float64}(undef, m_rows, m_cols)
+                end
+                copyto!(M_scratch[ii], M_evals[ii])
+                lu_M = lu!(M_scratch[ii])
+                ldiv!(K_buf[ii], lu_M, N_evals[ii])
+                K_evals[ii] = K_buf[ii]
+            elseif inplace_ldiv && is_square
+                # Strategy B: ldiv! with allocating lu (in-place solve only)
+                if !haskey(K_buf, ii)
+                    K_buf[ii] = Matrix{Float64}(undef, m_cols, n_cols)
+                end
+                lu_M = lu(M_evals[ii])
+                ldiv!(K_buf[ii], lu_M, N_evals[ii])
+                K_evals[ii] = K_buf[ii]
+            else
+                # Baseline: allocating backslash (handles rectangular M via QR)
+                K_evals[ii] = M_evals[ii] \ N_evals[ii]
+            end
         else
             M_evals[ii] = nothing
             N_evals[ii] = nothing
@@ -523,7 +591,10 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
-    to::TimerOutput = TimerOutput()
+    to::TimerOutput = TimerOutput(),
+    inplace_MN::Bool = false,
+    inplace_ldiv::Bool = false,
+    inplace_lu::Bool = false
 )
     # Unpack precomputed components
     problem_vars = precomputed.problem_vars
@@ -556,7 +627,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z
     function params_for_z(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; inplace_MN, inplace_ldiv, inplace_lu)
         return vcat(θ_vals_vec, all_K_vec), all_K_vec
     end
 
