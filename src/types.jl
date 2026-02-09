@@ -308,7 +308,7 @@ Uses iterative quasi-linear policy approximation with Armijo line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo, use_sparse)
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC}
     problem::TP
@@ -335,6 +335,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
+- `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -348,6 +349,7 @@ function NonlinearSolver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
+    use_sparse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
@@ -367,7 +369,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, use_armijo)
+        options = (; max_iters, tol, verbose, use_armijo, use_sparse)
     end
 
     return NonlinearSolver(problem, precomputed, options)

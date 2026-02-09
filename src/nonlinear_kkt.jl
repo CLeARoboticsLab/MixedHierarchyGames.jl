@@ -408,7 +408,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current::Vector, problem_vars::NamedTuple, setup_info::NamedTuple)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -422,6 +422,11 @@ See Phase 6 for planned thread-safety improvements.
 - `problem_vars::NamedTuple` - Problem variables (from setup_problem_variables)
 - `setup_info::NamedTuple` - Setup info (from setup_approximate_kkt_solver)
 
+# Keyword Arguments
+- `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
+  Beneficial for large M matrices (>100 rows) with structural sparsity from the
+  KKT system. For small matrices, dense solve is faster due to sparse overhead.
+
 # Returns
 Tuple of:
 - `all_K_vec::Vector` - Concatenated K matrix values for all players
@@ -430,7 +435,8 @@ Tuple of:
 function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
-    setup_info::NamedTuple
+    setup_info::NamedTuple;
+    use_sparse::Bool=false
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -463,7 +469,11 @@ function compute_K_evals(
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
             # Solve K = M \ N
-            K_evals[ii] = M_evals[ii] \ N_evals[ii]
+            if use_sparse
+                K_evals[ii] = sparse(M_evals[ii]) \ N_evals[ii]
+            else
+                K_evals[ii] = M_evals[ii] \ N_evals[ii]
+            end
         else
             M_evals[ii] = nothing
             N_evals[ii] = nothing
@@ -505,6 +515,7 @@ Uses Armijo backtracking line search for step size selection.
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
+- `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 
 # Returns
 Named tuple containing:
@@ -523,6 +534,7 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
+    use_sparse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -556,7 +568,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z
     function params_for_z(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
         return vcat(θ_vals_vec, all_K_vec), all_K_vec
     end
 
