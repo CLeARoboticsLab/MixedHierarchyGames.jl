@@ -51,3 +51,55 @@ function armijo_backtracking(
     @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
     return 0.0
 end
+
+"""
+    geometric_reduction(f, x, d, alpha_init; rho=0.5, max_iters=20)
+
+Geometric step-size reduction line search.
+
+Reduces the step size by a fixed factor `rho` each iteration until the merit function
+ϕ(x) = ||f(x)||² strictly decreases:
+
+    ϕ(x + α*d) < ϕ(x)
+
+This is a simpler alternative to `armijo_backtracking` — it requires only strict decrease
+rather than sufficient decrease, and has no Armijo constant `c1`.
+
+# Arguments
+- `f::Function` - Residual function evaluating at a point, returns a vector
+- `x::Vector` - Current point
+- `d::Vector` - Search direction (typically the Newton step)
+- `alpha_init::Float64` - Initial step size
+
+# Keyword Arguments
+- `rho::Float64=0.5` - Step size reduction factor per iteration
+- `max_iters::Int=20` - Maximum number of reduction iterations
+
+# Returns
+- `α::Float64` - Selected step size, or `0.0` if no decrease found
+"""
+function geometric_reduction(
+    f::Function,
+    x::Vector,
+    d::Vector,
+    alpha_init::Float64;
+    rho::Float64=0.5,
+    max_iters::Int=20,
+)
+    ϕ_0 = norm(f(x))^2
+
+    α = alpha_init
+    for _ in 1:max_iters
+        x_new = x .+ α .* d
+        ϕ_new = norm(f(x_new))^2
+
+        if ϕ_new < ϕ_0
+            return α
+        end
+
+        α *= rho
+    end
+
+    @warn "Geometric reduction line search failed to find decrease after $max_iters iterations"
+    return 0.0
+end

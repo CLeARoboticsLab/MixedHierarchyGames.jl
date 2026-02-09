@@ -54,7 +54,7 @@ export get_qp_kkt_conditions, strip_policy_constraints
 
 # Line search methods
 include("linesearch.jl")
-export armijo_backtracking
+export armijo_backtracking, geometric_reduction
 
 include("nonlinear_kkt.jl")
 export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals
