@@ -153,7 +153,7 @@ parameter values (e.g., different initial states).
 
 Note: We use ParametricMCPs primarily for its compiled f! and jacobian_z! functions.
 The bounds infrastructure (-∞ to ∞) is unused since we only support equality constraints.
-See task StackelbergHierarchyGames.jl-s6u for potential future optimization.
+See task MixedHierarchyGames.jl-s6u for potential future optimization.
 """
 function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
     symbolic_type = eltype(variables)
