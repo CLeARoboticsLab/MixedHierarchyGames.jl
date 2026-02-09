@@ -523,6 +523,7 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
+    recompute_K_in_linesearch::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -622,7 +623,11 @@ function run_nonlinear_solver(
             if use_armijo
                 for _ in 1:LINESEARCH_MAX_ITERS
                     z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
+                    param_trial = if recompute_K_in_linesearch
+                        first(params_for_z(z_trial))
+                    else
+                        param_vec
+                    end
                     mcp_obj.f!(F_eval, z_trial, param_trial)
 
                     if norm(F_eval) < F_eval_current_norm
