@@ -479,6 +479,48 @@ function compute_K_evals(
 end
 
 """
+    _compute_K_evals_prealloc!(K_evals, z_current, problem_vars, setup_info, follower_cache, buffer_cache)
+
+Pre-allocated variant of `compute_K_evals` that reuses persistent caches across iterations.
+
+Mutates `K_evals` dict in-place and reuses `follower_cache`/`buffer_cache` buffers.
+Returns the concatenated K vector (still allocates for M_raw, N_raw, and the backslash
+since those are dominated by SymbolicTracingUtils compiled function returns).
+"""
+function _compute_K_evals_prealloc!(
+    K_evals::Dict{Int, Union{Matrix{Float64}, Nothing}},
+    z_current::Vector,
+    problem_vars::NamedTuple,
+    setup_info::NamedTuple,
+    follower_cache::Dict{Int, Vector{Int}},
+    buffer_cache::Dict{Int, Vector{Float64}}
+)
+    ws = problem_vars.ws
+    ys = problem_vars.ys
+    M_fns = setup_info.M_fns
+    N_fns = setup_info.N_fns
+    π_sizes = setup_info.π_sizes
+    graph = setup_info.graph
+
+    for ii in reverse(topological_sort_by_dfs(graph))
+        if has_leader(graph, ii)
+            augmented_z = _build_augmented_z_est(ii, z_current, K_evals, graph, follower_cache, buffer_cache)
+            M_raw = M_fns[ii](augmented_z)
+            N_raw = N_fns[ii](augmented_z)
+            M_eval = reshape(M_raw, π_sizes[ii], length(ws[ii]))
+            N_eval = reshape(N_raw, π_sizes[ii], length(ys[ii]))
+            K_evals[ii] = M_eval \ N_eval
+        else
+            K_evals[ii] = nothing
+        end
+    end
+
+    N = nv(graph)
+    all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N]...)
+    return all_K_vec
+end
+
+"""
     run_nonlinear_solver(
         precomputed::NamedTuple,
         initial_states::Dict,
@@ -487,7 +529,8 @@ end
         max_iters::Int = 100,
         tol::Float64 = 1e-6,
         verbose::Bool = false,
-        use_armijo::Bool = true
+        use_armijo::Bool = true,
+        preallocate::Bool = false
     )
 
 Iterative nonlinear solver using quasi-linear policy approximation.
@@ -505,6 +548,7 @@ Uses Armijo backtracking line search for step size selection.
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
+- `preallocate::Bool=false` - Enable pre-allocated buffers (experimental)
 
 # Returns
 Named tuple containing:
@@ -523,6 +567,7 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
+    preallocate::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -554,93 +599,178 @@ function run_nonlinear_solver(
     F_eval = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
 
-    # Helper: compute parameters (θ, K) for a given z
-    function params_for_z(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
-        return vcat(θ_vals_vec, all_K_vec), all_K_vec
-    end
+    # Pre-allocation mode: persistent caches reused across iterations
+    if preallocate
+        pa_follower_cache = Dict{Int, Vector{Int}}()
+        pa_buffer_cache = Dict{Int, Vector{Float64}}()
+        pa_K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+        pa_z_trial = zeros(n)
+        pa_F_eval_trial = zeros(n)
 
-    # Main iteration loop
-    while true
-        # Evaluate K matrices at current z
-        @timeit to "compute K evals" begin
-            param_vec, all_K_vec = params_for_z(z_est)
+        function params_for_z_prealloc(z)
+            all_K_vec = _compute_K_evals_prealloc!(
+                pa_K_evals, z, problem_vars, setup_info,
+                pa_follower_cache, pa_buffer_cache
+            )
+            return vcat(θ_vals_vec, all_K_vec), all_K_vec
         end
 
-        # Check convergence
-        @timeit to "residual evaluation" begin
-            mcp_obj.f!(F_eval, z_est, param_vec)
-            convergence_criterion = norm(F_eval)
-        end
+        while true
+            @timeit to "compute K evals" begin
+                param_vec, all_K_vec = params_for_z_prealloc(z_est)
+            end
 
-        # Guard against NaN/Inf in residual computation
-        if !isfinite(convergence_criterion)
-            verbose && @warn "Residual contains NaN or Inf values, terminating"
-            status = :numerical_error
-            break
-        end
+            @timeit to "residual evaluation" begin
+                mcp_obj.f!(F_eval, z_est, param_vec)
+                convergence_criterion = norm(F_eval)
+            end
 
-        verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
+            if !isfinite(convergence_criterion)
+                verbose && @warn "Residual contains NaN or Inf values, terminating"
+                status = :numerical_error
+                break
+            end
 
-        if convergence_criterion < tol
-            status = num_iterations > 0 ? :solved : :solved_initial_point
-            converged = true
-            break
-        end
+            verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
 
-        if num_iterations >= max_iters
-            status = :max_iters_reached
-            break
-        end
+            if convergence_criterion < tol
+                status = num_iterations > 0 ? :solved : :solved_initial_point
+                converged = true
+                break
+            end
 
-        num_iterations += 1
+            if num_iterations >= max_iters
+                status = :max_iters_reached
+                break
+            end
 
-        # Solve linearized system: ∇F * δz = -F
-        @timeit to "Jacobian evaluation" begin
-            mcp_obj.jacobian_z!(∇F, z_est, param_vec)
-        end
+            num_iterations += 1
 
-        @timeit to "Newton step" begin
-            linsolver.A = ∇F
-            linsolver.b = -F_eval
-            solution = solve!(linsolver)
-        end
+            @timeit to "Jacobian evaluation" begin
+                mcp_obj.jacobian_z!(∇F, z_est, param_vec)
+            end
 
-        if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
-            verbose && @warn "Linear solve failed: $(solution.retcode)"
-            status = :linear_solver_error
-            break
-        end
+            @timeit to "Newton step" begin
+                linsolver.A = ∇F
+                linsolver.b = -F_eval
+                solution = solve!(linsolver)
+            end
 
-        δz = solution.u
+            if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
+                verbose && @warn "Linear solve failed: $(solution.retcode)"
+                status = :linear_solver_error
+                break
+            end
 
-        # Line search for step size
-        @timeit to "line search" begin
-            α = 1.0
-            F_eval_current_norm = norm(F_eval)
+            δz = solution.u
 
-            if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
+            @timeit to "line search" begin
+                α = 1.0
+                F_eval_current_norm = norm(F_eval)
 
-                    if norm(F_eval) < F_eval_current_norm
-                        break
+                if use_armijo
+                    for _ in 1:LINESEARCH_MAX_ITERS
+                        @. pa_z_trial = z_est + α * δz
+                        param_trial, _ = params_for_z_prealloc(pa_z_trial)
+                        mcp_obj.f!(pa_F_eval_trial, pa_z_trial, param_trial)
+
+                        if norm(pa_F_eval_trial) < F_eval_current_norm
+                            break
+                        end
+                        α *= LINESEARCH_BACKTRACK_FACTOR
                     end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
                 end
             end
+
+            @. z_est += α * δz
+
+            if any(!isfinite, z_est)
+                verbose && @warn "Solution contains NaN or Inf values after update, terminating"
+                status = :numerical_error
+                break
+            end
+        end
+    else
+        # Default path (no pre-allocation)
+        function params_for_z(z)
+            all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+            return vcat(θ_vals_vec, all_K_vec), all_K_vec
         end
 
-        # Update estimate (in-place to avoid allocation)
-        @. z_est += α * δz
+        while true
+            @timeit to "compute K evals" begin
+                param_vec, all_K_vec = params_for_z(z_est)
+            end
 
-        # Guard against NaN/Inf in solution
-        if any(!isfinite, z_est)
-            verbose && @warn "Solution contains NaN or Inf values after update, terminating"
-            status = :numerical_error
-            break
+            @timeit to "residual evaluation" begin
+                mcp_obj.f!(F_eval, z_est, param_vec)
+                convergence_criterion = norm(F_eval)
+            end
+
+            if !isfinite(convergence_criterion)
+                verbose && @warn "Residual contains NaN or Inf values, terminating"
+                status = :numerical_error
+                break
+            end
+
+            verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
+
+            if convergence_criterion < tol
+                status = num_iterations > 0 ? :solved : :solved_initial_point
+                converged = true
+                break
+            end
+
+            if num_iterations >= max_iters
+                status = :max_iters_reached
+                break
+            end
+
+            num_iterations += 1
+
+            @timeit to "Jacobian evaluation" begin
+                mcp_obj.jacobian_z!(∇F, z_est, param_vec)
+            end
+
+            @timeit to "Newton step" begin
+                linsolver.A = ∇F
+                linsolver.b = -F_eval
+                solution = solve!(linsolver)
+            end
+
+            if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
+                verbose && @warn "Linear solve failed: $(solution.retcode)"
+                status = :linear_solver_error
+                break
+            end
+
+            δz = solution.u
+
+            @timeit to "line search" begin
+                α = 1.0
+                F_eval_current_norm = norm(F_eval)
+
+                if use_armijo
+                    for _ in 1:LINESEARCH_MAX_ITERS
+                        z_trial = z_est .+ α .* δz
+                        param_trial, _ = params_for_z(z_trial)
+                        mcp_obj.f!(F_eval, z_trial, param_trial)
+
+                        if norm(F_eval) < F_eval_current_norm
+                            break
+                        end
+                        α *= LINESEARCH_BACKTRACK_FACTOR
+                    end
+                end
+            end
+
+            @. z_est += α * δz
+
+            if any(!isfinite, z_est)
+                verbose && @warn "Solution contains NaN or Inf values after update, terminating"
+                status = :numerical_error
+                break
+            end
         end
     end
 
