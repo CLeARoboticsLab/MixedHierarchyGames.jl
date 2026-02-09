@@ -52,6 +52,10 @@ export QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
 include("qp_kkt.jl")
 export get_qp_kkt_conditions, strip_policy_constraints
 
+# Line search methods
+include("linesearch.jl")
+export armijo_backtracking
+
 include("nonlinear_kkt.jl")
 export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals
 

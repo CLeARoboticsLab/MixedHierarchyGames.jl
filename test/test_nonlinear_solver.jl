@@ -507,19 +507,18 @@ end
 end
 
 #=
-    Tests for armijo_backtracking_linesearch (already implemented, ensure tests exist)
+    Tests for armijo_backtracking (moved to src/linesearch.jl)
 =#
 
-@testset "armijo_backtracking_linesearch" begin
+@testset "armijo_backtracking" begin
     @testset "Returns valid step size" begin
         # Simple quadratic merit function: f(z) = z
         f_eval(z) = z
 
         z = [1.0, 1.0]
         δz = [-1.0, -1.0]  # descent direction
-        f_z = f_eval(z)
 
-        α = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval, z, δz, f_z)
+        α = MixedHierarchyGames.armijo_backtracking(f_eval, z, δz, 1.0)
 
         @test α > 0
         @test α <= 1.0
@@ -531,9 +530,8 @@ end
 
         z = [1.0, 1.0]
         δz = [-0.1, -0.1]
-        f_z = f_eval_steep(z)
 
-        α = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval_steep, z, δz, f_z)
+        α = MixedHierarchyGames.armijo_backtracking(f_eval_steep, z, δz, 1.0)
 
         @test α > 0
     end
