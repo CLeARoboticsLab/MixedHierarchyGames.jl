@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # Sparse M\N Solve Investigation
+    include("test_sparse_solve.jl")
 end
