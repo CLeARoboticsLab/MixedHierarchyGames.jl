@@ -40,6 +40,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	Ms = Dict{Int, Any}()
 	Ns = Dict{Int, Any}()
 	Ks = Dict{Int, Any}()
+	ks = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 	Φs = Dict{Int, Any}()
 
@@ -72,8 +73,8 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 		# requires looking up/computing/extracting ∇wⱼΦʲ(wⱼ) for all followers j.
 		else
 			@timeit to "[KKT Conditions] Non-Leaf" begin
-				# For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
-				# Iterate in breadth-first order over the followers so that we can finish up the computation.
+			# For players with followers, we need to add the policy constraint terms of each follower j to the Lagrangian.
+			# Iterate in breadth-first order over the followers so that we can finish up the computation.
 				for jj in BFSIterator(G, ii)
 
 					# Skip the current player.
@@ -81,10 +82,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 						continue
 					end
 
-					# Compute the policy term of follower j (TODO: Add a look up for efficiency).
-					πⱼ = πs[jj] # This term always exists if we are proceeding in reverse topological order.
-
-					# If the policy exists for follower j, then look up its ∇wⱼΦʲ(wⱼ) and 
+					# If the policy exists for follower j, then look up its ∇wⱼΦʲ(wⱼ) and
 					# extract ∇zᵢΦʲ(wⱼ) from it (i is a leader of j).
 					# If it doesn't exist, then compute it using Mⱼ and Nⱼ and extract z̃ⱼ = [0... I ...0] ∇zᵢΦʲ(wⱼ) w₍.
 
@@ -94,14 +92,11 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
 
-					# SUPPOSE: we have these values which list the symbols and their sizes.
-					# ws_ordering;
-					# ws_sizes;
-
 					# If we are not provided a current estimate of z, then evaluate symbolically.
 					@timeit to "[KKT Conditions][Non-Leaf][Symbolic M '\' N]" begin
-						# Solve Mw + Ny = 0 using symbolic M and N.
-						Φʲ = - extractor * Ks[jj] * ys[jj]
+						# Solve Mw + Ny + π(0) = 0 using symbolic M and N.
+						kj = get(ks, jj, zeros(length(ws[jj])))
+						Φʲ = - extractor * (Ks[jj] * ys[jj] + kj)
 					end
 
 					Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
@@ -118,22 +113,30 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 
 				# Add the policy constraint.
 				if ii != jj
+					# TODO: Do we need the constant term if we add this constraint in?
 					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-					Φʲ = - extractor * Ks[jj] * ys[jj]
-					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+					kj = get(ks, jj, zeros(length(ws[jj])))
+					ϕʲ = - extractor * (Ks[jj] * ys[jj] + kj)
+					πᵢ = vcat(πᵢ, zs[jj] - ϕʲ)
 				end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii])) # Add the player's own constraints at the end.
 		πs[ii] = πᵢ
 
-		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ = 0 (if there is a leader), else not needed.
+		# Compute necessary terms for ∇ᵢπᵢ = Mᵢ wᵢ + Nᵢ yᵢ + πᵢ(0) = 0 (if there is a leader), else not needed.
 		if has_leader(G, ii)
 			@timeit to "[KKT Conditions] Compute M and N for follower $ii" begin
 				Ms[ii] = Symbolics.jacobian(πs[ii], ws[ii])
 				Ns[ii] = Symbolics.jacobian(πs[ii], ys[ii])
 
 				Ks[ii] = Ms[ii] \ Ns[ii] # Policy matrix for follower ii.
+
+				# Constant term from the affine KKT residual.
+				vars = vcat(ws[ii], ys[ii])
+				zero_subs = Dict(v => 0.0 for v in vars)
+				π_at_zero = Symbolics.substitute.(πs[ii], Ref(zero_subs))
+				ks[ii] = Ms[ii] \ π_at_zero
 			end
 		end
 	end
@@ -141,7 +144,7 @@ function get_lq_kkt_conditions(G::SimpleDiGraph,
 	for ii in 1:nv(G)
 		println("Number KKT conditions constructed for player $ii: $(length(πs[ii])).")
 	end
-	return πs, Ms, Ns, (;K_evals = nothing)
+	return πs, Ms, Ns, (;K_evals = nothing, k_evals = nothing)
 end
 
 
@@ -174,7 +177,7 @@ function strip_policy_constraints(πs, G, zs, gs)
 end
 
 
-function construct_augmented_variables(ii, all_variables, K_syms, G)
+function construct_augmented_variables(ii, all_variables, K_syms, k_syms, G)
 	"""
 	Constructs an augmented list of variables including symbolic M and N matrices for use in optimized KKT solving.
 	This vector can not have extra terms because of the dependencies among the evaluated M and N matrices.
@@ -194,6 +197,7 @@ function construct_augmented_variables(ii, all_variables, K_syms, G)
 		if has_leader(G, jj) # TODO: Is this even necessary? Can we remove this check? HK thinks yes.
 			# Vectorize them for storage.
 			augmented_variables = vcat(augmented_variables, reshape(K_syms[jj], :))
+			augmented_variables = vcat(augmented_variables, reshape(k_syms[jj], :))
 		end
 	end
 
@@ -246,6 +250,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 	π_sizes = Dict{Int, Any}()
 
 	K_syms = Dict{Int, Any}()
+	k_syms = Dict{Int, Any}()
 	πs = Dict{Int, Any}()
 
 	M_fns = Dict{Int, Any}()
@@ -255,7 +260,7 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 
 	for ii in reverse_topological_order
 		# TODO: This whole optimization is for computing M and N, which is only for players with leaders.
-		#       Look into skipping players without leaders. 
+		#       Look into skipping players without leaders.
 
 	# TODO: Can be made more efficient if needed.
 	# πⁱ has size num constraints + num primal variables of i AND its followers.
@@ -275,8 +280,14 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				make_symbolic_variable(:K, ii, H),
 				length(ws[ii]) * length(ys[ii]),
 			), length(ws[ii]), length(ys[ii]))
+			k_syms[ii] = reshape(SymbolicTracingUtils.make_variables(
+				backend,
+				make_symbolic_variable(:k, ii, H),
+				length(ws[ii]),
+			), length(ws[ii]))
 		else
 			K_syms[ii] = Symbolics.Num[]
+			k_syms[ii] = Symbolics.Num[]
 		end
 
 		# Build the Lagrangian using these variables.
@@ -286,10 +297,10 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				continue
 			end
 
-			# TO avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
+			# To avoid nonlinear equation solving, we encode the policy constraint using the symbolic K expression.
 			zi_size = length(zs[ii])
 			extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-			Φʲ = - extractor * K_syms[jj] * ys[jj]
+			Φʲ = - extractor * (K_syms[jj] * ys[jj] + k_syms[jj])
 			Lᵢ -= μs[(ii, jj)]' * (zs[jj] - Φʲ)
 		end
 
@@ -300,13 +311,13 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 				# Note: the first jj should be ii itself, followed by each follower.
 				πᵢ = vcat(πᵢ, Symbolics.gradient(Lᵢ, zs[jj]))
 
-					# Add the policy constraint.
-					if ii != jj
-						zi_size = length(zs[ii])
-						extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
-						Φʲ = - extractor * K_syms[jj] * ys[jj]
-						πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
-					end
+				# Add the policy constraint.
+				if ii != jj
+					zi_size = length(zs[ii])
+					extractor = hcat(I(zi_size), zeros(zi_size, length(ws[jj]) - zi_size))
+					Φʲ = - extractor * K_syms[jj] * ys[jj]
+					πᵢ = vcat(πᵢ, zs[jj] - Φʲ)
+				end
 			end
 		end
 		πᵢ = vcat(πᵢ, gs[ii](zs[ii]))
@@ -323,23 +334,24 @@ function setup_approximate_kkt_solver(G, Js, zs, λs, μs, gs, ws, ys, θs, all_
 			@timeit to "[KKT Precompute] Compute M and N for player $ii" begin
 				Mᵢ = Symbolics.jacobian(πᵢ, ws[ii])
 				Nᵢ = Symbolics.jacobian(πᵢ, ys[ii])
-				# TODO: Explore adding a solve for K here.
 			end
 
 			@timeit to "[KKT Precompute] Compute M, N functions for player $ii" begin
-				# ii == 2 && Main.@infiltrate
-				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, G)
+				augmented_variables[ii] = construct_augmented_variables(ii, all_variables, K_syms, k_syms, G)
 				M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place = false)
 				N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place = false)
 			end
-		else
-			# TODO: dirty code, clean up
-			augmented_variables[ii] = all_variables
-		end
+			else
+				augmented_variables[ii] = all_variables
+			end
 	end
 
 	# Identify all augmented variables.
-	out_all_augmented_variables = vcat(all_variables, vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...)
+	out_all_augmented_variables = vcat(
+		all_variables,
+		vcat(map(ii -> reshape(K_syms[ii], :), 1:N))...,
+		vcat(map(ii -> reshape(k_syms[ii], :), 1:N))...,
+	)
 
-	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
+	return out_all_augmented_variables, (; graph=G, πs=πs, K_syms=K_syms, k_syms=k_syms, M_fns=M_fns, N_fns=N_fns, π_sizes=π_sizes)
 end
