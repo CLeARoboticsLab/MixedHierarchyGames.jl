@@ -411,5 +411,96 @@ Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` fl
 
 ### Action Items for Next PR
 
-- [ ] bead sp1: Replace global `use_sparse::Bool` with adaptive `:auto`/`:always`/`:never` that selects per-player based on leader vs leaf
-- [ ] Benchmark Nash vs Stackelberg chain structures to validate adaptive strategy
+- [x] bead sp1: Replace global `use_sparse::Bool` with adaptive `:auto`/`:always`/`:never` that selects per-player based on leader vs leaf
+- [x] Benchmark Nash vs Stackelberg chain structures to validate adaptive strategy
+
+---
+
+## PR: perf/adaptive-sparse-solve (bead bhz)
+
+**Date:** 2026-02-09
+**Commits:** 4
+**Tests:** 511 passing (30 new)
+
+### Summary
+
+Replaced the global `use_sparse::Bool` flag with an adaptive `use_sparse::Union{Symbol,Bool}=:auto` that selects per-player: sparse LU for non-leaf players (leaders with large M matrices from follower KKT conditions), dense solve for leaf players (small M, no sparse overhead). Includes benchmark comparison across Nash, 3-player chain, 5-player chain, and larger dimension problems.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- **What went well:**
+  - Failing tests committed first (`5b34e3f`) — 4 errors, 1 failure confirmed RED phase
+  - Implementation committed second (`11da4da`) — all 30 new tests pass (GREEN phase)
+  - Tests cover: Symbol mode acceptance, numerical equivalence, Bool backward compatibility, graph structure validation, invalid symbol error, and 5-player chain
+  - Clean red-green-refactor cycle followed exactly
+
+- **What could improve:**
+  - Nothing — TDD was strictly followed throughout
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - `Union{Symbol,Bool}` with Bool→Symbol normalization preserves full backward compatibility
+  - Per-player decision uses existing `is_leaf(graph, ii)` — no new helpers needed
+  - `ArgumentError` for invalid symbols with clear error message
+  - Docstrings updated at all 4 levels: compute_K_evals, run_nonlinear_solver, NonlinearSolver, solve/solve_raw
+  - Default changed from `false` to `:auto` as recommended by CLAUDE.md ("prefer adaptive defaults over global flags")
+
+- **What could improve:**
+  - The `mode` variable could be named `sparse_strategy` for clarity, but `mode` is fine in context
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Change is localized: only 3 src files touched (nonlinear_kkt.jl, types.jl, solve.jl)
+  - No new dependencies — `is_leaf` already available from utils.jl
+  - Decision logic stays in compute_K_evals where the M\N solve happens (not leaked upward)
+  - Follows the existing `use_armijo` pattern for kwarg propagation
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - 4 focused commits following TDD cycle:
+    1. Failing tests (RED)
+    2. Implementation (GREEN)
+    3. Benchmarks
+    4. Retrospective
+  - Each commit has a clear purpose and descriptive message
+
+- **What could improve:**
+  - The implementation commit touches 3 files — could arguably be split by file, but they're tightly coupled (changing the type signature requires all three)
+
+### CLAUDE.md Compliance
+
+**Score: Excellent (9/10)**
+
+- [x] CLAUDE.md reviewed at PR start
+- [x] TDD mandatory — strictly followed
+- [x] Test tolerances 1e-10 (tighter than 1e-6 minimum)
+- [x] Full test suite run (511 pass)
+- [x] Bead created and tracked
+- [x] Pre-merge retrospective written
+- [x] "Prefer adaptive defaults over global flags" rule followed — default is `:auto`
+
+### Beads Created
+- `bhz` — Adaptive sparse M\N solve (this PR)
+
+### Key Learnings
+
+1. **:auto is the right default.** For the 3-player chain, :auto (1015μs) actually beats both :always (1050μs) and :never (1156μs) because it uses sparse only where it helps.
+2. **For deeper chains, :always still wins slightly.** With 5 players (4 have leaders, only 1 leaf), the single dense leaf player doesn't offset the overhead of the auto-check. But the difference is small (1.09x).
+3. **Nash games have zero M\N solve cost.** All players are roots with no leaders, so compute_K_evals is essentially a no-op (0.4μs). Mode doesn't matter.
+4. **Union{Symbol,Bool} with normalization is clean.** Converting Bool to Symbol early avoids branching downstream and maintains full backward compatibility.
+
+### Action Items for Next PR
+
+- [ ] Consider size-based threshold (use sparse only when M rows > 100) as an alternative/complement to topology-based selection
+- [ ] Profile memory allocation differences between sparse and dense paths
