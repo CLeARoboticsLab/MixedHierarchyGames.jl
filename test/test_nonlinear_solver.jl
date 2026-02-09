@@ -519,10 +519,11 @@ end
         δz = [-1.0, -1.0]  # descent direction
         f_z = f_eval(z)
 
-        α = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval, z, δz, f_z)
+        result = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval, z, δz, f_z)
 
-        @test α > 0
-        @test α <= 1.0
+        @test result.step_size > 0
+        @test result.step_size <= 1.0
+        @test result.success == true
     end
 
     @testset "Returns smaller step for steep problems" begin
@@ -533,9 +534,10 @@ end
         δz = [-0.1, -0.1]
         f_z = f_eval_steep(z)
 
-        α = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval_steep, z, δz, f_z)
+        result = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval_steep, z, δz, f_z)
 
-        @test α > 0
+        @test result.step_size > 0
+        @test result.success == true
     end
 end
 
@@ -594,7 +596,7 @@ end
 
         # Should still return a result (may or may not converge)
         @test result.sol isa Vector{Float64}
-        @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error]
+        @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error, :line_search_failed]
     end
 end
 

@@ -512,7 +512,7 @@ Named tuple containing:
 - `converged::Bool` - Whether solver converged
 - `iterations::Int` - Number of iterations taken
 - `residual::Float64` - Final KKT residual norm
-- `status::Symbol` - Solver status (:solved, :max_iters_reached, :linear_solver_error)
+- `status::Symbol` - Solver status (:solved, :max_iters_reached, :linear_solver_error, :line_search_failed, :numerical_error)
 """
 function run_nonlinear_solver(
     precomputed::NamedTuple,
@@ -617,18 +617,27 @@ function run_nonlinear_solver(
         # Line search for step size
         @timeit to "line search" begin
             α = 1.0
-            F_eval_current_norm = norm(F_eval)
 
             if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
+                # Wrap MCP evaluation for armijo_backtracking_linesearch interface
+                F_buf = similar(F_eval)
+                function f_for_linesearch(z_trial)
                     param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
+                    mcp_obj.f!(F_buf, z_trial, param_trial)
+                    return copy(F_buf)
+                end
 
-                    if norm(F_eval) < F_eval_current_norm
-                        break
-                    end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
+                ls_result = armijo_backtracking_linesearch(
+                    f_for_linesearch, z_est, δz, F_eval;
+                    β=LINESEARCH_BACKTRACK_FACTOR,
+                    max_iters=LINESEARCH_MAX_ITERS
+                )
+                α = ls_result.step_size
+
+                if !ls_result.success
+                    verbose && @warn "Line search failed at iteration $num_iterations"
+                    status = :line_search_failed
+                    break
                 end
             end
         end
@@ -680,7 +689,9 @@ Armijo backtracking line search for step size selection.
 - `max_iters::Int=20` - Maximum line search iterations
 
 # Returns
-- `α::Float64` - Selected step size
+Named tuple `(step_size::Float64, success::Bool)`:
+- `step_size` - Selected step size (last attempted value on failure)
+- `success` - Whether sufficient decrease was achieved
 """
 function armijo_backtracking_linesearch(
     f_eval::Function,
@@ -707,7 +718,7 @@ function armijo_backtracking_linesearch(
 
         # Sufficient decrease condition
         if ϕ_new <= ϕ_0 + σ * α * (-2 * ϕ_0)
-            return α
+            return (step_size = α, success = true)
         end
 
         # Backtrack
@@ -716,5 +727,5 @@ function armijo_backtracking_linesearch(
 
     # Signal failure if no sufficient decrease found
     @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
-    return 0.0
+    return (step_size = α, success = false)
 end
