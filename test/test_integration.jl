@@ -10,7 +10,8 @@ using MixedHierarchyGames:
     solve_raw,
     setup_problem_parameter_variables,
     default_backend,
-    make_symbolic_vector
+    make_symbolic_vector,
+    split_solution_vector
 
 using TrajectoryGamesBase: unflatten_trajectory
 
@@ -456,11 +457,12 @@ end
 
             @test result.converged
 
-            # Extract solutions
+            # Extract per-player controls using split_solution_vector
             m = prob.control_dim
             T = prob.T
-            u1_sol = result.sol[1:(m*T)]
-            u2_sol = result.sol[(m*T+1):(2*m*T)]
+            u1_sol, u2_sol = collect(split_solution_vector(
+                result.sol[1:(2*m*T)], fill(m * T, 2)
+            ))
 
             u1_traj = prob.unpack_u(u1_sol)
             u2_traj = prob.unpack_u(u2_sol)
@@ -496,8 +498,11 @@ end
 
                 m = prob.control_dim
                 T = prob.T
-                u1_traj = prob.unpack_u(result.sol[1:(m*T)])
-                u2_traj = prob.unpack_u(result.sol[(m*T+1):(2*m*T)])
+                u1_sol, u2_sol = collect(split_solution_vector(
+                    result.sol[1:(2*m*T)], fill(m * T, 2)
+                ))
+                u1_traj = prob.unpack_u(u1_sol)
+                u2_traj = prob.unpack_u(u2_sol)
 
                 u1_err = norm(vcat(u1_traj...) - vcat(olse.u1_traj...))
                 u2_err = norm(vcat(u2_traj...) - vcat(olse.u2_traj...))
