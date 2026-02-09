@@ -408,7 +408,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -423,9 +423,12 @@ See Phase 6 for planned thread-safety improvements.
 - `setup_info::NamedTuple` - Setup info (from setup_approximate_kkt_solver)
 
 # Keyword Arguments
-- `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
-  Beneficial for large M matrices (>100 rows) with structural sparsity from the
-  KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
+  - `:auto` - Use sparse for non-leaf players (leaders with followers have larger M),
+    dense for leaf players (small M, no sparse overhead)
+  - `:always` - Always use sparse LU factorization
+  - `:never` - Always use dense solve
+  - `true`/`false` - Backward-compatible aliases for `:always`/`:never`
 
 # Returns
 Tuple of:
@@ -436,8 +439,18 @@ function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
-    use_sparse::Bool=false
+    use_sparse::Union{Symbol,Bool}=:auto
 )
+    # Normalize Bool to Symbol for backward compatibility
+    mode = if use_sparse isa Bool
+        use_sparse ? :always : :never
+    else
+        use_sparse
+    end
+    if mode ∉ (:auto, :always, :never)
+        throw(ArgumentError("use_sparse must be :auto, :always, :never, or Bool. Got: $(repr(mode))"))
+    end
+
     ws = problem_vars.ws
     ys = problem_vars.ys
     zs = problem_vars.zs
@@ -468,8 +481,15 @@ function compute_K_evals(
             M_evals[ii] = reshape(M_raw, π_sizes[ii], length(ws[ii]))
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
+            # Decide per-player whether to use sparse solve
+            player_use_sparse = if mode == :auto
+                !is_leaf(graph, ii)  # sparse for leaders (large M), dense for leaves (small M)
+            else
+                mode == :always
+            end
+
             # Solve K = M \ N
-            if use_sparse
+            if player_use_sparse
                 K_evals[ii] = sparse(M_evals[ii]) \ N_evals[ii]
             else
                 K_evals[ii] = M_evals[ii] \ N_evals[ii]
@@ -515,7 +535,7 @@ Uses Armijo backtracking line search for step size selection.
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
 - `use_armijo::Bool=true` - Use Armijo line search
-- `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve (see `compute_K_evals`)
 
 # Returns
 Named tuple containing:
@@ -534,7 +554,7 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     use_armijo::Bool = true,
-    use_sparse::Bool = false,
+    use_sparse::Union{Symbol,Bool} = :auto,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components

@@ -199,7 +199,7 @@ function solve(
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
     use_armijo::Union{Nothing, Bool} = nothing,
-    use_sparse::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -213,7 +213,7 @@ function solve(
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
     actual_use_armijo = something(use_armijo, options.use_armijo)
-    actual_use_sparse = something(use_sparse, get(options, :use_sparse, false))
+    actual_use_sparse = something(use_sparse, get(options, :use_sparse, :auto))
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -267,7 +267,7 @@ function solve_raw(
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
     use_armijo::Union{Nothing, Bool} = nothing,
-    use_sparse::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -278,7 +278,7 @@ function solve_raw(
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
     actual_use_armijo = something(use_armijo, options.use_armijo)
-    actual_use_sparse = something(use_sparse, get(options, :use_sparse, false))
+    actual_use_sparse = something(use_sparse, get(options, :use_sparse, :auto))
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
