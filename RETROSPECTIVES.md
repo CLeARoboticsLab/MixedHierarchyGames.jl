@@ -340,3 +340,63 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 - [ ] Item 1
 - [ ] Item 2
 ```
+
+---
+
+## PR: perf/allocation-benchmarks
+
+**Date:** 2026-02-08
+**Commits:** 2
+**Tests:** 464 passing (14 new)
+**PR:** #83
+
+### Summary
+
+Benchmarked pre-allocation strategies on larger nonlinear problems (LQ chain T=10, PPV T=20, lane change 4-player T=10). Added `preallocate::Bool=false` flag to `run_nonlinear_solver` and compared default vs pre-allocated on all three problem sizes.
+
+**Key finding:** Pre-allocation is 3x SLOWER on the large lane change problem. Recommend NOT landing.
+
+### TDD Compliance
+
+**Score: Full (10/10)**
+
+- Wrote failing tests first (RED): `test_preallocation.jl` with 3 test sets
+- Confirmed tests failed with `MethodError: got unsupported keyword argument "preallocate"`
+- Implemented minimal code to pass (GREEN): added `preallocate` keyword and `_compute_K_evals_prealloc!`
+- All tests pass, no tolerance loosening needed
+
+### Clean Code
+
+- Functions are small and single-purpose (`_compute_K_evals_prealloc!` is a focused variant)
+- No dead code introduced (flag is experimental, documented as "recommend not landing")
+- Benchmark script is self-contained with clear problem builders
+
+### Commit Hygiene
+
+- 2 focused commits: TDD tests+implementation, then benchmark script
+- Each commit leaves codebase working
+- Messages describe why, not just what
+
+### CLAUDE.md Compliance
+
+- TDD followed strictly (red-green-refactor)
+- Test tolerances at 1e-12 (tighter than required 1e-6)
+- Full test suite run and passing
+- PR description updated with benchmark results
+- Retrospective recorded
+
+### What Went Well
+
+1. TDD was natural for this task — test defined expected behavior (identical results), implementation satisfied it
+2. Benchmark script covered all three problem sizes in one run
+3. The negative result (pre-allocation hurts) is a valuable finding that prevents wasted future effort
+
+### What Could Be Improved
+
+1. Lane change benchmark required running in background due to 10+ minute construction time — could have anticipated this
+2. The `preallocate` flag duplicates the solver loop (if/else branches) rather than parameterizing it — but since we recommend not landing, this is acceptable
+
+### Action Items for Next PR
+
+- [ ] Focus optimization efforts on "skip K in line search" (measured at 1.63x speedup)
+- [ ] Investigate in-place M/N evaluation via SymbolicTracingUtils (requires upstream changes)
