@@ -665,6 +665,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual norm
 - `verbose::Bool=false` - Print per-iteration convergence info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
+- `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -685,6 +686,7 @@ function run_nonlinear_solver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
+    recompute_K_in_linesearch::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -771,19 +773,23 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            # Residual function closure that recomputes K at each trial point
-            function residual_at(z)
-                param_trial, _ = params_for_z(z)
+            # Residual function closure that optionally recomputes K at each trial point
+            function residual_at_trial(z)
+                param_trial = if recompute_K_in_linesearch
+                    first(params_for_z(z))
+                else
+                    param_vec
+                end
                 F_trial = similar(F_eval)
                 mcp_obj.f!(F_trial, z, param_trial)
                 return F_trial
             end
 
             if linesearch_method == :armijo
-                α = armijo_backtracking(residual_at, z_est, δz, 1.0;
+                α = armijo_backtracking(residual_at_trial, z_est, δz, 1.0;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
             elseif linesearch_method == :geometric
-                α = geometric_reduction(residual_at, z_est, δz, 1.0;
+                α = geometric_reduction(residual_at_trial, z_est, δz, 1.0;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
             elseif linesearch_method == :constant
                 α = 1.0

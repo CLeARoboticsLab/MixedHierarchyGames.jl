@@ -310,7 +310,7 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch)
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
@@ -337,6 +337,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
+- `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -350,6 +351,7 @@ function NonlinearSolver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
+    recompute_K_in_linesearch::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
@@ -377,7 +379,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch)
     end
 
     return NonlinearSolver(problem, precomputed, options)
