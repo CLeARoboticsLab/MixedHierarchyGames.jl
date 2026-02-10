@@ -160,7 +160,7 @@ function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index for consistency
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
     all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Unconstrained bounds (equality-only KKT)
@@ -196,7 +196,7 @@ function _verify_linear_system(mcp, n::Int, θs::Dict)
     z1, z2 = randn(n), randn(n)
 
     # Create dummy parameter values (actual values don't affect linearity check)
-    order = sort(collect(keys(θs)))
+    order = ordered_player_indices(θs)
     θ_vals = reduce(vcat, (zeros(length(θs[k])) for k in order))
 
     # Allocate Jacobian buffers
@@ -253,7 +253,7 @@ function QPSolver(
         vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
         @timeit to "KKT conditions" begin
-            θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
+            θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
             kkt_result = get_qp_kkt_conditions(
                 hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
                 θ = θ_all, verbose = false

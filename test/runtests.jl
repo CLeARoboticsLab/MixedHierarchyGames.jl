@@ -7,6 +7,7 @@ include("testing_utils.jl")
 @testset "MixedHierarchyGames.jl" begin
     # Phase A: Utilities (implemented)
     include("test_graph_utils.jl")
+    include("test_ordered_player_indices.jl")
     include("test_symbolic_utils.jl")
 
     # Phase B: Problem Setup (TDD - tests first)
