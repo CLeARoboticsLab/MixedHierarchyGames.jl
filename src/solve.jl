@@ -186,6 +186,7 @@ Uses precomputed symbolic components for efficiency.
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- `show_progress::Union{Nothing, Bool}=nothing` - Display iteration progress table
 - Additional options override solver.options
 
 # Returns
@@ -198,6 +199,7 @@ function solve(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
+    show_progress::Union{Nothing, Bool} = nothing,
     use_armijo::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -211,6 +213,7 @@ function solve(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
+    actual_show_progress = something(show_progress, options.show_progress)
     actual_use_armijo = something(use_armijo, options.use_armijo)
 
     # Run the nonlinear solver
@@ -223,6 +226,7 @@ function solve(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
+            show_progress = actual_show_progress,
             use_armijo = actual_use_armijo,
             to = to
         )
@@ -241,6 +245,7 @@ Solve and return raw solution with convergence info (for debugging/analysis).
 - `max_iters::Int` - Maximum iterations (default from solver.options)
 - `tol::Float64` - Convergence tolerance (default from solver.options)
 - `verbose::Bool` - Print iteration info (default from solver.options)
+- `show_progress::Bool` - Display iteration progress table (default from solver.options)
 - `use_armijo::Bool` - Use Armijo line search (default from solver.options)
 
 # Returns
@@ -263,6 +268,7 @@ function solve_raw(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
+    show_progress::Union{Nothing, Bool} = nothing,
     use_armijo::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -273,6 +279,7 @@ function solve_raw(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
+    actual_show_progress = something(show_progress, options.show_progress)
     actual_use_armijo = something(use_armijo, options.use_armijo)
 
     # Run the nonlinear solver
@@ -285,6 +292,7 @@ function solve_raw(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
+            show_progress = actual_show_progress,
             use_armijo = actual_use_armijo,
             to = to
         )

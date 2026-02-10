@@ -700,3 +700,199 @@ end
         @test_throws ArgumentError solve(solver, parameter_values)
     end
 end
+
+#=
+    Tests for show_progress option
+=#
+
+@testset "show_progress option" begin
+    @testset "run_nonlinear_solver accepts show_progress parameter" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Should not throw when show_progress is passed
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=10,
+            tol=1e-6,
+            verbose=false,
+            show_progress=true
+        )
+
+        @test result.sol isa AbstractVector
+    end
+
+    @testset "show_progress produces output" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Capture stdout to verify progress output
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        # Progress output should contain iteration info
+        @test contains(output, "iter")
+        @test contains(output, "residual")
+    end
+
+    @testset "show_progress does not affect solver results" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Solve without progress
+        result_quiet = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            verbose=false,
+            show_progress=false
+        )
+
+        # Solve with progress (redirect stdout to suppress output)
+        result_progress = mktemp() do _, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+        end
+
+        # Results must be identical
+        @test result_quiet.sol ≈ result_progress.sol atol=1e-14
+        @test result_quiet.converged == result_progress.converged
+        @test result_quiet.iterations == result_progress.iterations
+        @test result_quiet.residual ≈ result_progress.residual atol=1e-14
+        @test result_quiet.status == result_progress.status
+    end
+
+    @testset "show_progress is disabled by default" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Default call should produce no stdout progress output
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test !contains(output, "iter")
+    end
+
+    @testset "show_progress output contains expected fields" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        # Should contain step size (α) and elapsed time
+        @test contains(output, "α")
+        @test contains(output, "time")
+    end
+
+    @testset "show_progress works through solve_raw" begin
+        using MixedHierarchyGames: NonlinearSolver, solve_raw
+
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            show_progress=false
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # show_progress override at solve time
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve_raw(solver, initial_states; show_progress=true)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test contains(output, "iter")
+    end
+end

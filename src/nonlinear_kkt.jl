@@ -487,6 +487,7 @@ end
         max_iters::Int = 100,
         tol::Float64 = 1e-6,
         verbose::Bool = false,
+        show_progress::Bool = false,
         use_armijo::Bool = true
     )
 
@@ -504,6 +505,7 @@ Uses Armijo backtracking line search for step size selection.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
+- `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `use_armijo::Bool=true` - Use Armijo line search
 
 # Returns
@@ -522,6 +524,7 @@ function run_nonlinear_solver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
+    show_progress::Bool = false,
     use_armijo::Bool = true,
     to::TimerOutput = TimerOutput()
 )
@@ -560,7 +563,16 @@ function run_nonlinear_solver(
         return vcat(θ_vals_vec, all_K_vec), all_K_vec
     end
 
+    # Progress tracking
+    t_start = time()
+    if show_progress
+        println("┌──────────────────────────────────────────────────────────────┐")
+        println("│  iter      residual          α         time                  │")
+        println("├──────────────────────────────────────────────────────────────┤")
+    end
+
     # Main iteration loop
+    α = NaN  # track step size for progress display
     while true
         # Evaluate K matrices at current z
         @timeit to "compute K evals" begin
@@ -636,12 +648,30 @@ function run_nonlinear_solver(
         # Update estimate (in-place to avoid allocation)
         @. z_est += α * δz
 
+        # Progress display after iteration update
+        if show_progress
+            elapsed = time() - t_start
+            iter_str = lpad(num_iterations, 4)
+            res_str = lpad(string(convergence_criterion), 14)
+            α_str = lpad(string(round(α; digits=4)), 8)
+            t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
+            println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+        end
+
         # Guard against NaN/Inf in solution
         if any(!isfinite, z_est)
             verbose && @warn "Solution contains NaN or Inf values after update, terminating"
             status = :numerical_error
             break
         end
+    end
+
+    # Progress summary
+    if show_progress
+        elapsed = time() - t_start
+        println("└──────────────────────────────────────────────────────────────┘")
+        status_str = converged ? "Converged" : "Did not converge"
+        println("  $status_str in $num_iterations iterations ($(round(elapsed; digits=2))s), final residual: $convergence_criterion")
     end
 
     return (;

@@ -334,6 +334,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
+- `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `use_armijo::Bool=true` - Use Armijo line search
 """
 function NonlinearSolver(
@@ -347,6 +348,7 @@ function NonlinearSolver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
+    show_progress::Bool = false,
     use_armijo::Bool = true,
     to::TimerOutput = TimerOutput()
 )
@@ -367,7 +369,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, use_armijo)
+        options = (; max_iters, tol, verbose, show_progress, use_armijo)
     end
 
     return NonlinearSolver(problem, precomputed, options)
