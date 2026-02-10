@@ -165,6 +165,8 @@ The current implementation makes the following assumptions:
 - Julia 1.9+
 - See `Project.toml` for package dependencies
 
+**PATHSolver on Apple Silicon (ARM64):** The `:path` backend for `QPSolver` depends on [PATHSolver.jl](https://github.com/chkwon/PATHSolver.jl), which only provides x86_64 binaries. It does not run natively on ARM64 (Apple Silicon). To use the `:path` backend on Apple Silicon, run Julia inside the provided Docker container, which uses Rosetta emulation via `platform: linux/amd64` (see [Docker Development Environment](#docker-development-environment) below). The default `:linear` backend works on all platforms without this limitation.
+
 ## Docker Development Environment
 
 A Docker container is provided for a consistent development environment with all dependencies pre-installed.
@@ -227,6 +229,28 @@ After changing `Project.toml` or `Manifest.toml`:
 
 ```bash
 docker compose build --no-cache dev
+```
+
+## Troubleshooting
+
+### PATHSolver fails on Apple Silicon (ARM64)
+
+**Symptom:** `using PATHSolver` or `QPSolver(...; solver=:path)` fails with an error about missing binaries or unsupported platform on an Apple Silicon Mac.
+
+**Cause:** PATHSolver.jl only distributes x86_64 (Intel) binaries. There are no native ARM64 builds.
+
+**Solution:** Use the provided Docker development environment, which forces `platform: linux/amd64` in `docker-compose.yml` to run under Rosetta/QEMU emulation:
+
+```bash
+docker compose run --rm dev
+# Inside the container:
+julia --project=. -e 'using PATHSolver; @info "PATHSolver loaded"'
+```
+
+Alternatively, if you only need the QP solver, use the default `:linear` backend, which works natively on all platforms:
+
+```julia
+solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 ```
 
 ## Citation
