@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+MixedHierarchyGames = "34713e38-c463-4aa7-98bb-85ffea4597e9"
+
+[sources]
+MixedHierarchyGames = {path = ".."}
+
+[compat]
+Documenter = "1"

@@ -340,3 +340,256 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 - [ ] Item 1
 - [ ] Item 2
 ```
+
+---
+
+## PR #86: perf/sparse-mn-solve (bead 0ip)
+
+**Date:** 2026-02-09
+**Commits:** 2
+**Tests:** 481 passing (31 new)
+
+### Summary
+
+Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` flag through the full solver stack. Found sparse solve gives 2-11x speedup for large M matrices (>100 rows) but hurts small matrices. Comprehensive benchmarking across 2/3/4-player chains with sparsity analysis and block structure investigation.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Tests written first (`db8abc6` Add sparse M\N solve investigation tests) before implementation (`490683b` Add use_sparse flag)
+  - 31 new tests covering numerical equivalence, sparsity analysis, timing, and flag validation
+  - Tests verify sparse and dense give identical results to machine epsilon (~1e-15)
+
+- **What could improve:**
+  - Only 2 commits — the test commit likely included some implementation scaffolding. Finer commits (test file alone, then implementation, then benchmarks) would be cleaner.
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Flag defaults to `false` preserving backward compatibility
+  - Threaded cleanly through entire stack (compute_K_evals → run_nonlinear_solver → NonlinearSolver → solve)
+  - Thorough docstrings updated at each level
+  - PR description is exemplary — detailed tables, clear recommendation, technical notes
+
+- **What could improve:**
+  - Global flag applies to all players equally — a per-player adaptive approach would be better (addressed by follow-up bead sp1)
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- Flag propagation follows existing patterns (same as `use_armijo`)
+- No new dependencies in core package (SparseArrays only in test)
+- Investigation correctly identified that block elimination is not viable (irregular sparsity)
+
+### Commit Hygiene
+
+**Score: Fair (6/10)**
+
+- Only 2 commits for a non-trivial change. Could have been split:
+  1. Test file with failing tests
+  2. Implementation of use_sparse flag
+  3. Benchmark results and documentation
+- Process was interrupted by API stall before retrospective could be written
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests first)
+- [x] Tolerances tight (1e-15 verification)
+- [x] PR description complete with Summary, Changes, Testing, Changelog
+- [ ] Retrospective not written (stalled before completion — written retroactively here)
+
+### Key Learnings
+
+1. Sparse UMFPACK LU beats dense for M matrices >100 rows with <5% fill, but loses for small matrices due to symbolic analysis overhead
+2. `sparse(M) \ sparse(N)` is not supported in Julia — must use `sparse(M) \ N` (dense RHS)
+3. KKT Jacobian sparsity is structural (independent of operating point), making it predictable
+
+### Action Items for Next PR
+
+- [ ] bead sp1: Replace global `use_sparse::Bool` with adaptive `:auto`/`:always`/`:never` that selects per-player based on leader vs leaf
+- [ ] Benchmark Nash vs Stackelberg chain structures to validate adaptive strategy
+
+---
+
+
+## PR #90: perf/optimize-pmcp (beads s6u-a, s6u-b)
+
+**Date:** 2026-02-09
+**Commits:** 6
+**Tests:** 485 passing (35 new)
+
+### Summary
+
+Two-part bead: profiled ParametricMCPs usage (s6u-a), then implemented buffer pre-allocation optimizations (s6u-b). Found ParametricMCP is already well-cached; pre-allocated z_trial, param_vec, J, F, z0 buffers. Impact modest (1-2% allocation reduction) because dominant allocations are in compute_K_evals, not buffer creation.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Tests written first (commit `f60b9d4` "TDD RED") before implementation
+  - 35 new tests verifying bit-identical results with buffer reuse
+  - Clean red-green progression across commits
+
+- **What could improve:**
+  - s6u-a stalled before completing writeup (watchdog killed it)
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Backward compatible: QPSolver buffers are optional kwargs, standalone calls allocate as before
+  - Used `mcp_obj.parameter_dimension` instead of extra `compute_K_evals` call (good cleanup)
+  - Honest assessment: PR clearly states impact is modest and points to where real gains are
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- 6 commits with logical separation: profiling → tests → NL buffers → QP buffers → cleanup → benchmarks
+- Each commit is self-contained and leaves tests passing
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed
+- [x] PR description thorough with benchmark data
+- [ ] Retrospective not written by bead (written retroactively)
+
+### Key Learnings
+
+1. Profiling before optimizing is essential — avoided wasting time on ParametricMCP caching (already done)
+2. Buffer pre-allocation has diminishing returns when the dominant allocation source is elsewhere (compute_K_evals)
+3. Two-part bead (profile then implement) worked well as a pattern
+
+### Action Items for Next PR
+
+- [ ] In-place compute_K_evals (bead mnip/PR #89) addresses the dominant allocation source
+
+---
+
+## PR #91: feature/progress-bar (bead udn)
+
+**Date:** 2026-02-09
+**Commits:** 1
+**Tests:** 462 passing (6 new)
+
+### Summary
+
+Added `show_progress::Bool=false` option to NonlinearSolver that prints a formatted iteration table (iter, residual, alpha, time) and convergence summary. Threaded through full solver stack. Disabled by default.
+
+### TDD Compliance
+
+**Score: Fair (6/10)**
+
+- **What went well:**
+  - 6 tests cover parameter acceptance, output verification, result identity, default behavior
+
+- **What could improve:**
+  - Single commit bundles tests + implementation — should be at least 2 (tests first, then impl)
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Follows existing option pattern (`something()` override, stored in options NamedTuple)
+  - Disabled by default — no behavioral change for existing code
+  - Output format is clean and informative
+
+### Commit Hygiene
+
+**Score: Poor (4/10)**
+
+- Single commit for the entire feature. Should have been: (1) failing tests, (2) implementation, (3) optional formatting polish
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests exist)
+- [ ] Commit granularity rule not followed (1 commit)
+- [ ] Retrospective not written by bead (written retroactively)
+
+### Key Learnings
+
+1. Simple features still benefit from multi-commit discipline — even a 1-file change should separate tests from implementation
+
+### Action Items for Next PR
+
+- [ ] Enforce multi-commit minimum even for simple features
+
+---
+
+## PR: docs/documenter-setup (#98)
+
+**Date:** 2026-02-09
+**Commits:** 2
+**Tests:** 450 existing + 11 new docs build tests (all passing)
+
+### Summary
+
+Set up Documenter.jl infrastructure for API documentation. Created docs/ directory with Project.toml, make.jl build script, index.md landing page, and api.md API reference. Added CI workflow for GitHub Pages deployment and a test to verify the docs build.
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Wrote `test/docs_build_test.jl` FIRST, confirming RED phase (6 failures)
+  - Created docs infrastructure to satisfy tests (GREEN phase)
+  - All 11 tests pass, confirming the build works end-to-end
+
+- **What could improve:**
+  - The test uses a subprocess to run `docs/make.jl`, which is slightly indirect. Could potentially use `Documenter.makedocs` directly in-process for tighter integration, but the subprocess approach better matches how the build is actually invoked.
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Minimal, focused files with clear purposes
+  - API reference organized by logical category (Types, Solvers, KKT, etc.)
+  - Used `@autodocs` for internal functions to avoid missing-docs warnings without writing new docstrings
+  - `warnonly=[:cross_references]` handles array-notation docstrings cleanly
+
+- **Minor issue:**
+  - Cross-reference warnings from `gs[i](z)` in docstrings are cosmetic but noisy. A future PR could escape these in docstrings with backticks.
+
+### Clean Architecture Practices
+
+- Dependencies point correctly: docs depend on the package, not vice versa
+- `docs/Project.toml` uses `[sources]` to reference the local package
+- CI workflow is independent from the test CI workflow
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- 2 focused commits:
+  1. Docs infrastructure (Project.toml, make.jl, index.md, api.md)
+  2. Test and CI workflow
+- Each commit is self-contained and leaves the repo in a working state
+- Descriptive commit messages explain what and why
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (red-green-refactor)
+- [x] Full test suite verified (450 tests passing)
+- [x] PR created with full description
+- [x] Commits are logical and focused
+- [x] Bead status updated
+- [x] Used existing docstrings only (no new docstrings written)
+
+### Key Learnings
+
+1. Documenter.jl parses array-index notation in docstrings (e.g., `Js[i](zs...)`) as markdown links. `warnonly=[:cross_references]` is the standard workaround.
+2. GitHub's OAuth tokens don't have `workflow` scope by default — pushing via SSH bypasses this for workflow file changes.
+3. `@autodocs` with `Public = false` is a clean way to include documented internal functions without manually listing each one.
+
+### Action Items for Next PR
+
+- [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings

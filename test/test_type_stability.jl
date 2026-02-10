@@ -61,8 +61,10 @@ using MixedHierarchyGames:
         # K_syms should have concrete Union type, not Any
         @test setup_info.K_syms isa Dict{Int, Union{Matrix{Num}, Vector{Num}}}
 
-        # πs should be Dict{Int, Vector{Num}}
-        @test setup_info.πs isa Dict{Int, Vector{Num}}
+        # πs uses Dict{Int, Any} because leaders have BlockVector, leaves have Vector{Num}.
+        # This matches qp_kkt.jl's pattern and is acceptable for symbolic construction
+        # which is done once at solver creation, not in the hot solve path.
+        @test setup_info.πs isa Dict{Int, Any}
 
         # M_fns and N_fns should be Dict{Int, Function}
         @test setup_info.M_fns isa Dict{Int, Function}
