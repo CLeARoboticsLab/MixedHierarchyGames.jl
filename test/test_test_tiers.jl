@@ -16,6 +16,7 @@
             "test_timer.jl",
             "test_type_bounds.jl",
             "test_block_arrays.jl",
+            "test_project_health.jl",
             "olse/test_qp_solver.jl",
         ]
         @test Set(FAST_TEST_FILES) == Set(expected_fast)
@@ -55,6 +56,7 @@
             "test_type_stability.jl",
             "test_type_bounds.jl",
             "test_block_arrays.jl",
+            "test_project_health.jl",
             "test_timer.jl",
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
