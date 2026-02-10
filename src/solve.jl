@@ -251,6 +251,7 @@ Named tuple with fields:
   - `:solved_initial_point` - Initial guess was already a solution
   - `:max_iters_reached` - Did not converge within iteration limit
   - `:linear_solver_error` - Newton step computation failed
+  - `:line_search_failed` - Armijo line search failed to find sufficient decrease
   - `:numerical_error` - NaN or Inf encountered
 """
 function solve_raw(

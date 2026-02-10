@@ -648,7 +648,7 @@ Orchestrates the Newton iteration loop for solving nonlinear hierarchy games.
 
 Each iteration: evaluate the KKT residual, check convergence, compute a Newton
 step via [`compute_newton_step`](@ref), and select a step size via
-[`perform_linesearch`](@ref). Convergence is checked by [`check_convergence`](@ref).
+[`armijo_backtracking_linesearch`](@ref). Convergence is checked by [`check_convergence`](@ref).
 
 # Arguments
 - `precomputed::NamedTuple` - Precomputed symbolic components from [`preoptimize_nonlinear_solver`](@ref)
@@ -670,7 +670,7 @@ Named tuple `(; sol, converged, iterations, residual, status)`:
 - `iterations::Int` - Number of iterations performed
 - `residual::Float64` - Final KKT residual norm
 - `status::Symbol` - One of `:solved`, `:solved_initial_point`, `:max_iters_reached`,
-  `:linear_solver_error`, `:numerical_error`
+  `:linear_solver_error`, `:line_search_failed`, `:numerical_error`
 """
 function run_nonlinear_solver(
     precomputed::NamedTuple,
@@ -709,7 +709,6 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
-    F_trial = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
 
     # Helper: compute parameters (θ, K) for a given z
@@ -768,14 +767,30 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            trial_residual_fn = function(z_trial)
-                param_trial, _ = params_for_z(z_trial)
-                mcp_obj.f!(F_trial, z_trial, param_trial)
-                return norm(F_trial)
-            end
+            α = 1.0
 
-            α = perform_linesearch(trial_residual_fn, z_est, δz, residual_norm;
-                                   use_armijo)
+            if use_armijo
+                # Wrap MCP evaluation for armijo_backtracking_linesearch interface
+                F_buf = similar(F_eval)
+                function f_for_linesearch(z_trial)
+                    param_trial, _ = params_for_z(z_trial)
+                    mcp_obj.f!(F_buf, z_trial, param_trial)
+                    return copy(F_buf)
+                end
+
+                ls_result = armijo_backtracking_linesearch(
+                    f_for_linesearch, z_est, δz, F_eval;
+                    β=LINESEARCH_BACKTRACK_FACTOR,
+                    max_iters=LINESEARCH_MAX_ITERS
+                )
+                α = ls_result.step_size
+
+                if !ls_result.success
+                    verbose && @warn "Line search failed at iteration $num_iterations"
+                    status = :line_search_failed
+                    break
+                end
+            end
         end
 
         # Update estimate (in-place to avoid allocation)
@@ -825,7 +840,9 @@ Armijo backtracking line search for step size selection.
 - `max_iters::Int=20` - Maximum line search iterations
 
 # Returns
-- `α::Float64` - Selected step size
+Named tuple `(step_size::Float64, success::Bool)`:
+- `step_size` - Selected step size (last attempted value on failure)
+- `success` - Whether sufficient decrease was achieved
 """
 function armijo_backtracking_linesearch(
     f_eval::Function,
@@ -852,7 +869,7 @@ function armijo_backtracking_linesearch(
 
         # Sufficient decrease condition
         if ϕ_new <= ϕ_0 + σ * α * (-2 * ϕ_0)
-            return α
+            return (step_size = α, success = true)
         end
 
         # Backtrack
@@ -861,5 +878,5 @@ function armijo_backtracking_linesearch(
 
     # Signal failure if no sufficient decrease found
     @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
-    return 0.0
+    return (step_size = α, success = false)
 end
