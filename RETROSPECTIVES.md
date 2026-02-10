@@ -593,3 +593,51 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: dx/update-test-readme-checklist (bead e6q)
+
+**Date:** 2026-02-10
+**Commits:** 1
+**Tests:** No src/ changes — existing tests unaffected
+
+### Summary
+
+Added `test/README.md` update requirement to CLAUDE.md verification checklist. Updated `test/README.md` to list all 23 current test files (was missing 8 test files and 1 shared config module added since the README was created in PR #97).
+
+### TDD Compliance
+
+**Score: N/A** — Documentation-only change. No application code or test code written.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Audit of test/README.md found 9 missing entries — caught and fixed in one pass
+  - Updated "Adding New Tests" instructions to include README and test_tiers.jl steps
+  - Removed hard-coded test count from README header (was "450 tests" — now uses file count which is easier to verify)
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single focused commit for a single-purpose change
+- Both files changed together since the CLAUDE.md rule and the README update are logically coupled
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Retrospective written before final PR description
+- [x] No src/ changes, so no test run required for correctness
+- [x] PR created with full description
+
+### Key Learnings
+
+1. **README drift is real.** 9 files were added across multiple PRs without updating the README. The new checklist item should prevent this going forward.
+2. **Checklist items should be self-enforcing.** Adding the README update to CLAUDE.md's verification checklist means it will be checked before every merge.
+
+### Action Items for Next PR
+
+- [ ] Verify the new checklist item is being followed (first PR after this one should check test/README.md if adding tests)

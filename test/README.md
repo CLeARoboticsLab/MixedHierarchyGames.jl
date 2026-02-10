@@ -1,6 +1,6 @@
 # Test Suite
 
-MixedHierarchyGames.jl has **450 tests** across **16 test files** (plus 1 shared utility module and 1 shared OLSE reference implementation).
+MixedHierarchyGames.jl has **23 test files** (plus 3 shared utility/config modules).
 
 ## Running Tests
 
@@ -47,6 +47,7 @@ Tests are organized by implementation phase and listed in the order they run in 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_graph_utils.jl` | Graph queries | `is_root`, `is_leaf`, `get_roots`, `get_all_leaders`, `get_all_followers` on chain, tree, mixed, and diamond hierarchies |
+| `test_ordered_player_indices.jl` | Player index ordering | `ordered_player_indices` utility for sorting dictionary keys (unsorted, sorted, empty, single, non-contiguous) |
 | `test_symbolic_utils.jl` | Symbolic variable creation | `make_symbol`, `make_symbolic_vector`, `make_symbolic_matrix` for player and pair variable naming |
 
 ### Problem Setup (Phase B)
@@ -66,6 +67,7 @@ Tests are organized by implementation phase and listed in the order they run in 
 | File | Tests | Description |
 |------|-------|-------------|
 | `test_qp_solver.jl` | QP solving and `QPSolver` struct | `solve_with_path`, `qp_game_linsolve`, `_run_qp_solver` (linear and PATH backends), `QPSolver` constructor, `solve`/`solve_raw`, configurable solver parameters |
+| `test_qp_failure_modes.jl` | QP solver failure modes | Error handling for singular/near-singular KKT systems: exception throwing, failure status reporting, error messages, NaN-filled solutions |
 
 ### Linesearch (Phase E)
 
@@ -122,18 +124,57 @@ Tests are organized by implementation phase and listed in the order they run in 
 |------|-------|-------------|
 | `test_timer.jl` | `TimerOutputs` instrumentation | Verifies timing sections are recorded for QPSolver/NonlinearSolver construction and solve, backward compatibility without `to` kwarg |
 
+### Type Parameter Bounds
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `test_type_bounds.jl` | Type constraint validation | Validates type parameter bounds on `HierarchyProblem`, `QPPrecomputed`, and `NonlinearSolver`: rejects invalid types and accepts valid ones |
+
+### Block Arrays
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `test_block_arrays.jl` | BlockArrays utilities | Flat vector splitting by player dimensions, extraction correctness, trajectory unpacking, variable structure preservation |
+
+### Sparse Solve
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `test_sparse_solve.jl` | Sparse M\N solve | Sparse vs dense linear solve correctness, sparsity ratio analysis across problem sizes, timing comparison, `use_sparse` flag validation |
+
+### Allocation Optimization
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `test_allocation_optimization.jl` | Buffer reuse correctness | QPSolver and NonlinearSolver repeated solve consistency, buffer management correctness, result structure validation |
+
+### Documentation Build
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `docs_build_test.jl` | Documenter.jl infrastructure | Documentation files exist, build completes without errors, API reference contains exported symbols |
+
+### Test Infrastructure
+
+| File | Tests | Description |
+|------|-------|-------------|
+| `test_test_tiers.jl` | Tier configuration self-test | Verifies `FAST_TEST_FILES`/`SLOW_TEST_FILES` lists, no overlap between tiers, `get_test_files()` function correctness |
+
 ### Shared Files
 
 | File | Description |
 |------|-------------|
 | `testing_utils.jl` | `make_θ` helper for creating symbolic parameter vectors |
+| `test_tiers.jl` | Test tier classification: `FAST_TEST_FILES`, `SLOW_TEST_FILES` lists and `get_test_files()` selector (used by `runtests.jl`) |
 | `olse/olse_closed_form.jl` | `OLSEProblemData` struct, `compute_follower_response`, `compute_olse_solution`, verification functions (shared by both OLSE test files) |
 
 ## Adding New Tests
 
 1. Create a new test file `test/test_<feature>.jl`
 2. Add `include("test_<feature>.jl")` to `runtests.jl` in the appropriate phase section
-3. If your tests need symbolic parameter variables, `include("testing_utils.jl")` is already loaded by `runtests.jl`
+3. Add the file to `test_tiers.jl` in either `FAST_TEST_FILES` or `SLOW_TEST_FILES`
+4. Update this README with the new file in the appropriate section
+5. If your tests need symbolic parameter variables, `include("testing_utils.jl")` is already loaded by `runtests.jl`
 
 Follow TDD as required by `CLAUDE.md`: write a failing test first, then implement, then refactor.
 
