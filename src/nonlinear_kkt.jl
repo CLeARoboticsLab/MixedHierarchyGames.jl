@@ -553,18 +553,27 @@ function run_nonlinear_solver(
     n = length(all_variables)
     F_eval = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
+    z_trial = Vector{Float64}(undef, n)
 
-    # Helper: compute parameters (θ, K) for a given z
-    function params_for_z(z)
+    # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
+    # We compute initial K to determine the total parameter length
+    _init_K_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
+    θ_len = length(θ_vals_vec)
+    param_vec = Vector{Float64}(undef, θ_len + length(_init_K_vec))
+    copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
+
+    # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
+    function params_for_z!(z)
         all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
-        return vcat(θ_vals_vec, all_K_vec), all_K_vec
+        copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
+        return param_vec, all_K_vec
     end
 
     # Main iteration loop
     while true
         # Evaluate K matrices at current z
         @timeit to "compute K evals" begin
-            param_vec, all_K_vec = params_for_z(z_est)
+            param_vec, all_K_vec = params_for_z!(z_est)
         end
 
         # Check convergence
@@ -621,8 +630,8 @@ function run_nonlinear_solver(
 
             if use_armijo
                 for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
+                    @. z_trial = z_est + α * δz
+                    param_trial, _ = params_for_z!(z_trial)
                     mcp_obj.f!(F_eval, z_trial, param_trial)
 
                     if norm(F_eval) < F_eval_current_norm
