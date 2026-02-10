@@ -556,10 +556,9 @@ function run_nonlinear_solver(
     z_trial = Vector{Float64}(undef, n)
 
     # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
-    # We compute initial K to determine the total parameter length
-    _init_K_vec, _ = compute_K_evals(z_est, problem_vars, setup_info)
+    # Size is determined from the MCP's parameter_dimension (set during preoptimize)
     θ_len = length(θ_vals_vec)
-    param_vec = Vector{Float64}(undef, θ_len + length(_init_K_vec))
+    param_vec = Vector{Float64}(undef, mcp_obj.parameter_dimension)
     copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
