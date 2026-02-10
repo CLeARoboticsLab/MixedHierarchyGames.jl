@@ -19,6 +19,7 @@ using MixedHierarchyGames:
     default_backend,
     get_all_followers,
     NonlinearSolver,
+    solve,
     solve_raw
 
 using TrajectoryGamesBase: unflatten_trajectory, JointStrategy
@@ -2146,5 +2147,112 @@ end
         end
 
         @test contains(output, "iter")
+    end
+end
+
+#=
+    Tests for silent-by-default library behavior
+=#
+
+@testset "silent by default" begin
+    @testset "solve() produces no stdout with default options" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Capture stdout — default solve should produce zero output
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "solve_raw() produces no stdout with default options" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve_raw(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "verbose=true uses logging macros, not println" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            verbose=true
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # With verbose=true, stdout should still be empty because verbose
+        # messages should use @debug/@info (logging macros go to stderr, not stdout)
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve_raw(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "no bare println calls in src/ files" begin
+        # Verify that no println() calls exist in src/ outside of show_progress blocks.
+        # show_progress blocks are the intentional user-facing progress display.
+        # All other output should use logging macros (@debug, @info, @warn).
+        src_dir = joinpath(dirname(@__DIR__), "src")
+        violations = String[]
+
+        for (root, dirs, files) in walkdir(src_dir)
+            for f in files
+                endswith(f, ".jl") || continue
+                filepath = joinpath(root, f)
+                in_show_progress_block = 0
+                for (lineno, line) in enumerate(eachline(filepath))
+                    stripped = lstrip(line)
+                    startswith(stripped, "#") && continue
+                    # Track if show_progress block nesting
+                    if occursin(r"\bif\s+show_progress\b", stripped)
+                        in_show_progress_block += 1
+                    end
+                    if in_show_progress_block > 0 && occursin(r"^\s*end\s*$", line)
+                        in_show_progress_block -= 1
+                        continue
+                    end
+                    # Flag println() calls outside show_progress blocks
+                    if occursin(r"\bprintln\(", stripped) && in_show_progress_block == 0
+                        push!(violations, "$f:$lineno: $stripped")
+                    end
+                end
+            end
+        end
+
+        @test isempty(violations)
     end
 end
