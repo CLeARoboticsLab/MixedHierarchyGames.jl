@@ -53,7 +53,7 @@ include("qp_kkt.jl")
 export get_qp_kkt_conditions, strip_policy_constraints
 
 include("nonlinear_kkt.jl")
-export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals
+export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch
 
 # Solvers
 include("solve.jl")

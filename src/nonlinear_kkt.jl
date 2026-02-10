@@ -17,6 +17,117 @@ const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
 """
+    check_convergence(residual, tol; verbose=false, iteration=nothing)
+
+Check whether the solver has converged based on the KKT residual norm.
+
+Returns a named tuple `(converged, status)` where:
+- `converged::Bool` - whether the residual is below tolerance
+- `status::Symbol` - `:solved`, `:not_converged`, or `:numerical_error`
+
+# Arguments
+- `residual::Real` - Current KKT residual norm
+- `tol::Real` - Convergence tolerance
+
+# Keyword Arguments
+- `verbose::Bool=false` - Print convergence info
+- `iteration::Union{Nothing,Int}=nothing` - Current iteration number (for verbose output)
+"""
+function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing)
+    # Guard against NaN/Inf
+    if !isfinite(residual)
+        verbose && @warn "Residual contains NaN or Inf values"
+        return (; converged=false, status=:numerical_error)
+    end
+
+    if verbose
+        iter_str = isnothing(iteration) ? "" : "Iteration $iteration: "
+        @info "$(iter_str)residual = $residual"
+    end
+
+    if residual < tol
+        return (; converged=true, status=:solved)
+    end
+
+    return (; converged=false, status=:not_converged)
+end
+
+"""
+    compute_newton_step(linsolver, jacobian, neg_residual)
+
+Solve the Newton step linear system `jacobian * δz = neg_residual`.
+
+Uses the provided LinearSolve solver instance for the factorization and solve.
+Handles singular matrix errors gracefully by returning `success=false`.
+
+# Arguments
+- `linsolver` - Initialized LinearSolve solver (mutated in place)
+- `jacobian` - Jacobian matrix (∇F)
+- `neg_residual` - Negative residual vector (-F)
+
+# Returns
+Named tuple `(step, success)` where:
+- `step::Vector` - Newton step direction δz (undefined if `success=false`)
+- `success::Bool` - Whether the linear solve succeeded
+"""
+function compute_newton_step(linsolver, jacobian, neg_residual)
+    linsolver.A = jacobian
+    linsolver.b = neg_residual
+    try
+        solution = solve!(linsolver)
+        success = SciMLBase.successful_retcode(solution) || solution.retcode === SciMLBase.ReturnCode.Default
+        return (; step=solution.u, success)
+    catch e
+        if e isa SingularException || e isa LAPACKException
+            return (; step=neg_residual, success=false)
+        end
+        rethrow()
+    end
+end
+
+"""
+    perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm; use_armijo=true)
+
+Perform backtracking line search to select step size for Newton update.
+
+When `use_armijo=true`, backtracks from α=1.0 by halving until the trial point
+has a smaller residual norm than the current point, or max iterations are reached.
+When `use_armijo=false`, returns α=1.0 (full Newton step).
+
+# Arguments
+- `residual_norm_fn` - Function `z_trial -> Float64` returning residual norm at trial point
+- `z_est::Vector` - Current iterate
+- `δz::Vector` - Newton step direction
+- `current_residual_norm::Float64` - Residual norm at current iterate
+
+# Keyword Arguments
+- `use_armijo::Bool=true` - Whether to perform backtracking line search
+
+# Returns
+- `α::Float64` - Selected step size
+"""
+function perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                            use_armijo::Bool=true)
+    α = 1.0
+
+    if !use_armijo
+        return α
+    end
+
+    for _ in 1:LINESEARCH_MAX_ITERS
+        z_trial = z_est .+ α .* δz
+        trial_residual_norm = residual_norm_fn(z_trial)
+
+        if trial_residual_norm < current_residual_norm
+            break
+        end
+        α *= LINESEARCH_BACKTRACK_FACTOR
+    end
+
+    return α
+end
+
+"""
     _construct_augmented_variables(ii, all_variables, K_syms, G)
 
 Build augmented variable list for player ii including follower K matrices.
@@ -483,36 +594,37 @@ end
         precomputed::NamedTuple,
         initial_states::Dict,
         hierarchy_graph::SimpleDiGraph;
-        initial_guess::Union{Nothing, Vector{Float64}} = nothing,
-        max_iters::Int = 100,
-        tol::Float64 = 1e-6,
-        verbose::Bool = false,
-        use_armijo::Bool = true
+        initial_guess=nothing, max_iters=100, tol=1e-6,
+        verbose=false, use_armijo=true, to=TimerOutput()
     )
 
-Iterative nonlinear solver using quasi-linear policy approximation.
+Orchestrates the Newton iteration loop for solving nonlinear hierarchy games.
 
-Uses Armijo backtracking line search for step size selection.
+Each iteration: evaluate the KKT residual, check convergence, compute a Newton
+step via [`compute_newton_step`](@ref), and select a step size via
+[`perform_linesearch`](@ref). Convergence is checked by [`check_convergence`](@ref).
 
 # Arguments
-- `precomputed::NamedTuple` - Precomputed symbolic components from `preoptimize_nonlinear_solver`
-- `initial_states::Dict` - Initial state for each player (parameter values)
-- `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
+- `precomputed::NamedTuple` - Precomputed symbolic components from [`preoptimize_nonlinear_solver`](@ref)
+- `initial_states::Dict` - Initial state for each player (keyed by player index)
+- `hierarchy_graph::SimpleDiGraph` - Player hierarchy graph
 
 # Keyword Arguments
-- `initial_guess::Vector` - Starting point (or nothing for zero initialization)
-- `max_iters::Int=100` - Maximum iterations
-- `tol::Float64=1e-6` - Convergence tolerance on KKT residual
-- `verbose::Bool=false` - Print iteration info
-- `use_armijo::Bool=true` - Use Armijo line search
+- `initial_guess::Union{Nothing, Vector{Float64}}=nothing` - Starting point (zero-initialized if `nothing`)
+- `max_iters::Int=100` - Maximum Newton iterations
+- `tol::Float64=1e-6` - Convergence tolerance on KKT residual norm
+- `verbose::Bool=false` - Print per-iteration convergence info
+- `use_armijo::Bool=true` - Use backtracking line search (full Newton step if `false`)
+- `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
-Named tuple containing:
-- `sol::Vector` - Solution vector
-- `converged::Bool` - Whether solver converged
-- `iterations::Int` - Number of iterations taken
+Named tuple `(; sol, converged, iterations, residual, status)`:
+- `sol::Vector{Float64}` - Solution vector
+- `converged::Bool` - Whether the solver reached the tolerance
+- `iterations::Int` - Number of iterations performed
 - `residual::Float64` - Final KKT residual norm
-- `status::Symbol` - Solver status (:solved, :max_iters_reached, :linear_solver_error)
+- `status::Symbol` - One of `:solved`, `:solved_initial_point`, `:max_iters_reached`,
+  `:linear_solver_error`, `:numerical_error`
 """
 function run_nonlinear_solver(
     precomputed::NamedTuple,
@@ -545,13 +657,13 @@ function run_nonlinear_solver(
 
     # Solver state
     num_iterations = 0
-    convergence_criterion = Inf
-    status = :in_progress
-    converged = false
+    residual_norm = Inf
+    status = :max_iters_reached
 
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    F_trial = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
 
     # Helper: compute parameters (θ, K) for a given z
@@ -567,29 +679,25 @@ function run_nonlinear_solver(
             param_vec, all_K_vec = params_for_z(z_est)
         end
 
-        # Check convergence
+        # Evaluate residual and check convergence
         @timeit to "residual evaluation" begin
             mcp_obj.f!(F_eval, z_est, param_vec)
-            convergence_criterion = norm(F_eval)
+            residual_norm = norm(F_eval)
         end
 
-        # Guard against NaN/Inf in residual computation
-        if !isfinite(convergence_criterion)
-            verbose && @warn "Residual contains NaN or Inf values, terminating"
+        conv = check_convergence(residual_norm, tol; verbose, iteration=num_iterations)
+
+        if conv.status == :numerical_error
             status = :numerical_error
             break
         end
 
-        verbose && @info "Iteration $num_iterations: residual = $convergence_criterion"
-
-        if convergence_criterion < tol
+        if conv.converged
             status = num_iterations > 0 ? :solved : :solved_initial_point
-            converged = true
             break
         end
 
         if num_iterations >= max_iters
-            status = :max_iters_reached
             break
         end
 
@@ -601,36 +709,27 @@ function run_nonlinear_solver(
         end
 
         @timeit to "Newton step" begin
-            linsolver.A = ∇F
-            linsolver.b = -F_eval
-            solution = solve!(linsolver)
+            newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
         end
 
-        if !SciMLBase.successful_retcode(solution) && solution.retcode !== SciMLBase.ReturnCode.Default
-            verbose && @warn "Linear solve failed: $(solution.retcode)"
+        if !newton_result.success
+            verbose && @warn "Linear solve failed"
             status = :linear_solver_error
             break
         end
 
-        δz = solution.u
+        δz = newton_result.step
 
         # Line search for step size
         @timeit to "line search" begin
-            α = 1.0
-            F_eval_current_norm = norm(F_eval)
-
-            if use_armijo
-                for _ in 1:LINESEARCH_MAX_ITERS
-                    z_trial = z_est .+ α .* δz
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_eval, z_trial, param_trial)
-
-                    if norm(F_eval) < F_eval_current_norm
-                        break
-                    end
-                    α *= LINESEARCH_BACKTRACK_FACTOR
-                end
+            trial_residual_fn = function(z_trial)
+                param_trial, _ = params_for_z(z_trial)
+                mcp_obj.f!(F_trial, z_trial, param_trial)
+                return norm(F_trial)
             end
+
+            α = perform_linesearch(trial_residual_fn, z_est, δz, residual_norm;
+                                   use_armijo)
         end
 
         # Update estimate (in-place to avoid allocation)
@@ -646,9 +745,9 @@ function run_nonlinear_solver(
 
     return (;
         sol = z_est,
-        converged,
+        converged = status in (:solved, :solved_initial_point),
         iterations = num_iterations,
-        residual = convergence_criterion,
+        residual = residual_norm,
         status
     )
 end

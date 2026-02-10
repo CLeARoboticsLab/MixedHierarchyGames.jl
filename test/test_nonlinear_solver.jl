@@ -1,10 +1,15 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort
 using LinearAlgebra: norm, I
+using SparseArrays: spzeros, sparse
+using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using MixedHierarchyGames:
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
     compute_K_evals,
+    compute_newton_step,
+    check_convergence,
+    perform_linesearch,
     setup_approximate_kkt_solver,
     setup_problem_variables,
     setup_problem_parameter_variables,
@@ -698,5 +703,284 @@ end
         # Missing player 2 in parameter_values
         parameter_values = Dict(1 => [1.0, 0.0])
         @test_throws ArgumentError solve(solver, parameter_values)
+    end
+end
+
+#=
+    Tests for check_convergence helper
+=#
+
+@testset "check_convergence" begin
+    @testset "Returns converged=true when residual < tol" begin
+        result = check_convergence(1e-8, 1e-6)
+        @test result.converged == true
+        @test result.status == :solved
+    end
+
+    @testset "Returns converged=false when residual >= tol" begin
+        result = check_convergence(1e-4, 1e-6)
+        @test result.converged == false
+        @test result.status == :not_converged
+    end
+
+    @testset "Returns converged=true at exact tolerance boundary" begin
+        # Residual exactly equal to tol should NOT converge (strict <)
+        result = check_convergence(1e-6, 1e-6)
+        @test result.converged == false
+        @test result.status == :not_converged
+    end
+
+    @testset "Returns numerical_error for NaN residual" begin
+        result = check_convergence(NaN, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Returns numerical_error for Inf residual" begin
+        result = check_convergence(Inf, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Returns numerical_error for -Inf residual" begin
+        result = check_convergence(-Inf, 1e-6)
+        @test result.converged == false
+        @test result.status == :numerical_error
+    end
+
+    @testset "Handles zero residual" begin
+        result = check_convergence(0.0, 1e-6)
+        @test result.converged == true
+        @test result.status == :solved
+    end
+
+    @testset "Verbose mode does not error" begin
+        # Just verify it doesn't throw when verbose=true
+        result = check_convergence(1e-8, 1e-6; verbose=true, iteration=5)
+        @test result.converged == true
+    end
+
+    @testset "Returns named tuple with correct fields" begin
+        result = check_convergence(1e-3, 1e-6)
+        @test hasproperty(result, :converged)
+        @test hasproperty(result, :status)
+        @test result.converged isa Bool
+        @test result.status isa Symbol
+    end
+end
+
+#=
+    Tests for compute_newton_step helper
+=#
+
+@testset "compute_newton_step" begin
+    # Helper to create a LinearSolve solver instance
+    function make_linsolver(n)
+        algorithm = LinearSolve.UMFPACKFactorization()
+        init(LinearProblem(spzeros(n, n), zeros(n)), algorithm)
+    end
+
+    @testset "Solves simple 2x2 linear system correctly" begin
+        # System: [2 0; 0 3] * δz = [4; 9]  =>  δz = [2; 3]
+        linsolver = make_linsolver(2)
+        jacobian = sparse([2.0 0.0; 0.0 3.0])
+        neg_residual = [4.0, 9.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ [2.0, 3.0] atol=1e-10
+    end
+
+    @testset "Returns named tuple with correct fields" begin
+        linsolver = make_linsolver(2)
+        jacobian = sparse([1.0 0.0; 0.0 1.0])
+        neg_residual = [1.0, 1.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test hasproperty(result, :step)
+        @test hasproperty(result, :success)
+        @test result.step isa AbstractVector
+        @test result.success isa Bool
+    end
+
+    @testset "Solves identity system (δz = -F)" begin
+        n = 5
+        linsolver = make_linsolver(n)
+        jacobian = sparse(Float64.(I(n)))
+        neg_residual = randn(n)
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ neg_residual atol=1e-10
+    end
+
+    @testset "Solves non-trivial 3x3 system" begin
+        # A * x = b where A = [1 2 0; 0 1 1; 1 0 1], b = [5; 3; 4]
+        # Solution: x = [7/3; 4/3; 5/3]
+        linsolver = make_linsolver(3)
+        jacobian = sparse([1.0 2.0 0.0; 0.0 1.0 1.0; 1.0 0.0 1.0])
+        neg_residual = [5.0, 3.0, 4.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == true
+        @test result.step ≈ [7/3, 4/3, 5/3] atol=1e-10
+    end
+
+    @testset "Handles singular matrix gracefully" begin
+        linsolver = make_linsolver(2)
+        jacobian = sparse([1.0 1.0; 1.0 1.0])  # Singular
+        neg_residual = [1.0, 2.0]
+
+        result = compute_newton_step(linsolver, jacobian, neg_residual)
+
+        @test result.success == false
+    end
+end
+
+#=
+    Tests for perform_linesearch helper
+=#
+
+@testset "perform_linesearch" begin
+    @testset "Returns α=1.0 when use_armijo=false (fixed step)" begin
+        # With armijo disabled, should always return α=1.0 regardless of residual
+        residual_norm_fn = z -> 1000.0  # Always large residual
+        z_est = [1.0, 1.0]
+        δz = [-1.0, -1.0]
+        current_residual_norm = 10.0
+
+        α = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                               use_armijo=false)
+
+        @test α == 1.0
+    end
+
+    @testset "Returns α=1.0 when first trial already reduces residual" begin
+        # f(z + δz) has smaller norm than f(z), so full step should be accepted
+        residual_norm_fn = z -> 0.1  # Trial always has small residual
+        z_est = [2.0, 2.0]
+        δz = [-1.0, -1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        @test α == 1.0
+    end
+
+    @testset "Backtracks when full step increases residual" begin
+        # Full step (α=1): z_trial = [1,1]+1*[1,1] = [2,2] -> norm 10.0 (worse than 5.0)
+        # Half step (α=0.5): z_trial = [1,1]+0.5*[1,1] = [1.5,1.5] -> norm 0.1 (better)
+        call_count = Ref(0)
+        function residual_fn_backtrack(z)
+            call_count[] += 1
+            # Large z values give large residual, small z values give small residual
+            if maximum(abs.(z)) > 1.8
+                return 10.0  # Worse than current (5.0)
+            else
+                return 0.1   # Better than current (5.0)
+            end
+        end
+
+        z_est = [1.0, 1.0]
+        δz = [1.0, 1.0]  # Step that overshoots at full α
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_backtrack, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        @test α < 1.0
+        @test α > 0.0
+    end
+
+    @testset "Step size is halved each backtrack iteration" begin
+        # Track all α values tried via the z_trial values
+        trials = Float64[]
+        function residual_fn_track(z)
+            push!(trials, z[1])  # Track z_trial[1] = z_est[1] + α * δz[1]
+            # Only accept at very small α
+            if abs(z[1] - 1.0) < 0.1  # z_est=1, so α*δz must be small
+                return 0.01
+            end
+            return 100.0
+        end
+
+        z_est = [1.0]
+        δz = [-1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_track, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        # Verify backtracking factor of 0.5: trials should show z at α=1, 0.5, 0.25, ...
+        # trials[1] = 1.0 + 1.0*(-1.0) = 0.0
+        # trials[2] = 1.0 + 0.5*(-1.0) = 0.5
+        # trials[3] = 1.0 + 0.25*(-1.0) = 0.75
+        @test length(trials) >= 2
+        if length(trials) >= 2
+            @test trials[1] ≈ 0.0 atol=1e-10   # α=1.0
+            @test trials[2] ≈ 0.5 atol=1e-10   # α=0.5
+        end
+    end
+
+    @testset "Respects max_iters limit" begin
+        # Residual never decreases, so should exhaust all iterations
+        call_count = Ref(0)
+        function residual_fn_never_decrease(z)
+            call_count[] += 1
+            return 100.0  # Always worse than current
+        end
+
+        z_est = [1.0]
+        δz = [-1.0]
+        current_residual_norm = 5.0
+
+        α = perform_linesearch(residual_fn_never_decrease, z_est, δz, current_residual_norm;
+                               use_armijo=true)
+
+        # Should have tried exactly LINESEARCH_MAX_ITERS times (10 by default)
+        @test call_count[] == 10
+        # α should be 0.5^10 ≈ 9.77e-4 (last tried value)
+        @test α ≈ 0.5^10 atol=1e-10
+    end
+
+    @testset "Returns named tuple with α field" begin
+        # Verify return type matches what the solver expects
+        residual_norm_fn = z -> 0.1
+        z_est = [1.0]
+        δz = [-0.5]
+        current_residual_norm = 5.0
+
+        result = perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
+                                    use_armijo=true)
+
+        # Should return a scalar Float64 step size
+        @test result isa Float64
+        @test result > 0.0
+        @test result <= 1.0
+    end
+
+    @testset "Evaluates residual_norm_fn at correct trial points" begin
+        # Verify z_trial = z_est + α * δz is computed correctly
+        evaluated_points = Vector{Float64}[]
+        function residual_fn_capture(z)
+            push!(evaluated_points, copy(z))
+            return 0.01  # Accept first trial
+        end
+
+        z_est = [3.0, -2.0]
+        δz = [1.0, 0.5]
+        current_residual_norm = 5.0
+
+        perform_linesearch(residual_fn_capture, z_est, δz, current_residual_norm;
+                           use_armijo=true)
+
+        # First (and only) evaluation should be at z_est + 1.0 * δz
+        @test length(evaluated_points) == 1
+        @test evaluated_points[1] ≈ [4.0, -1.5] atol=1e-10
     end
 end
