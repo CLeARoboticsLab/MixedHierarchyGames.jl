@@ -14,5 +14,11 @@ TrajectoryGamesBase = "ac1ac542-73eb-4349-ae1b-660ab3609574"
 MixedHierarchyGames = {path = ".."}
 
 [compat]
+BenchmarkTools = "1"
+Graphs = "1.13"
 JLD2 = "0.4, 0.5, 0.6"
+LaTeXStrings = "1"
 Plots = "1"
+StatsPlots = "0.15"
+TimerOutputs = "0.5"
+TrajectoryGamesBase = "0.3"
