@@ -324,7 +324,7 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch, use_sparse)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse)
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
@@ -351,7 +351,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
-- `recompute_K_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
+- `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
@@ -372,7 +372,7 @@ function NonlinearSolver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
-    recompute_K_in_linesearch::Bool = true,
+    recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
     cse::Bool = false,
@@ -404,7 +404,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch, use_sparse, show_progress)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress)
     end
 
     return NonlinearSolver(problem, precomputed, options)

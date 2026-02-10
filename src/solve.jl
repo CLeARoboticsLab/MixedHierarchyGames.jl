@@ -199,7 +199,7 @@ function solve(
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
-    recompute_K_in_linesearch::Union{Nothing, Bool} = nothing,
+    recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
@@ -215,7 +215,7 @@ function solve(
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
-    actual_recompute_K = something(recompute_K_in_linesearch, options.recompute_K_in_linesearch)
+    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
 
@@ -230,7 +230,7 @@ function solve(
             tol = actual_tol,
             verbose = actual_verbose,
             linesearch_method = actual_linesearch_method,
-            recompute_K_in_linesearch = actual_recompute_K,
+            recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
             to = to
@@ -251,7 +251,7 @@ Solve and return raw solution with convergence info (for debugging/analysis).
 - `tol::Float64` - Convergence tolerance (default from solver.options)
 - `verbose::Bool` - Print iteration info (default from solver.options)
 - `linesearch_method::Symbol` - Line search method (default from solver.options)
-- `recompute_K_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default from solver.options)
+- `recompute_policy_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default from solver.options)
 - `show_progress::Bool` - Display iteration progress table (default from solver.options)
 
 # Returns
@@ -276,7 +276,7 @@ function solve_raw(
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
-    recompute_K_in_linesearch::Union{Nothing, Bool} = nothing,
+    recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
@@ -289,7 +289,7 @@ function solve_raw(
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
-    actual_recompute_K = something(recompute_K_in_linesearch, options.recompute_K_in_linesearch)
+    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
 
@@ -304,7 +304,7 @@ function solve_raw(
             tol = actual_tol,
             verbose = actual_verbose,
             linesearch_method = actual_linesearch_method,
-            recompute_K_in_linesearch = actual_recompute_K,
+            recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
             to = to
