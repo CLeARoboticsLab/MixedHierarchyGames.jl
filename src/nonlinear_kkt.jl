@@ -260,11 +260,9 @@ function setup_approximate_kkt_solver(
         end
     end
 
-    # In-place function variants and pre-allocated buffers
+    # In-place function variants
     M_fns_inplace = Dict{Int, Function}()
     N_fns_inplace = Dict{Int, Function}()
-    M_buffers = Dict{Int, Matrix{Float64}}()
-    N_buffers = Dict{Int, Matrix{Float64}}()
 
     # Second pass: build KKT conditions and M/N functions
     for ii in reverse_order
@@ -347,10 +345,6 @@ function setup_approximate_kkt_solver(
             # Compile in-place function variants for inplace_MN mode
             M_fns_inplace[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
             N_fns_inplace[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
-
-            # Pre-allocate output buffers sized to match the matrix dimensions
-            M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
-            N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
         else
             augmented_variables[ii] = all_variables
         end
@@ -366,8 +360,7 @@ function setup_approximate_kkt_solver(
     return all_augmented_variables, (;
         graph=G, πs, K_syms, M_fns, N_fns, π_sizes,
         var"M_fns!" = M_fns_inplace,
-        var"N_fns!" = N_fns_inplace,
-        M_buffers, N_buffers
+        var"N_fns!" = N_fns_inplace
     )
 end
 
@@ -564,7 +557,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false, M_buffers=nothing, N_buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -583,8 +576,9 @@ See Phase 6 for planned thread-safety improvements.
   Beneficial for large M matrices (>100 rows) with structural sparsity from the
   KKT system. For small matrices, dense solve is faster due to sparse overhead.
 - `inplace_MN::Bool=false` - If true, use pre-allocated buffers for M/N evaluation,
-  avoiding allocations on each call. Requires setup_info to contain M_fns!, N_fns!,
-  M_buffers, and N_buffers (produced by setup_approximate_kkt_solver).
+  avoiding allocations on each call. Requires M_buffers and N_buffers to be provided.
+- `M_buffers::Union{Nothing,Dict{Int,Matrix{Float64}}}=nothing` - Pre-allocated M matrix buffers (required when inplace_MN=true)
+- `N_buffers::Union{Nothing,Dict{Int,Matrix{Float64}}}=nothing` - Pre-allocated N matrix buffers (required when inplace_MN=true)
 
 # Returns
 Tuple of:
@@ -597,7 +591,9 @@ function compute_K_evals(
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
     use_sparse::Bool=false,
-    inplace_MN::Bool=false
+    inplace_MN::Bool=false,
+    M_buffers::Union{Nothing,Dict{Int,Matrix{Float64}}}=nothing,
+    N_buffers::Union{Nothing,Dict{Int,Matrix{Float64}}}=nothing
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -624,9 +620,12 @@ function compute_K_evals(
             augmented_z = _build_augmented_z_est(ii, z_current, K_evals, graph, follower_cache, buffer_cache)
 
             if inplace_MN
-                # In-place path: write M/N into pre-allocated buffers (zero allocation)
-                M_buf = setup_info.M_buffers[ii]
-                N_buf = setup_info.N_buffers[ii]
+                # In-place path: write M/N into provided buffers (zero allocation)
+                if isnothing(M_buffers) || isnothing(N_buffers)
+                    error("inplace_MN=true requires M_buffers and N_buffers to be provided")
+                end
+                M_buf = M_buffers[ii]
+                N_buf = N_buffers[ii]
                 setup_info.var"M_fns!"[ii](M_buf, augmented_z)
                 setup_info.var"N_fns!"[ii](N_buf, augmented_z)
                 M_evals[ii] = M_buf
@@ -789,6 +788,26 @@ function run_nonlinear_solver(
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
 
+    # Allocate M/N buffers for in-place evaluation (if requested)
+    # Buffers are sized based on π_sizes from setup_info
+    M_buffers = nothing
+    N_buffers = nothing
+    if inplace_MN
+        ws = problem_vars.ws
+        ys = problem_vars.ys
+        π_sizes = setup_info.π_sizes
+        graph = setup_info.graph
+        
+        M_buffers = Dict{Int, Matrix{Float64}}()
+        N_buffers = Dict{Int, Matrix{Float64}}()
+        for ii in 1:nv(graph)
+            if has_leader(graph, ii)
+                M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
+                N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
+            end
+        end
+    end
+
     # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
     # Size is determined from the MCP's parameter_dimension (set during preoptimize)
     θ_len = length(θ_vals_vec)
@@ -797,7 +816,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, inplace_MN)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, inplace_MN, M_buffers, N_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end

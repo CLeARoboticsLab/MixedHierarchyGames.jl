@@ -10,7 +10,8 @@ using MixedHierarchyGames:
     setup_problem_parameter_variables,
     default_backend,
     NonlinearSolver,
-    solve_raw
+    solve_raw,
+    has_leader
 
 using TrajectoryGamesBase: unflatten_trajectory
 
@@ -131,9 +132,24 @@ end
         all_K_default, info_default = compute_K_evals(
             z_current, precomputed.problem_vars, precomputed.setup_info
         )
+        
+        # Allocate buffers for in-place evaluation
+        ws = precomputed.problem_vars.ws
+        ys = precomputed.problem_vars.ys
+        π_sizes = precomputed.setup_info.π_sizes
+        graph = precomputed.setup_info.graph
+        M_buffers = Dict{Int, Matrix{Float64}}()
+        N_buffers = Dict{Int, Matrix{Float64}}()
+        for ii in 1:prob.N
+            if has_leader(graph, ii)
+                M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
+                N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
+            end
+        end
+        
         all_K_inplace, info_inplace = compute_K_evals(
             z_current, precomputed.problem_vars, precomputed.setup_info;
-            inplace_MN=true
+            inplace_MN=true, M_buffers=M_buffers, N_buffers=N_buffers
         )
 
         # Results must match to machine epsilon
@@ -159,9 +175,24 @@ end
         all_K_default, info_default = compute_K_evals(
             z_current, precomputed.problem_vars, precomputed.setup_info
         )
+        
+        # Allocate buffers for in-place evaluation
+        ws = precomputed.problem_vars.ws
+        ys = precomputed.problem_vars.ys
+        π_sizes = precomputed.setup_info.π_sizes
+        graph = precomputed.setup_info.graph
+        M_buffers = Dict{Int, Matrix{Float64}}()
+        N_buffers = Dict{Int, Matrix{Float64}}()
+        for ii in 1:prob.N
+            if has_leader(graph, ii)
+                M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
+                N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
+            end
+        end
+        
         all_K_inplace, info_inplace = compute_K_evals(
             z_current, precomputed.problem_vars, precomputed.setup_info;
-            inplace_MN=true
+            inplace_MN=true, M_buffers=M_buffers, N_buffers=N_buffers
         )
 
         @test all_K_default ≈ all_K_inplace atol=1e-14
@@ -183,6 +214,20 @@ end
             state_dim=prob.state_dim, control_dim=prob.control_dim
         )
 
+        # Allocate buffers once
+        ws = precomputed.problem_vars.ws
+        ys = precomputed.problem_vars.ys
+        π_sizes = precomputed.setup_info.π_sizes
+        graph = precomputed.setup_info.graph
+        M_buffers = Dict{Int, Matrix{Float64}}()
+        N_buffers = Dict{Int, Matrix{Float64}}()
+        for ii in 1:prob.N
+            if has_leader(graph, ii)
+                M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
+                N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
+            end
+        end
+
         for trial in 1:5
             z_current = randn(length(precomputed.all_variables))
             all_K_default, _ = compute_K_evals(
@@ -190,7 +235,7 @@ end
             )
             all_K_inplace, _ = compute_K_evals(
                 z_current, precomputed.problem_vars, precomputed.setup_info;
-                inplace_MN=true
+                inplace_MN=true, M_buffers=M_buffers, N_buffers=N_buffers
             )
             @test all_K_default ≈ all_K_inplace atol=1e-14
         end
@@ -204,11 +249,10 @@ end
         )
 
         setup_info = precomputed.setup_info
-        # New fields: M_fns!, N_fns!, M_buffers, N_buffers
+        # Verify in-place function dictionaries are present
         @test haskey(setup_info, :M_fns!) || hasproperty(setup_info, Symbol("M_fns!"))
         @test haskey(setup_info, :N_fns!) || hasproperty(setup_info, Symbol("N_fns!"))
-        @test haskey(setup_info, :M_buffers) || hasproperty(setup_info, :M_buffers)
-        @test haskey(setup_info, :N_buffers) || hasproperty(setup_info, :N_buffers)
+        # Buffers are no longer in setup_info (allocated per-solve in run_nonlinear_solver)
     end
 
     @testset "run_nonlinear_solver: inplace_MN produces identical solution (2-player)" begin
