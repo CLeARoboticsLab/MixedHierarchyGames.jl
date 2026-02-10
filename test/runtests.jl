@@ -45,4 +45,7 @@ include("testing_utils.jl")
 
     # TimerOutputs Integration
     include("test_timer.jl")
+
+    # Allocation Optimization (buffer reuse correctness)
+    include("test_allocation_optimization.jl")
 end
