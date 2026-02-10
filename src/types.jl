@@ -351,7 +351,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
-- `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
+- `recompute_K_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
@@ -372,7 +372,7 @@ function NonlinearSolver(
     tol::Float64 = 1e-6,
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
-    recompute_K_in_linesearch::Bool = false,
+    recompute_K_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
     cse::Bool = false,

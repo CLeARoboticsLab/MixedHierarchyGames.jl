@@ -1781,7 +1781,7 @@ end
         )
         initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
 
-        # Should not throw with recompute_K_in_linesearch=false (default behavior)
+        # Should not throw with recompute_K_in_linesearch=false (opt-in skip)
         result_skip = run_nonlinear_solver(
             precomputed,
             initial_states,
@@ -1810,7 +1810,7 @@ end
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
             prob.state_dim, prob.control_dim
         )
-        @test solver.options.recompute_K_in_linesearch == false
+        @test solver.options.recompute_K_in_linesearch == true
     end
 
     @testset "Constructor stores recompute_K_in_linesearch option" begin
