@@ -544,7 +544,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current::Vector, problem_vars::NamedTuple, setup_info::NamedTuple)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -558,6 +558,11 @@ See Phase 6 for planned thread-safety improvements.
 - `problem_vars::NamedTuple` - Problem variables (from setup_problem_variables)
 - `setup_info::NamedTuple` - Setup info (from setup_approximate_kkt_solver)
 
+# Keyword Arguments
+- `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
+  Beneficial for large M matrices (>100 rows) with structural sparsity from the
+  KKT system. For small matrices, dense solve is faster due to sparse overhead.
+
 # Returns
 Tuple of:
 - `all_K_vec::Vector` - Concatenated K matrix values for all players
@@ -567,7 +572,8 @@ Tuple of:
 function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
-    setup_info::NamedTuple
+    setup_info::NamedTuple;
+    use_sparse::Bool=false
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -602,7 +608,7 @@ function compute_K_evals(
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -621,16 +627,23 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx)
+    _solve_K(M, N, player_idx; use_sparse=false)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
+
+When `use_sparse=true`, converts M to sparse format before solving, which can be
+beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
     try
-        K = M \ N
+        K = if use_sparse
+            sparse(M) \ N
+        else
+            M \ N
+        end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
@@ -681,6 +694,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `verbose::Bool=false` - Print per-iteration convergence info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
+- `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -702,6 +716,7 @@ function run_nonlinear_solver(
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
     recompute_K_in_linesearch::Bool = false,
+    use_sparse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -734,7 +749,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z
     function params_for_z(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
         return vcat(θ_vals_vec, all_K_vec), all_K_vec
     end
 

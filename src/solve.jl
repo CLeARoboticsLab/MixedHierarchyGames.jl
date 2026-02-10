@@ -197,6 +197,7 @@ function solve(
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_K_in_linesearch::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -211,6 +212,7 @@ function solve(
     actual_verbose = something(verbose, options.verbose)
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
     actual_recompute_K = something(recompute_K_in_linesearch, options.recompute_K_in_linesearch)
+    actual_use_sparse = something(use_sparse, options.use_sparse)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -224,6 +226,7 @@ function solve(
             verbose = actual_verbose,
             linesearch_method = actual_linesearch_method,
             recompute_K_in_linesearch = actual_recompute_K,
+            use_sparse = actual_use_sparse,
             to = to
         )
     end
@@ -267,6 +270,7 @@ function solve_raw(
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_K_in_linesearch::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -278,6 +282,7 @@ function solve_raw(
     actual_verbose = something(verbose, options.verbose)
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
     actual_recompute_K = something(recompute_K_in_linesearch, options.recompute_K_in_linesearch)
+    actual_use_sparse = something(use_sparse, options.use_sparse)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -291,6 +296,7 @@ function solve_raw(
             verbose = actual_verbose,
             linesearch_method = actual_linesearch_method,
             recompute_K_in_linesearch = actual_recompute_K,
+            use_sparse = actual_use_sparse,
             to = to
         )
     end

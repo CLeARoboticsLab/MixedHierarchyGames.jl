@@ -55,4 +55,7 @@ include("testing_utils.jl")
 
     # BlockArrays Utilities
     include("test_block_arrays.jl")
+
+    # Sparse M\N Solve Investigation
+    include("test_sparse_solve.jl")
 end
