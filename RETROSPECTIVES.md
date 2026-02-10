@@ -720,3 +720,50 @@ Benchmarked all 7 combinations of 3 in-place pre-allocation strategies for the s
 - [ ] Follow-up PR to make Strategy A always-on (remove flag, delete out-of-place code paths)
 - [ ] Remove Strategies B/C code (confirmed no benefit)
 - [ ] Enforce 3-commit minimum for investigation PRs in future beads
+
+---
+
+## PR #89 (rebased): perf/inplace-mn-eval merge with main (bead 2si)
+
+**Date:** 2026-02-10
+**Commits:** 1 (merge commit)
+**Tests:** 921 passing
+
+### Summary
+
+Merged main into perf/inplace-mn-eval to pick up 20+ PRs integrated via PR #99. Resolved 4 conflicted files by taking main's version for all src/ and test infrastructure files. Removed `test/test_inplace_strategies.jl` (references APIs not in main). Only unique content remaining is RETROSPECTIVES.md entries for PRs #87 and #89.
+
+### TDD Compliance
+
+**Score: N/A** — No new code written, merge resolution only.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- Took main's version for all src/ files, preserving no behavior changes
+- Cleanly removed dead test file referencing non-existent APIs
+- Only added retrospective entries as unique branch content
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- Single merge commit with clear message explaining resolution strategy
+- Could have been split into merge + cleanup, but merge commit is appropriate here
+
+### CLAUDE.md Compliance
+
+- [x] No default behavior changed
+- [x] All 921 tests pass
+- [x] Retrospective written before PR update
+- [x] PR description will be updated
+
+### Key Learnings
+
+1. When merging a stale branch, taking main's version for all src/ files is the safest approach when the goal is "benchmark infrastructure only"
+2. Test files referencing removed APIs must be explicitly cleaned up during merge
+
+### Action Items for Next PR
+
+- [ ] The in-place strategy findings (5-10x speedup from Strategy A) should be implemented in a fresh PR based on current main
