@@ -192,13 +192,19 @@ bd                    # Beads work tracking CLI
 ### Running Tests
 
 ```bash
-# Run tests in container
-docker compose run --rm test
-
-# Or interactively
-docker compose run --rm dev
+# Run all tests
 julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run fast tests only (~45s, 264 tests)
+FAST_TESTS_ONLY=true julia --project=. -e 'using Pkg; Pkg.test()'
 ```
+
+The test suite is split into two tiers:
+
+- **Fast tier** (264 tests, ~45s): Unit tests, QP solver, input validation, type stability, OLSE QP
+- **Slow tier** (192 tests, ~2min): Nonlinear solver convergence, KKT verification, integration tests, OLSE nonlinear
+
+CI uses `/run-ci` for fast tests and `/run-ci-full` for the complete suite with coverage.
 
 ### Development Workflow
 
