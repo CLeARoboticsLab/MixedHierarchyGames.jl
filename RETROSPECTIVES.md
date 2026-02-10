@@ -593,3 +593,63 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: perf/inplace-mn-strategy-a
+
+**Date:** 2026-02-10
+**Commits:** 3
+**Tests:** 950 passing (29 new)
+
+### Summary
+
+Implemented in-place M/N evaluation with pre-allocated buffers (Strategy A) for the nonlinear solver's hot path in `compute_K_evals()`. This avoids allocating new matrices on every call to `M_fns[ii]()` and `N_fns[ii]()` during Newton iterations.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- Wrote failing tests FIRST (commit 1: 11 tests, all failing)
+- Implemented feature to make all tests pass (commit 2: 29 tests passing)
+- Clean Red-Green-Refactor cycle followed precisely
+- No implementation code written before tests existed
+
+### Clean Code
+
+**Score: Good (8/10)**
+
+- Functions remain single-purpose
+- `inplace_MN` flag threaded cleanly through the full API stack
+- Used `var"M_fns!"` Julia naming convention for in-place function dicts
+- Pre-allocated buffers have clear ownership (stored in setup_info)
+- Minor deduction: test helper functions duplicated from test_nonlinear_solver.jl (acceptable for test isolation)
+
+### Clean Architecture
+
+**Score: Good (8/10)**
+
+- Changes localized to 3 source files with clear separation:
+  - `nonlinear_kkt.jl`: core logic (setup + compute)
+  - `types.jl`: constructor threading
+  - `solve.jl`: API threading
+- Default `false` preserves backward compatibility
+
+### Commit Hygiene
+
+**Score: Excellent (9/10)**
+
+- 3 focused commits: RED → GREEN → test tier registration
+- Each commit leaves codebase in working state (except RED, which is intentionally failing)
+- Commit messages describe why, not just what
+
+### Key Learnings
+
+1. `SymbolicTracingUtils.build_function` with `in_place=true` writes into a matrix buffer directly — the buffer must match the flattened output shape, and the function signature is `fn!(output, input)`.
+2. The benchmark shows allocation reduction scales with problem size: 24% for small LQ → 82% for large lane change, confirming M/N allocation dominates for larger problems.
+3. Speedups are substantial (4-7x) and consistent across all problem sizes tested.
+
+### Action Items for Next PR
+
+- [ ] Consider making `inplace_MN=true` the default in a follow-up PR after broader testing
+- [ ] Profile remaining allocations in the in-place path to find further optimization opportunities
