@@ -1,0 +1,67 @@
+@testset "Test Tier Configuration" begin
+    # Test that the tier classification constants exist and are correct
+    @testset "fast_test_files contains expected files" begin
+        expected_fast = [
+            "test_graph_utils.jl",
+            "test_symbolic_utils.jl",
+            "test_problem_setup.jl",
+            "test_qp_kkt.jl",
+            "test_linesearch.jl",
+            "test_input_validation.jl",
+            "test_type_stability.jl",
+            "test_qp_solver.jl",
+            "test_interface.jl",
+            "test_timer.jl",
+            "olse/test_qp_solver.jl",
+        ]
+        @test Set(FAST_TEST_FILES) == Set(expected_fast)
+    end
+
+    @testset "slow_test_files contains expected files" begin
+        expected_slow = [
+            "test_nonlinear_solver.jl",
+            "test_kkt_verification.jl",
+            "test_integration.jl",
+            "olse/test_nonlinear_solver.jl",
+        ]
+        @test Set(SLOW_TEST_FILES) == Set(expected_slow)
+    end
+
+    @testset "all test files are classified" begin
+        all_classified = Set(vcat(FAST_TEST_FILES, SLOW_TEST_FILES))
+        # Every test file in the original runtests should be classified
+        expected_all = Set([
+            "test_graph_utils.jl",
+            "test_symbolic_utils.jl",
+            "test_problem_setup.jl",
+            "test_qp_kkt.jl",
+            "test_qp_solver.jl",
+            "test_linesearch.jl",
+            "test_nonlinear_solver.jl",
+            "test_kkt_verification.jl",
+            "test_interface.jl",
+            "test_input_validation.jl",
+            "test_integration.jl",
+            "olse/test_qp_solver.jl",
+            "olse/test_nonlinear_solver.jl",
+            "test_type_stability.jl",
+            "test_timer.jl",
+        ])
+        @test all_classified == expected_all
+    end
+
+    @testset "no overlap between fast and slow tiers" begin
+        overlap = intersect(Set(FAST_TEST_FILES), Set(SLOW_TEST_FILES))
+        @test isempty(overlap)
+    end
+
+    @testset "FAST_TESTS_ONLY controls which tests run" begin
+        # When FAST_TESTS_ONLY is "true", only fast tests should be selected
+        files_fast = get_test_files(true)
+        @test Set(files_fast) == Set(FAST_TEST_FILES)
+
+        # When FAST_TESTS_ONLY is not set, all tests should be selected
+        files_all = get_test_files(false)
+        @test Set(files_all) == Set(vcat(FAST_TEST_FILES, SLOW_TEST_FILES))
+    end
+end
