@@ -673,6 +673,9 @@ end
         tol::Float64 = 1e-6,
         verbose::Bool = false,
         linesearch_method::Symbol = :geometric,
+        recompute_K_in_linesearch::Bool = false,
+        use_sparse::Bool = false,
+        show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
 
@@ -695,6 +698,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -717,6 +721,7 @@ function run_nonlinear_solver(
     linesearch_method::Symbol = :geometric,
     recompute_K_in_linesearch::Bool = false,
     use_sparse::Bool = false,
+    show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -761,7 +766,16 @@ function run_nonlinear_solver(
         return param_vec, all_K_vec
     end
 
+    # Progress tracking
+    t_start = time()
+    if show_progress
+        println("┌──────────────────────────────────────────────────────────────┐")
+        println("│  iter      residual          α         time                  │")
+        println("├──────────────────────────────────────────────────────────────┤")
+    end
+
     # Main iteration loop
+    α = NaN  # track step size for progress display
     while true
         # Evaluate K matrices at current z
         @timeit to "compute K evals" begin
@@ -839,12 +853,30 @@ function run_nonlinear_solver(
         # Update estimate (in-place to avoid allocation)
         @. z_est += α * δz
 
+        # Progress display after iteration update
+        if show_progress
+            elapsed = time() - t_start
+            iter_str = lpad(num_iterations, 4)
+            res_str = lpad(string(residual_norm), 14)
+            α_str = lpad(string(round(α; digits=4)), 8)
+            t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
+            println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+        end
+
         # Guard against NaN/Inf in solution
         if any(!isfinite, z_est)
             verbose && @warn "Solution contains NaN or Inf values after update, terminating"
             status = :numerical_error
             break
         end
+    end
+
+    # Progress summary
+    if show_progress
+        elapsed = time() - t_start
+        println("└──────────────────────────────────────────────────────────────┘")
+        status_str = status in (:solved, :solved_initial_point) ? "Converged" : "Did not converge"
+        println("  $status_str in $num_iterations iterations ($(round(elapsed; digits=2))s), final residual: $residual_norm")
     end
 
     return (;

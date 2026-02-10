@@ -416,6 +416,7 @@ Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` fl
 
 ---
 
+
 ## PR #90: perf/optimize-pmcp (beads s6u-a, s6u-b)
 
 **Date:** 2026-02-09

@@ -353,6 +353,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
   symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
@@ -373,6 +374,7 @@ function NonlinearSolver(
     linesearch_method::Symbol = :geometric,
     recompute_K_in_linesearch::Bool = false,
     use_sparse::Bool = false,
+    show_progress::Bool = false,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -402,7 +404,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch, use_sparse)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_K_in_linesearch, use_sparse, show_progress)
     end
 
     return NonlinearSolver(problem, precomputed, options)
