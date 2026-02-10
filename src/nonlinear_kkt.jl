@@ -341,7 +341,7 @@ function setup_approximate_kkt_solver(
             augmented_variables[ii] = all_variables
         end
 
-        verbose && println("Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))")
+        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))"
     end
 
     # Build full augmented variable list

@@ -163,7 +163,7 @@ function get_qp_kkt_conditions(
             Ks[ii] = Ms[ii] \ Ns[ii]
         end
 
-        verbose && println("Player $ii: $(length(πs[ii])) KKT conditions")
+        verbose && @debug "Player $ii: $(length(πs[ii])) KKT conditions"
     end
 
     (; πs, Ms, Ns, Ks)
