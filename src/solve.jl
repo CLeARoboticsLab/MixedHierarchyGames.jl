@@ -186,6 +186,7 @@ Uses precomputed symbolic components for efficiency.
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
 - `show_progress::Union{Nothing, Bool}=nothing` - Display iteration progress table
+- `inplace_MN::Union{Nothing, Bool}=nothing` - Use pre-allocated buffers for M/N evaluation
 - Additional options override solver.options
 
 # Returns
@@ -201,6 +202,7 @@ function solve(
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
+    inplace_MN::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -217,6 +219,7 @@ function solve(
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
+    actual_inplace_MN = something(inplace_MN, options.inplace_MN)
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
@@ -232,6 +235,7 @@ function solve(
             linesearch_method = actual_linesearch_method,
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
+            inplace_MN = actual_inplace_MN,
             show_progress = actual_show_progress,
             to = to
         )
@@ -278,6 +282,7 @@ function solve_raw(
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
+    inplace_MN::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -291,6 +296,7 @@ function solve_raw(
     actual_linesearch_method = something(linesearch_method, options.linesearch_method)
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
+    actual_inplace_MN = something(inplace_MN, options.inplace_MN)
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
@@ -306,6 +312,7 @@ function solve_raw(
             linesearch_method = actual_linesearch_method,
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
+            inplace_MN = actual_inplace_MN,
             show_progress = actual_show_progress,
             to = to
         )
