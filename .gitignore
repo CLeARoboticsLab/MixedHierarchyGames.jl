@@ -13,6 +13,9 @@ docs/build/
 # Debug scripts
 debug/
 
+# Logs
+logs/
+
 # Project-specific
 warmstart/*.jld2
 *.jld2
