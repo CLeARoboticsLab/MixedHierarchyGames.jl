@@ -706,32 +706,7 @@ end
 =#
 
 @testset "show_progress option" begin
-    @testset "run_nonlinear_solver accepts show_progress parameter" begin
-        prob = make_two_player_chain_problem()
-
-        precomputed = preoptimize_nonlinear_solver(
-            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
-            state_dim=prob.state_dim,
-            control_dim=prob.control_dim
-        )
-
-        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
-
-        # Should not throw when show_progress is passed
-        result = run_nonlinear_solver(
-            precomputed,
-            initial_states,
-            prob.G;
-            max_iters=10,
-            tol=1e-6,
-            verbose=false,
-            show_progress=true
-        )
-
-        @test result.sol isa AbstractVector
-    end
-
-    @testset "show_progress produces output" begin
+    @testset "show_progress produces output with expected fields" begin
         prob = make_two_player_chain_problem()
 
         precomputed = preoptimize_nonlinear_solver(
@@ -745,7 +720,7 @@ end
         # Capture stdout to verify progress output
         output = mktemp() do path, io
             redirect_stdout(io) do
-                run_nonlinear_solver(
+                result = run_nonlinear_solver(
                     precomputed,
                     initial_states,
                     prob.G;
@@ -754,14 +729,17 @@ end
                     verbose=false,
                     show_progress=true
                 )
+                @test result.sol isa AbstractVector
             end
             flush(io)
             read(path, String)
         end
 
-        # Progress output should contain iteration info
+        # Progress output should contain expected fields
         @test contains(output, "iter")
         @test contains(output, "residual")
+        @test contains(output, "α")
+        @test contains(output, "time")
     end
 
     @testset "show_progress does not affect solver results" begin
@@ -809,69 +787,7 @@ end
         @test result_quiet.status == result_progress.status
     end
 
-    @testset "show_progress is disabled by default" begin
-        prob = make_two_player_chain_problem()
-
-        precomputed = preoptimize_nonlinear_solver(
-            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
-            state_dim=prob.state_dim,
-            control_dim=prob.control_dim
-        )
-
-        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
-
-        # Default call should produce no stdout progress output
-        output = mktemp() do path, io
-            redirect_stdout(io) do
-                run_nonlinear_solver(
-                    precomputed,
-                    initial_states,
-                    prob.G;
-                    max_iters=100,
-                    tol=1e-6,
-                    verbose=false
-                )
-            end
-            flush(io)
-            read(path, String)
-        end
-
-        @test !contains(output, "iter")
-    end
-
-    @testset "show_progress output contains expected fields" begin
-        prob = make_two_player_chain_problem()
-
-        precomputed = preoptimize_nonlinear_solver(
-            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
-            state_dim=prob.state_dim,
-            control_dim=prob.control_dim
-        )
-
-        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
-
-        output = mktemp() do path, io
-            redirect_stdout(io) do
-                run_nonlinear_solver(
-                    precomputed,
-                    initial_states,
-                    prob.G;
-                    max_iters=100,
-                    tol=1e-6,
-                    verbose=false,
-                    show_progress=true
-                )
-            end
-            flush(io)
-            read(path, String)
-        end
-
-        # Should contain step size (α) and elapsed time
-        @test contains(output, "α")
-        @test contains(output, "time")
-    end
-
-    @testset "show_progress works through solve_raw" begin
+    @testset "show_progress can be overridden at solve time" begin
         using MixedHierarchyGames: NonlinearSolver, solve_raw
 
         prob = make_two_player_chain_problem()

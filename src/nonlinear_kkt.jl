@@ -487,7 +487,7 @@ end
         max_iters::Int = 100,
         tol::Float64 = 1e-6,
         verbose::Bool = false,
-        show_progress::Bool = false,
+        show_progress::Bool = true,
         use_armijo::Bool = true
     )
 
@@ -505,7 +505,7 @@ Uses Armijo backtracking line search for step size selection.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual
 - `verbose::Bool=false` - Print iteration info
-- `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `show_progress::Bool=true` - Display iteration progress table (iter, residual, step size, time)
 - `use_armijo::Bool=true` - Use Armijo line search
 
 # Returns
@@ -524,7 +524,7 @@ function run_nonlinear_solver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    show_progress::Bool = false,
+    show_progress::Bool = true,
     use_armijo::Bool = true,
     to::TimerOutput = TimerOutput()
 )
