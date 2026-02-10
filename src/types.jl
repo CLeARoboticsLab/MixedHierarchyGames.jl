@@ -338,6 +338,11 @@ Construct a NonlinearSolver from low-level problem components.
 - `verbose::Bool=false` - Print iteration info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_K_in_linesearch::Bool=false` - Recompute K matrices at each line search trial step
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -352,6 +357,7 @@ function NonlinearSolver(
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
     recompute_K_in_linesearch::Bool = false,
+    cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
@@ -375,6 +381,7 @@ function NonlinearSolver(
             state_dim = state_dim,
             control_dim = control_dim,
             verbose = verbose,
+            cse = cse,
             to = to
         )
 

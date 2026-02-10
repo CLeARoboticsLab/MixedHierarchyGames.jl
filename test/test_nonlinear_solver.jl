@@ -1903,3 +1903,136 @@ end
         @test result.sol ≈ result_override.sol atol=1e-6
     end
 end
+
+#=
+    Tests for Common Subexpression Elimination (CSE) support
+=#
+
+@testset "CSE (Common Subexpression Elimination)" begin
+    @testset "setup_approximate_kkt_solver accepts cse keyword" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        # Should accept cse=true without error
+        augmented_vars, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend;
+            cse=true
+        )
+
+        @test haskey(setup_info.M_fns, 2)
+        @test haskey(setup_info.N_fns, 2)
+    end
+
+    @testset "CSE-compiled M/N functions produce identical results (2-player)" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        # Build without CSE
+        augmented_vars_no_cse, info_no_cse = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend;
+            cse=false
+        )
+
+        # Build with CSE
+        augmented_vars_cse, info_cse = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend;
+            cse=true
+        )
+
+        # Evaluate at multiple random points and compare
+        n_vars = length(augmented_vars_no_cse)
+        for _ in 1:5
+            test_input = randn(n_vars)
+            M_no_cse = info_no_cse.M_fns[2](test_input)
+            M_cse = info_cse.M_fns[2](test_input)
+            N_no_cse = info_no_cse.N_fns[2](test_input)
+            N_cse = info_cse.N_fns[2](test_input)
+
+            @test M_no_cse ≈ M_cse atol=1e-10
+            @test N_no_cse ≈ N_cse atol=1e-10
+        end
+    end
+
+    @testset "CSE-compiled M/N functions produce identical results (3-player)" begin
+        prob = make_three_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        # Build without CSE
+        augmented_vars_no_cse, info_no_cse = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend;
+            cse=false
+        )
+
+        # Build with CSE
+        augmented_vars_cse, info_cse = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend;
+            cse=true
+        )
+
+        # Evaluate at multiple random points for players 2 and 3
+        n_vars = length(augmented_vars_no_cse)
+        for player in [2, 3]
+            for _ in 1:5
+                test_input = randn(n_vars)
+                M_no_cse = info_no_cse.M_fns[player](test_input)
+                M_cse = info_cse.M_fns[player](test_input)
+                N_no_cse = info_no_cse.N_fns[player](test_input)
+                N_cse = info_cse.N_fns[player](test_input)
+
+                @test M_no_cse ≈ M_cse atol=1e-10
+                @test N_no_cse ≈ N_cse atol=1e-10
+            end
+        end
+    end
+
+    @testset "NonlinearSolver accepts cse keyword" begin
+        prob = make_two_player_chain_problem()
+
+        # Should construct without error with cse=true
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            cse=true
+        )
+
+        @test solver isa NonlinearSolver
+    end
+
+    @testset "Solver produces identical results with and without CSE" begin
+        prob = make_two_player_chain_problem()
+        parameter_values = Dict(1 => [0.1, 0.2], 2 => [0.3, 0.4])
+
+        solver_no_cse = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            cse=false
+        )
+
+        solver_cse = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            cse=true
+        )
+
+        result_no_cse = solve_raw(solver_no_cse, parameter_values)
+        result_cse = solve_raw(solver_cse, parameter_values)
+
+        # Both should converge
+        @test result_no_cse.converged
+        @test result_cse.converged
+
+        # Solutions should be numerically identical
+        @test result_no_cse.sol ≈ result_cse.sol atol=1e-8
+    end
+end

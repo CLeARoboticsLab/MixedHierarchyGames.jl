@@ -200,6 +200,14 @@ compiled functions for evaluating M and N numerically, avoiding expression blowu
 - `all_variables::Vector` - All symbolic variables
 - `backend` - SymbolicTracingUtils backend
 
+# Keyword Arguments
+- `verbose::Bool=false` - Print debug info
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
+
 # Returns
 Tuple of:
 - `all_augmented_variables::Vector` - Variables including K matrix symbols
@@ -223,7 +231,8 @@ function setup_approximate_kkt_solver(
     θs::Dict,
     all_variables::Vector,
     backend;
-    verbose::Bool = false
+    verbose::Bool = false,
+    cse::Bool = false
 )
     N = nv(G)
     reverse_order = reverse(topological_sort_by_dfs(G))
@@ -326,8 +335,8 @@ function setup_approximate_kkt_solver(
             Nᵢ = Symbolics.jacobian(πs_flat, ys[ii])
 
             # Compile to functions
-            M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=false)
-            N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=false)
+            M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=false, backend_options=(; cse))
+            N_fns[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=false, backend_options=(; cse))
         else
             augmented_variables[ii] = all_variables
         end
@@ -372,6 +381,11 @@ and compile them to efficient numerical functions.
 - `control_dim::Int=2` - Control dimension (for trajectory extraction)
 - `backend` - SymbolicTracingUtils backend
 - `verbose::Bool=false` - Print debug info
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
 
 # Returns
 Named tuple containing:
@@ -396,6 +410,7 @@ function preoptimize_nonlinear_solver(
     control_dim::Int = 2,
     backend = default_backend(),
     verbose::Bool = false,
+    cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     N = nv(hierarchy_graph)
@@ -416,7 +431,7 @@ function preoptimize_nonlinear_solver(
         all_augmented_variables, setup_info = setup_approximate_kkt_solver(
             hierarchy_graph, Js, zs, λs, μs, gs, ws, ys, θs,
             all_variables, backend;
-            verbose
+            verbose, cse
         )
 
         πs = setup_info.πs
