@@ -27,6 +27,23 @@ qp_game_linsolve
 run_nonlinear_solver
 extract_trajectories
 solution_to_joint_strategy
+split_solution_vector
+```
+
+## Solver Helpers
+
+```@docs
+check_convergence
+compute_newton_step
+perform_linesearch
+```
+
+## Linesearch Methods
+
+```@docs
+armijo_backtracking
+geometric_reduction
+constant_step
 ```
 
 ## KKT Construction
