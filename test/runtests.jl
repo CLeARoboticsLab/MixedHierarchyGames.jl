@@ -58,4 +58,7 @@ include("testing_utils.jl")
 
     # Sparse M\N Solve Investigation
     include("test_sparse_solve.jl")
+
+    # Allocation Optimization (buffer reuse correctness)
+    include("test_allocation_optimization.jl")
 end

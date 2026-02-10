@@ -746,18 +746,26 @@ function run_nonlinear_solver(
     n = length(all_variables)
     F_eval = zeros(n)
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
+    z_trial = Vector{Float64}(undef, n)
 
-    # Helper: compute parameters (θ, K) for a given z
-    function params_for_z(z)
+    # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
+    # Size is determined from the MCP's parameter_dimension (set during preoptimize)
+    θ_len = length(θ_vals_vec)
+    param_vec = Vector{Float64}(undef, mcp_obj.parameter_dimension)
+    copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
+
+    # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
+    function params_for_z!(z)
         all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
-        return vcat(θ_vals_vec, all_K_vec), all_K_vec
+        copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
+        return param_vec, all_K_vec
     end
 
     # Main iteration loop
     while true
         # Evaluate K matrices at current z
         @timeit to "compute K evals" begin
-            param_vec, all_K_vec = params_for_z(z_est)
+            param_vec, all_K_vec = params_for_z!(z_est)
         end
 
         # Evaluate residual and check convergence
@@ -806,7 +814,7 @@ function run_nonlinear_solver(
             # Residual function closure that optionally recomputes K at each trial point
             function residual_at_trial(z)
                 param_trial = if recompute_K_in_linesearch
-                    first(params_for_z(z))
+                    first(params_for_z!(z))
                 else
                     param_vec
                 end

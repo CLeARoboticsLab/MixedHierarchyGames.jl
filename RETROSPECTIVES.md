@@ -413,3 +413,110 @@ Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` fl
 
 - [ ] bead sp1: Replace global `use_sparse::Bool` with adaptive `:auto`/`:always`/`:never` that selects per-player based on leader vs leaf
 - [ ] Benchmark Nash vs Stackelberg chain structures to validate adaptive strategy
+
+---
+
+## PR #90: perf/optimize-pmcp (beads s6u-a, s6u-b)
+
+**Date:** 2026-02-09
+**Commits:** 6
+**Tests:** 485 passing (35 new)
+
+### Summary
+
+Two-part bead: profiled ParametricMCPs usage (s6u-a), then implemented buffer pre-allocation optimizations (s6u-b). Found ParametricMCP is already well-cached; pre-allocated z_trial, param_vec, J, F, z0 buffers. Impact modest (1-2% allocation reduction) because dominant allocations are in compute_K_evals, not buffer creation.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Tests written first (commit `f60b9d4` "TDD RED") before implementation
+  - 35 new tests verifying bit-identical results with buffer reuse
+  - Clean red-green progression across commits
+
+- **What could improve:**
+  - s6u-a stalled before completing writeup (watchdog killed it)
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Backward compatible: QPSolver buffers are optional kwargs, standalone calls allocate as before
+  - Used `mcp_obj.parameter_dimension` instead of extra `compute_K_evals` call (good cleanup)
+  - Honest assessment: PR clearly states impact is modest and points to where real gains are
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- 6 commits with logical separation: profiling → tests → NL buffers → QP buffers → cleanup → benchmarks
+- Each commit is self-contained and leaves tests passing
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed
+- [x] PR description thorough with benchmark data
+- [ ] Retrospective not written by bead (written retroactively)
+
+### Key Learnings
+
+1. Profiling before optimizing is essential — avoided wasting time on ParametricMCP caching (already done)
+2. Buffer pre-allocation has diminishing returns when the dominant allocation source is elsewhere (compute_K_evals)
+3. Two-part bead (profile then implement) worked well as a pattern
+
+### Action Items for Next PR
+
+- [ ] In-place compute_K_evals (bead mnip/PR #89) addresses the dominant allocation source
+
+---
+
+## PR #91: feature/progress-bar (bead udn)
+
+**Date:** 2026-02-09
+**Commits:** 1
+**Tests:** 462 passing (6 new)
+
+### Summary
+
+Added `show_progress::Bool=false` option to NonlinearSolver that prints a formatted iteration table (iter, residual, alpha, time) and convergence summary. Threaded through full solver stack. Disabled by default.
+
+### TDD Compliance
+
+**Score: Fair (6/10)**
+
+- **What went well:**
+  - 6 tests cover parameter acceptance, output verification, result identity, default behavior
+
+- **What could improve:**
+  - Single commit bundles tests + implementation — should be at least 2 (tests first, then impl)
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Follows existing option pattern (`something()` override, stored in options NamedTuple)
+  - Disabled by default — no behavioral change for existing code
+  - Output format is clean and informative
+
+### Commit Hygiene
+
+**Score: Poor (4/10)**
+
+- Single commit for the entire feature. Should have been: (1) failing tests, (2) implementation, (3) optional formatting polish
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests exist)
+- [ ] Commit granularity rule not followed (1 commit)
+- [ ] Retrospective not written by bead (written retroactively)
+
+### Key Learnings
+
+1. Simple features still benefit from multi-commit discipline — even a 1-file change should separate tests from implementation
+
+### Action Items for Next PR
+
+- [ ] Enforce multi-commit minimum even for simple features
