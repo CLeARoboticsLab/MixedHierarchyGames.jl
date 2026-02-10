@@ -231,7 +231,7 @@ function setup_approximate_kkt_solver(
     # Output containers
     π_sizes = Dict{Int, Int}()
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
-    πs = Dict{Int, Vector{Symbolics.Num}}()
+    πs = Dict{Int, Any}()
     M_fns = Dict{Int, Function}()
     N_fns = Dict{Int, Function}()
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
@@ -254,7 +254,7 @@ function setup_approximate_kkt_solver(
     # Second pass: build KKT conditions and M/N functions
     for ii in reverse_order
         # Compute π_sizes (total KKT conditions for player ii)
-        # Structure: [grad_self | grad_followers | policy_constraints | own_constraints]
+        # Structure: [grad_self | grad_f1 | policy_f1 | ... | own_constraints]
         π_sizes[ii] = length(gs[ii](zs[ii]))  # Own constraints
         for jj in BFSIterator(G, ii)
             π_sizes[ii] += length(zs[jj])  # Gradient w.r.t. each player in subtree
@@ -289,7 +289,11 @@ function setup_approximate_kkt_solver(
             end
         end
 
-        # Build KKT conditions (accumulator holds vectors, vcat flattens to Num[])
+        # Build KKT conditions as block vectors for leaders.
+        # Using mortar to preserve interleaved block structure:
+        # [grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | ... | own_constraints]
+        # This matches the pattern in get_qp_kkt_conditions (qp_kkt.jl) and enables
+        # strip_policy_constraints to use the BlockVector path directly.
         πᵢ = Vector{Symbolics.Num}[]
         for jj in BFSIterator(G, ii)
             # Stationarity gradient
@@ -304,16 +308,22 @@ function setup_approximate_kkt_solver(
             end
         end
         push!(πᵢ, gs[ii](zs[ii]))  # Own constraints
-        πs[ii] = vcat(πᵢ...)
+
+        if is_leaf(G, ii)
+            πs[ii] = vcat(πᵢ...)
+        else
+            πs[ii] = mortar(πᵢ)
+        end
 
         # Compute M and N functions for followers (players with leaders)
         if has_leader(G, ii)
             # Build augmented variable list (includes follower K matrices)
             augmented_variables[ii] = _construct_augmented_variables(ii, all_variables, K_syms, G)
 
-            # Compute Jacobians
-            Mᵢ = Symbolics.jacobian(πs[ii], ws[ii])
-            Nᵢ = Symbolics.jacobian(πs[ii], ys[ii])
+            # collect() ensures plain Vector for Symbolics.jacobian (BlockVector unsupported)
+            πs_flat = collect(πs[ii])
+            Mᵢ = Symbolics.jacobian(πs_flat, ws[ii])
+            Nᵢ = Symbolics.jacobian(πs_flat, ys[ii])
 
             # Compile to functions
             M_fns[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=false)

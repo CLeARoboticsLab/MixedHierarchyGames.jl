@@ -89,6 +89,40 @@ codebase to iterate over player-indexed dictionaries in a deterministic order.
 ordered_player_indices(d::Dict) = sort(collect(keys(d)))
 
 #=
+    BlockArrays utilities
+=#
+
+"""
+    split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+
+Split a flat vector into blocks using BlockArrays.
+
+Returns an iterable of blocks where each block is a view into the original vector.
+Uses `PseudoBlockVector` for a zero-copy view.
+
+# Arguments
+- `sol` - Flat vector to split
+- `block_sizes` - Size of each block
+
+# Example
+```julia
+sol = [1.0, 2.0, 3.0, 4.0, 5.0]
+player_blocks = split_solution_vector(sol, [2, 3])
+# blocks: [[1.0, 2.0], [3.0, 4.0, 5.0]]
+```
+"""
+function split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+    expected = sum(block_sizes)
+    actual = length(sol)
+    if expected != actual
+        throw(DimensionMismatch(
+            "block_sizes sum ($expected) must equal vector length ($actual)"
+        ))
+    end
+    return blocks(PseudoBlockVector(sol, block_sizes))
+end
+
+#=
     Solution validation utilities
 =#
 

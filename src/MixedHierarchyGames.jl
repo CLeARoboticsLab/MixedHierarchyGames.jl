@@ -26,7 +26,7 @@ using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, ind
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
-using BlockArrays: BlockArrays, mortar, blocks
+using BlockArrays: BlockArrays, mortar, blocks, PseudoBlockVector
 using LinearAlgebra: norm, I, SingularException, LAPACKException
 using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
@@ -36,7 +36,7 @@ using TimerOutputs: TimerOutput, @timeit
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
-export evaluate_kkt_residuals, verify_kkt_solution
+export evaluate_kkt_residuals, verify_kkt_solution, split_solution_vector
 
 # Problem setup (symbolic variable creation)
 include("problem_setup.jl")

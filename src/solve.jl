@@ -7,19 +7,16 @@
 
 Extract per-player trajectories from solution vector and build JointStrategy.
 Shared helper used by both QPSolver and NonlinearSolver.
+
+The solution vector may contain dual variables (λ, μ) after the primal variables.
+Only the first `sum(primal_dims)` elements are used.
 """
 function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        zi = sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
+    primal_sol = @view sol[1:sum(primal_dims)]
+    substrategies = map(split_solution_vector(primal_sol, primal_dims)) do zi
         (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-        substrategies[i] = OpenLoopStrategy(xs, us)
+        OpenLoopStrategy(xs, us)
     end
-
     return JointStrategy(substrategies)
 end
 
@@ -657,24 +654,22 @@ function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::
     xs = Dict{Int, Vector{Vector{Float64}}}()
     us = Dict{Int, Vector{Vector{Float64}}}()
 
-    idx = 1
-    for i in 1:n_players
+    # Split solution into per-player blocks
+    player_block_sizes = [(T + 1) * dims.state_dims[i] + T * dims.control_dims[i] for i in 1:n_players]
+    player_blocks = split_solution_vector(sol, player_block_sizes)
+
+    for (i, player_sol) in enumerate(player_blocks)
         state_dim = dims.state_dims[i]
         control_dim = dims.control_dims[i]
 
-        # Extract states: T+1 states (t=0 to t=T)
-        xs[i] = Vector{Vector{Float64}}()
-        for t in 1:(T+1)
-            push!(xs[i], sol[idx:idx+state_dim-1])
-            idx += state_dim
-        end
+        # Split player block into state and control segments
+        state_block_size = (T + 1) * state_dim
+        control_block_size = T * control_dim
+        state_data, control_data = split_solution_vector(player_sol, [state_block_size, control_block_size])
 
-        # Extract controls: T controls (t=0 to t=T-1)
-        us[i] = Vector{Vector{Float64}}()
-        for t in 1:T
-            push!(us[i], sol[idx:idx+control_dim-1])
-            idx += control_dim
-        end
+        # Split into per-timestep vectors
+        xs[i] = collect(split_solution_vector(state_data, fill(state_dim, T + 1)))
+        us[i] = collect(split_solution_vector(control_data, fill(control_dim, T)))
     end
 
     return xs, us

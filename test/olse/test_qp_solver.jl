@@ -1,7 +1,7 @@
 using Test
 using LinearAlgebra: I, norm
 using Graphs: SimpleDiGraph, add_edge!
-using MixedHierarchyGames: QPSolver, solve_raw, make_symbolic_vector
+using MixedHierarchyGames: QPSolver, solve_raw, make_symbolic_vector, split_solution_vector
 
 # Import shared OLSE closed-form implementation
 include("olse_closed_form.jl")
@@ -79,8 +79,9 @@ end
         @test result.status == :solved
 
         m, T = prob.m, prob.T
-        u1_solver = result.sol[1:(m*T)]
-        u2_solver = result.sol[(m*T+1):(2*m*T)]
+        u1_solver, u2_solver = collect(split_solution_vector(
+            result.sol[1:(2*m*T)], fill(m * T, 2)
+        ))
 
         # Verify solutions match to machine precision
         @test norm(u1_solver - olse.u1) < 1e-10
@@ -100,8 +101,9 @@ end
 
             @test result.status == :solved
 
-            u1_solver = result.sol[1:(m*T)]
-            u2_solver = result.sol[(m*T+1):(2*m*T)]
+            u1_solver, u2_solver = collect(split_solution_vector(
+                result.sol[1:(2*m*T)], fill(m * T, 2)
+            ))
 
             @test norm(u1_solver - olse.u1) < 1e-10
             @test norm(u2_solver - olse.u2) < 1e-10

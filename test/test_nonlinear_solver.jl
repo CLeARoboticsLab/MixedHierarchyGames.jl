@@ -3,6 +3,7 @@ using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort
 using LinearAlgebra: norm, I
 using SparseArrays: spzeros, sparse
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
+using BlockArrays: BlockVector, blocks
 using MixedHierarchyGames:
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
@@ -397,6 +398,148 @@ end
         @test isnothing(K_evals[1])  # P1 is root
         @test !isnothing(K_evals[2])  # P2 is follower of P1
         @test !isnothing(K_evals[3])  # P3 is follower of P2
+    end
+end
+
+#=
+    Tests for BlockVector structure in nonlinear KKT πs
+=#
+
+@testset "Nonlinear KKT BlockVector Structure" begin
+    @testset "Leader πs is BlockVector with correct blocks (2-player)" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        πs = setup_info.πs
+
+        # P1 is leader (root) with 1 follower P2
+        # Block structure: [grad_self | grad_f1 | policy_f1 | own_constraints]
+        @test πs[1] isa BlockVector
+        blks = collect(blocks(πs[1]))
+        @test length(blks) == 4  # grad_self, grad_f1, policy_f1, constraints
+        @test length(blks[1]) == length(vars.zs[1])   # grad w.r.t. own vars
+        @test length(blks[2]) == length(vars.zs[2])   # grad w.r.t. follower vars
+        @test length(blks[3]) == length(vars.zs[2])   # policy constraint for follower
+        constraint_size = length(prob.gs[1](vars.zs[1]))
+        @test length(blks[4]) == constraint_size       # own constraints
+    end
+
+    @testset "Leaf πs is not BlockVector (2-player)" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        πs = setup_info.πs
+
+        # P2 is a leaf — should not be BlockVector
+        @test !(πs[2] isa BlockVector)
+    end
+
+    @testset "Leader πs has correct blocks (3-player chain)" begin
+        prob = make_three_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        πs = setup_info.πs
+
+        # P1 (root leader, followers: P2 and P3 via BFS)
+        # Block structure: [grad_self | grad_f1 | policy_f1 | grad_f2 | policy_f2 | own_constraints]
+        @test πs[1] isa BlockVector
+        blks1 = collect(blocks(πs[1]))
+        @test length(blks1) == 6
+        @test length(blks1[1]) == length(vars.zs[1])   # grad w.r.t. own vars
+        @test length(blks1[2]) == length(vars.zs[2])   # grad w.r.t. P2 vars
+        @test length(blks1[3]) == length(vars.zs[2])   # policy constraint for P2
+        @test length(blks1[4]) == length(vars.zs[3])   # grad w.r.t. P3 vars
+        @test length(blks1[5]) == length(vars.zs[3])   # policy constraint for P3
+        constraint_size_1 = length(prob.gs[1](vars.zs[1]))
+        @test length(blks1[6]) == constraint_size_1     # own constraints
+
+        # P2 (mid-chain: leader of P3, follower of P1)
+        # Block structure: [grad_self | grad_f1 | policy_f1 | own_constraints]
+        @test πs[2] isa BlockVector
+        blks2 = collect(blocks(πs[2]))
+        @test length(blks2) == 4
+        @test length(blks2[1]) == length(vars.zs[2])   # grad w.r.t. own vars
+        @test length(blks2[2]) == length(vars.zs[3])   # grad w.r.t. P3 vars
+        @test length(blks2[3]) == length(vars.zs[3])   # policy constraint for P3
+        constraint_size_2 = length(prob.gs[2](vars.zs[2]))
+        @test length(blks2[4]) == constraint_size_2     # own constraints
+
+        # P3 (leaf): not a BlockVector
+        @test !(πs[3] isa BlockVector)
+    end
+
+    @testset "BlockVector πs total length matches π_sizes" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        πs = setup_info.πs
+        π_sizes = setup_info.π_sizes
+
+        for ii in keys(πs)
+            @test length(πs[ii]) == π_sizes[ii]
+        end
+    end
+
+    @testset "strip_policy_constraints works with nonlinear BlockVector πs" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        πs = setup_info.πs
+
+        # Strip policy constraints — should dispatch on BlockVector path for leader
+        πs_stripped = strip_policy_constraints(πs, prob.G, vars.zs, prob.gs)
+
+        # P1 (leader with 1 follower): stripped = grad_self + grad_follower + constraints
+        expected_stripped_len = length(vars.zs[1]) + length(vars.zs[2]) + length(prob.gs[1](vars.zs[1]))
+        @test length(πs_stripped[1]) == expected_stripped_len
+
+        # P2 (leaf): unchanged
+        @test length(πs_stripped[2]) == length(πs[2])
+    end
+
+    @testset "M and N Jacobians work correctly with BlockVector πs" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, vars.all_variables, backend
+        )
+
+        # M_fns and N_fns should still be callable (Jacobian computed from collected πs)
+        @test haskey(setup_info.M_fns, 2)
+        @test haskey(setup_info.N_fns, 2)
     end
 end
 
