@@ -1,4 +1,5 @@
 using Test
+using Logging
 using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort
 using LinearAlgebra: norm, I
 using SparseArrays: spzeros, sparse
@@ -16,7 +17,9 @@ using MixedHierarchyGames:
     setup_problem_parameter_variables,
     make_symbolic_vector,
     default_backend,
-    get_all_followers
+    get_all_followers,
+    NonlinearSolver,
+    solve_raw
 
 using TrajectoryGamesBase: unflatten_trajectory
 
@@ -743,6 +746,296 @@ end
         # Should still return a result (may or may not converge)
         @test result.sol isa Vector{Float64}
         @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error]
+    end
+end
+
+#=
+    Tests for non-convergence scenarios
+    Verify that the solver handles failure gracefully across different failure modes.
+=#
+
+@testset "Nonlinear Solver Non-Convergence" begin
+    @testset "Tight tolerance with few iterations" begin
+        # Use standard problem but request machine-precision tolerance with only 1 iteration.
+        # The problem normally converges in a few iterations at 1e-6, so 1 iteration at 1e-16
+        # should not be enough.
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=1,
+            tol=1e-16,  # Extremely tight tolerance
+            verbose=false
+        )
+
+        # Solver should return gracefully with non-convergence
+        @test result.converged == false
+        @test result.status == :max_iters_reached
+        @test result.iterations == 1
+        @test result.residual > 1e-16
+        @test result.sol isa Vector{Float64}
+        @test length(result.sol) == length(precomputed.all_variables)
+    end
+
+    @testset "Conflicting objectives with limited iterations" begin
+        # Two players with directly opposing goals and limited iteration budget.
+        # P1 wants state at origin, P2 wants state far away — with coupled dynamics
+        # this creates tension. With max_iters=2, unlikely to converge.
+        T = 3
+        state_dim = 2
+        control_dim = 2
+        N = 2
+
+        G = SimpleDiGraph(N)
+        add_edge!(G, 1, 2)
+
+        primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+        primal_dims = fill(primal_dim_per_player, N)
+
+        backend = default_backend()
+        θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
+
+        # P1 wants state at [0,0], P2 wants state at [100,100]
+        # The large goal disparity creates tension in the hierarchy
+        function J1_conflict(z1, z2; θ=nothing)
+            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+            goal = [0.0, 0.0]
+            sum((xs[end] .- goal) .^ 2) + 0.01 * sum(sum(u .^ 2) for u in us)
+        end
+
+        function J2_conflict(z1, z2; θ=nothing)
+            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
+            goal = [100.0, 100.0]
+            sum((xs[end] .- goal) .^ 2) + 0.01 * sum(sum(u .^ 2) for u in us)
+        end
+
+        Js = Dict(1 => J1_conflict, 2 => J2_conflict)
+
+        function make_dynamics(player_idx)
+            function dynamics(z)
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                constraints = []
+                for t in 1:T
+                    push!(constraints, xs[t+1] - xs[t] - us[t])
+                end
+                push!(constraints, xs[1] - θs[player_idx])
+                return vcat(constraints...)
+            end
+            return dynamics
+        end
+
+        gs = [make_dynamics(i) for i in 1:N]
+
+        precomputed = preoptimize_nonlinear_solver(
+            G, Js, gs, primal_dims, θs;
+            state_dim=state_dim, control_dim=control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            G;
+            max_iters=1,
+            tol=1e-16,  # Machine-precision tolerance — unreachable in 1 iteration
+            verbose=false
+        )
+
+        # With only 1 iteration and machine-precision tolerance, solver should not converge
+        @test result.converged == false
+        @test result.status == :max_iters_reached
+        @test result.iterations == 1
+        @test result.residual > 1e-16
+        # Must still return a valid solution vector
+        @test result.sol isa Vector{Float64}
+    end
+
+    @testset "Badly scaled problem" begin
+        # Costs with wildly different magnitudes create ill-conditioned Jacobians.
+        # P1 cost is scaled by 1e8, P2 cost is scaled by 1e-8.
+        T = 3
+        state_dim = 2
+        control_dim = 2
+        N = 2
+
+        G = SimpleDiGraph(N)
+        add_edge!(G, 1, 2)
+
+        primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+        primal_dims = fill(primal_dim_per_player, N)
+
+        backend = default_backend()
+        θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
+
+        # Extremely different cost scales
+        function J1_scaled(z1, z2; θ=nothing)
+            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+            goal = [1.0, 1.0]
+            1e8 * (sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us))
+        end
+
+        function J2_scaled(z1, z2; θ=nothing)
+            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
+            goal = [2.0, 2.0]
+            1e-8 * (sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us))
+        end
+
+        Js = Dict(1 => J1_scaled, 2 => J2_scaled)
+
+        function make_dynamics(player_idx)
+            function dynamics(z)
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                constraints = []
+                for t in 1:T
+                    push!(constraints, xs[t+1] - xs[t] - us[t])
+                end
+                push!(constraints, xs[1] - θs[player_idx])
+                return vcat(constraints...)
+            end
+            return dynamics
+        end
+
+        gs = [make_dynamics(i) for i in 1:N]
+
+        precomputed = preoptimize_nonlinear_solver(
+            G, Js, gs, primal_dims, θs;
+            state_dim=state_dim, control_dim=control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            G;
+            max_iters=3,
+            tol=1e-12,
+            verbose=false
+        )
+
+        # Badly scaled problem with few iterations should not converge easily
+        # Key assertion: solver returns gracefully regardless of convergence outcome
+        @test result.sol isa Vector{Float64}
+        @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error]
+        @test result.iterations <= 3
+        @test isfinite(result.residual) || result.status == :numerical_error
+    end
+
+    @testset "solve_raw() indicates non-convergence" begin
+        # Test the high-level NonlinearSolver + solve_raw() API path
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=1,
+            tol=1e-16
+        )
+
+        parameter_values = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = solve_raw(solver, parameter_values)
+
+        # solve_raw should propagate non-convergence info
+        @test result.converged == false
+        @test result.status == :max_iters_reached
+        @test result.iterations == 1
+        @test result.residual > 1e-16
+        @test result.sol isa Vector{Float64}
+    end
+
+    @testset "solve_raw() overrides solver options for non-convergence" begin
+        # Solver has generous defaults, but solve_raw overrides trigger non-convergence
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=100,
+            tol=1e-6
+        )
+
+        parameter_values = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Override at call site to force non-convergence
+        result = solve_raw(solver, parameter_values; max_iters=1, tol=1e-16)
+
+        @test result.converged == false
+        @test result.status == :max_iters_reached
+    end
+
+    @testset "Verbose mode emits iteration info on non-convergence" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Capture log messages during non-convergent solve with verbose=true
+        test_logger = TestLogger(; min_level=Logging.Info)
+        result = with_logger(test_logger) do
+            run_nonlinear_solver(
+                precomputed,
+                initial_states,
+                prob.G;
+                max_iters=2,
+                tol=1e-16,
+                verbose=true
+            )
+        end
+
+        # Solver should have emitted @info messages for each iteration
+        info_logs = filter(l -> l.level == Logging.Info, test_logger.logs)
+        @test length(info_logs) >= 1
+        # Check that iteration info contains "residual"
+        @test any(occursin("residual", string(l.message)) for l in info_logs)
+        # Result should indicate non-convergence
+        @test result.converged == false
+    end
+
+    @testset "Result struct fields are complete on non-convergence" begin
+        # Verify all expected fields are present and have correct types on failure
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=1,
+            tol=1e-16,
+            verbose=false
+        )
+
+        # All fields must be present
+        @test haskey(result, :sol)
+        @test haskey(result, :converged)
+        @test haskey(result, :iterations)
+        @test haskey(result, :residual)
+        @test haskey(result, :status)
+
+        # Type checks
+        @test result.sol isa Vector{Float64}
+        @test result.converged isa Bool
+        @test result.iterations isa Int
+        @test result.residual isa Float64
+        @test result.status isa Symbol
+
+        # Non-convergence specific
+        @test result.converged == false
+        @test result.residual >= 0.0
+        @test result.iterations >= 0
     end
 end
 
