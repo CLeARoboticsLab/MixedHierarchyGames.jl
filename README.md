@@ -4,6 +4,20 @@ A Julia package for solving mixed hierarchy games. This implementation uses the 
 
 Based on: H. Khan, D. H. Lee, J. Li, T. Qiu, C. Ellis, J. Milzman, W. Suttle, and D. Fridovich-Keil, "[Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations](https://arxiv.org/abs/2602.01568)," 2026.
 
+## Citation
+
+If you use this software in your research, please cite:
+
+```bibtex
+@article{khan2026mixedhierarchygames,
+  title={Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations},
+  author={Khan, Hamzah and Lee, Dong Ho and Li, Jingqi and Qiu, Tianyu and Ellis, Christian and Milzman, Jesse and Suttle, Wesley and Fridovich-Keil, David},
+  journal={arXiv preprint arXiv:2602.01568},
+  year={2026},
+  url={https://arxiv.org/abs/2602.01568}
+}
+```
+
 ## Features
 
 - **Flexible hierarchy structures**: Supports arbitrary DAG-based leader-follower relationships (pure Stackelberg, Nash, or mixed)
@@ -227,20 +241,6 @@ After changing `Project.toml` or `Manifest.toml`:
 
 ```bash
 docker compose build --no-cache dev
-```
-
-## Citation
-
-If you use this software in your research, please cite:
-
-```bibtex
-@article{khan2026mixedhierarchygames,
-  title={Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations},
-  author={Khan, Hamzah and Lee, Dong Ho and Li, Jingqi and Qiu, Tianyu and Ellis, Christian and Milzman, Jesse and Suttle, Wesley and Fridovich-Keil, David},
-  journal={arXiv preprint arXiv:2602.01568},
-  year={2026},
-  url={https://arxiv.org/abs/2602.01568}
-}
 ```
 
 ## License
