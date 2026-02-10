@@ -593,3 +593,62 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: cleanup/repo-public-release
+
+**Date:** 2026-02-10
+**Commits:** 3
+**Bead:** i21
+
+### Summary
+
+Clean up repo for public release: dependency hygiene (remove dead/stale deps, add missing compat entries), remove Docker artifacts, remove stray files, update .gitignore. Added project health test suite to guard against regression.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Wrote `test_project_health.jl` with 53 assertions BEFORE any implementation changes
+  - All 15 failures in RED phase mapped exactly to planned fixes
+  - GREEN phase confirmed all 53 tests pass after implementation
+  - Proper Red-Green-Refactor cycle followed throughout
+
+- **What could be improved:**
+  - Missed updating `test_test_tiers.jl` in the initial implementation commit, caught on first full test run. Could have been caught earlier by reading the test tier self-test first.
+
+### Clean Code
+
+**Score: 9/10**
+
+- [x] Changes focused and minimal — no scope creep
+- [x] No new functions or abstractions beyond test assertions
+- [x] Commit messages clearly describe why, not just what
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- [x] Commit 1: Failing tests (RED phase)
+- [x] Commit 2: All implementation changes (GREEN phase)
+- [x] Commit 3: Test tier config fix
+- [x] Each commit leaves codebase in a consistent state
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances N/A (no numerical tests)
+- [x] PR description format followed
+- [x] Retrospective written before final PR update
+
+### Key Learnings
+
+1. Project health tests are a lightweight way to encode dependency hygiene rules as automated checks, preventing regression.
+2. When adding a new test file, always check for test-tier self-tests that enumerate known test files.
+3. Julia's `Pkg.resolve()` cleanly handles removed deps from Manifest.toml.
+
+### Action Items for Next PR
+
+- [ ] When adding test files, grep for hardcoded test file lists (test_tiers, test_test_tiers) to update them simultaneously
