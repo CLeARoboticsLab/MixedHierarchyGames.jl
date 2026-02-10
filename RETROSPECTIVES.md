@@ -340,3 +340,130 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 - [ ] Item 1
 - [ ] Item 2
 ```
+
+---
+
+## PR #87: perf/adaptive-sparse-solve (bead sp1)
+
+**Date:** 2026-02-09
+**Commits:** 4
+**Tests:** 481+ passing
+
+### Summary
+
+Replaced global `use_sparse::Bool` flag with adaptive `use_sparse::Symbol` (`:auto`/`:always`/`:never`). In `:auto` mode, sparse M\N solve is used for leaders (large M from follower KKT conditions) and dense for leaves (small M where sparse overhead hurts). Includes benchmark script comparing across game structures.
+
+### TDD Compliance
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Clean 4-commit sequence: failing tests → implementation → benchmarks → retrospective
+  - Followed the new CLAUDE.md rule about investigation PRs having 3+ commits
+  - Tests verify all three modes produce identical numerical results
+
+- **What could improve:**
+  - Benchmark results could have been committed separately from the benchmark script
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- **What went well:**
+  - Followed the new CLAUDE.md "adaptive defaults over global flags" rule directly
+  - `:auto`/`:always`/`:never` Symbol pattern is more expressive than Bool
+  - Per-player decision logic is clean: `!is_leaf(graph, ii)` in compute_K_evals
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- 4 well-separated commits, each logical and self-contained
+- Retrospective written as part of the PR (improvement over PR #86)
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed
+- [x] Investigation PR has 3+ commits
+- [x] Adaptive default used instead of global flag
+- [x] Retrospective written before stalling
+
+### Key Learnings
+
+1. The adaptive approach correctly identifies that only leaders benefit from sparse solve
+2. CLAUDE.md rules added from PR #86 retro were followed in this PR — process improvement loop working
+
+### Action Items for Next PR
+
+- [ ] Consider making `:auto` the default when landing PR #86 + #87 together
+
+---
+
+## PR #89: perf/inplace-mn-eval (bead mnip)
+
+**Date:** 2026-02-09
+**Commits:** 1
+**Tests:** 475 passing (25 new)
+
+### Summary
+
+Benchmarked all 7 combinations of 3 in-place pre-allocation strategies for the solver hot loop. Found Strategy A (in-place M/N evaluation via `build_function` in-place mode) provides 5-10x speedup while Strategies B (`ldiv!`) and C (`lu!`) have negligible impact. Comprehensive results across LQ, PPV, and Lane Change problems.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - 25 new tests verifying all 7 strategy combinations produce identical results (atol=1e-12)
+  - Tests written alongside implementation in proper TDD style
+
+- **What could improve:**
+  - Only 1 commit — should have been at least 3 per CLAUDE.md rule (tests → implementation → benchmarks)
+  - Stalled before completing the commit sequence
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Clean keyword arguments for each strategy (`inplace_MN`, `inplace_ldiv`, `inplace_lu`)
+  - Graceful fallback for non-square M matrices (B/C strategies skip to QR)
+  - PR description is exemplary: full results matrix, speedup table, TimerOutputs breakdown, clear recommendation
+
+- **What could improve:**
+  - Recommendation is to land only Strategy A as always-on and remove the flags — a follow-up PR should simplify
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- In-place functions (`M_fns!`, `N_fns!`) built alongside out-of-place versions in `setup_approximate_kkt_solver`
+- Strategy flags are keyword arguments, not stored in solver options (appropriate for benchmarking PR)
+
+### Commit Hygiene
+
+**Score: Poor (4/10)**
+
+- Single commit bundles tests + implementation + benchmarks
+- Violated the new CLAUDE.md 3-commit rule for investigation PRs
+- Mitigating factor: process stalled before additional commits could be made
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests verify all combinations)
+- [ ] Investigation PR 3-commit rule NOT followed (1 commit)
+- [x] Tolerances tight (1e-12)
+- [x] PR description thorough
+- [ ] Retrospective not written by bead (written retroactively here)
+
+### Key Learnings
+
+1. In-place M/N evaluation is the dominant optimization: 5-10x speedup, 70% allocation reduction on lane change
+2. `M \ N` allocation (Strategies B/C) is NOT a bottleneck — SymbolicTracingUtils function evaluation dwarfs it
+3. Lane change goes from 34s to 6.9s per solve with Strategy A alone
+
+### Action Items for Next PR
+
+- [ ] Follow-up PR to make Strategy A always-on (remove flag, delete out-of-place code paths)
+- [ ] Remove Strategies B/C code (confirmed no benefit)
+- [ ] Enforce 3-commit minimum for investigation PRs in future beads
