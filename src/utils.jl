@@ -75,6 +75,54 @@ function get_all_followers(G::SimpleDiGraph, node::Int)
 end
 
 #=
+    Player ordering utilities
+=#
+
+"""
+    ordered_player_indices(d::Dict)
+
+Return the keys of `d` as a sorted vector, providing a canonical player ordering.
+
+This is a convenience wrapper around `sort(collect(keys(d)))` used throughout the
+codebase to iterate over player-indexed dictionaries in a deterministic order.
+"""
+ordered_player_indices(d::Dict) = sort(collect(keys(d)))
+
+#=
+    BlockArrays utilities
+=#
+
+"""
+    split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+
+Split a flat vector into blocks using BlockArrays.
+
+Returns an iterable of blocks where each block is a view into the original vector.
+Uses `PseudoBlockVector` for a zero-copy view.
+
+# Arguments
+- `sol` - Flat vector to split
+- `block_sizes` - Size of each block
+
+# Example
+```julia
+sol = [1.0, 2.0, 3.0, 4.0, 5.0]
+player_blocks = split_solution_vector(sol, [2, 3])
+# blocks: [[1.0, 2.0], [3.0, 4.0, 5.0]]
+```
+"""
+function split_solution_vector(sol::AbstractVector, block_sizes::Vector{Int})
+    expected = sum(block_sizes)
+    actual = length(sol)
+    if expected != actual
+        throw(DimensionMismatch(
+            "block_sizes sum ($expected) must equal vector length ($actual)"
+        ))
+    end
+    return blocks(PseudoBlockVector(sol, block_sizes))
+end
+
+#=
     Solution validation utilities
 =#
 
@@ -120,7 +168,7 @@ function evaluate_kkt_residuals(
     should_enforce::Bool = false
 )
     # Order players consistently by index
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
 
     # Concatenate all KKT conditions into a single vector
     all_πs = if isempty(order)
@@ -130,7 +178,7 @@ function evaluate_kkt_residuals(
     end
 
     # Build combined variable vector: [decision vars; parameters]
-    θ_order = sort(collect(keys(θs)))
+    θ_order = ordered_player_indices(θs)
     θ_vec = if isempty(θ_order)
         eltype(all_variables)[]
     else

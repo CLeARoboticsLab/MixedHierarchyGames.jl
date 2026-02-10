@@ -10,6 +10,7 @@
 - Use merge instead of rebase
 - Each task must have its own PR unless explicitly allowed by the user (ask if you think combining tasks is needed)
 - Each significant chunk of work in a PR should be divided into commits
+- **Investigation/benchmarking PRs** should have at minimum 3 commits: (1) failing tests, (2) implementation, (3) benchmarks/results. Do not bundle tests + implementation into one commit.
 - Branches associated with merged PRs can be deleted locally (not on the remote repo) after merging
 
 ### Pull Request Requirements
@@ -85,6 +86,7 @@ If you find yourself writing implementation code without a failing test:
 - **Dead code**: When encountering dead code (unused functions, unreachable branches, stub functions that throw errors), mark it for removal. Delete it if clearly unused, or flag for review if uncertain.
 - **Duplicated code**: When encountering duplicated logic, mark it for consolidation. Extract shared functionality into helper functions or common modules.
 - **No hidden scaling in shared functions**: Constants that affect behavior (weights, thresholds, scaling factors) must be explicit parameters or live in config, never buried inside utility functions.
+- **Prefer adaptive defaults over global flags**: When adding a feature flag that could reasonably vary per-entity (per-player, per-problem, etc.), prefer an adaptive default (e.g., `:auto`) that selects the right behavior based on context, rather than a global boolean that the user must set manually.
 
 ## Planning
 
@@ -214,6 +216,8 @@ Before marking work complete, verify the following:
 ## Pre-Merge Retrospective
 
 **Before landing any PR**, conduct a retrospective to identify improvements for future work. This is mandatory.
+
+**Timing:** Write the retrospective entry *before* the final PR description update, so it is not lost if the process is interrupted. When the PR is being considered for landing, do a final review and update the retrospective to reflect the actual state of the branch.
 
 ### Process Adherence Review
 

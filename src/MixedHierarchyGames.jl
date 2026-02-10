@@ -26,8 +26,8 @@ using Graphs: SimpleDiGraph, nv, vertices, edges, inneighbors, outneighbors, ind
 using Symbolics: Symbolics, @variables
 using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
-using BlockArrays: BlockArrays, mortar, blocks
-using LinearAlgebra: norm, I, SingularException, LAPACKException, lu, lu!, ldiv!
+using BlockArrays: BlockArrays, mortar, blocks, PseudoBlockVector
+using LinearAlgebra: norm, I, SingularException, LAPACKException
 using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
@@ -36,7 +36,7 @@ using TimerOutputs: TimerOutput, @timeit
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")
 export is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
-export evaluate_kkt_residuals, verify_kkt_solution
+export evaluate_kkt_residuals, verify_kkt_solution, split_solution_vector
 
 # Problem setup (symbolic variable creation)
 include("problem_setup.jl")
@@ -52,8 +52,12 @@ export QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
 include("qp_kkt.jl")
 export get_qp_kkt_conditions, strip_policy_constraints
 
+# Line search methods
+include("linesearch.jl")
+export armijo_backtracking, geometric_reduction, constant_step
+
 include("nonlinear_kkt.jl")
-export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals
+export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch
 
 # Solvers
 include("solve.jl")

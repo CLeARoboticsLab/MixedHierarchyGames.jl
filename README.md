@@ -4,6 +4,20 @@ A Julia package for solving mixed hierarchy games. This implementation uses the 
 
 Based on: H. Khan, D. H. Lee, J. Li, T. Qiu, C. Ellis, J. Milzman, W. Suttle, and D. Fridovich-Keil, "[Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations](https://arxiv.org/abs/2602.01568)," 2026.
 
+## Citation
+
+If you use this software in your research, please cite:
+
+```bibtex
+@article{khan2026mixedhierarchygames,
+  title={Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations},
+  author={Khan, Hamzah and Lee, Dong Ho and Li, Jingqi and Qiu, Tianyu and Ellis, Christian and Milzman, Jesse and Suttle, Wesley and Fridovich-Keil, David},
+  journal={arXiv preprint arXiv:2602.01568},
+  year={2026},
+  url={https://arxiv.org/abs/2602.01568}
+}
+```
+
 ## Features
 
 - **Flexible hierarchy structures**: Supports arbitrary DAG-based leader-follower relationships (pure Stackelberg, Nash, or mixed)
@@ -123,11 +137,11 @@ solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:l
 
 ### NonlinearSolver
 
-For general nonlinear games using iterative quasi-linear policy approximation with Armijo backtracking line search.
+For general nonlinear games using iterative quasi-linear policy approximation with configurable line search.
 
 ```julia
 solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim;
-                         max_iters=100, tol=1e-6, verbose=false, use_armijo=true)
+                         max_iters=100, tol=1e-6, verbose=false, linesearch_method=:geometric)
 
 # Solve with initial guess (optional)
 strategy = solve(solver, parameter_values; initial_guess=z0)
@@ -165,6 +179,8 @@ The current implementation makes the following assumptions:
 - Julia 1.9+
 - See `Project.toml` for package dependencies
 
+**PATHSolver on Apple Silicon (ARM64):** The `:path` backend for `QPSolver` depends on [PATHSolver.jl](https://github.com/chkwon/PATHSolver.jl), which only provides x86_64 binaries. It does not run natively on ARM64 (Apple Silicon). To use the `:path` backend on Apple Silicon, run Julia inside the provided Docker container, which uses Rosetta emulation via `platform: linux/amd64` (see [Docker Development Environment](#docker-development-environment) below). The default `:linear` backend works on all platforms without this limitation.
+
 ## Docker Development Environment
 
 A Docker container is provided for a consistent development environment with all dependencies pre-installed.
@@ -192,13 +208,19 @@ bd                    # Beads work tracking CLI
 ### Running Tests
 
 ```bash
-# Run tests in container
-docker compose run --rm test
-
-# Or interactively
-docker compose run --rm dev
+# Run all tests
 julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run fast tests only (~45s, 264 tests)
+FAST_TESTS_ONLY=true julia --project=. -e 'using Pkg; Pkg.test()'
 ```
+
+The test suite is split into two tiers:
+
+- **Fast tier** (264 tests, ~45s): Unit tests, QP solver, input validation, type stability, OLSE QP
+- **Slow tier** (192 tests, ~2min): Nonlinear solver convergence, KKT verification, integration tests, OLSE nonlinear
+
+CI uses `/run-ci` for fast tests and `/run-ci-full` for the complete suite with coverage.
 
 ### Development Workflow
 
@@ -229,18 +251,26 @@ After changing `Project.toml` or `Manifest.toml`:
 docker compose build --no-cache dev
 ```
 
-## Citation
+## Troubleshooting
 
-If you use this software in your research, please cite:
+### PATHSolver fails on Apple Silicon (ARM64)
 
-```bibtex
-@article{khan2026mixedhierarchygames,
-  title={Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations},
-  author={Khan, Hamzah and Lee, Dong Ho and Li, Jingqi and Qiu, Tianyu and Ellis, Christian and Milzman, Jesse and Suttle, Wesley and Fridovich-Keil, David},
-  journal={arXiv preprint arXiv:2602.01568},
-  year={2026},
-  url={https://arxiv.org/abs/2602.01568}
-}
+**Symptom:** `using PATHSolver` or `QPSolver(...; solver=:path)` fails with an error about missing binaries or unsupported platform on an Apple Silicon Mac.
+
+**Cause:** PATHSolver.jl only distributes x86_64 (Intel) binaries. There are no native ARM64 builds.
+
+**Solution:** Use the provided Docker development environment, which forces `platform: linux/amd64` in `docker-compose.yml` to run under Rosetta/QEMU emulation:
+
+```bash
+docker compose run --rm dev
+# Inside the container:
+julia --project=. -e 'using PATHSolver; @info "PATHSolver loaded"'
+```
+
+Alternatively, if you only need the QP solver, use the default `:linear` backend, which works natively on all platforms:
+
+```julia
+solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:linear)
 ```
 
 ## License
