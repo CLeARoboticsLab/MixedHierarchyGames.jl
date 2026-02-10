@@ -402,6 +402,92 @@ end
         @test !isnothing(K_evals[2])  # P2 is follower of P1
         @test !isnothing(K_evals[3])  # P3 is follower of P2
     end
+
+    @testset "Handles singular M matrix gracefully" begin
+        # Create a problem where the follower's cost is constant (zero Hessian),
+        # making M (Jacobian of KKT w.r.t. follower's own vars) singular
+        state_dim = 2
+        control_dim = 2
+        T = 3
+        N = 2
+
+        G = SimpleDiGraph(N)
+        add_edge!(G, 1, 2)
+
+        primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+        primal_dims = fill(primal_dim_per_player, N)
+
+        backend = default_backend()
+        θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
+
+        # P1 has a normal cost
+        function J1(z1, z2; θ=nothing)
+            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+        end
+
+        # P2 has a CONSTANT cost (zero Hessian → singular M)
+        function J2_singular(z1, z2; θ=nothing)
+            0.0
+        end
+
+        Js = Dict(1 => J1, 2 => J2_singular)
+
+        function make_dynamics_constraint(player_idx)
+            function dynamics_constraint(z)
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                constraints = []
+                for t in 1:T
+                    push!(constraints, xs[t+1] - xs[t] - us[t])
+                end
+                push!(constraints, xs[1] - θs[player_idx])
+                return vcat(constraints...)
+            end
+            return dynamics_constraint
+        end
+
+        gs = [make_dynamics_constraint(i) for i in 1:N]
+
+        precomputed = preoptimize_nonlinear_solver(
+            G, Js, gs, primal_dims, θs;
+            state_dim=state_dim, control_dim=control_dim, verbose=false
+        )
+
+        z_current = zeros(length(precomputed.all_variables))
+
+        # Should NOT throw - should handle singular M gracefully
+        all_K_vec, K_info = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info)
+
+        # Status should indicate singular matrix was encountered
+        @test K_info.status == :singular_matrix
+
+        # K values should be NaN (signaling invalid solution)
+        @test all(isnan, all_K_vec[all_K_vec .!= 0.0]) || all(isnan, all_K_vec)
+
+        # K_evals for the singular player should contain NaN
+        K2 = K_info.K_evals[2]
+        @test !isnothing(K2)
+        @test all(isnan, K2)
+    end
+
+    @testset "Returns :ok status for well-conditioned problems" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_current = zeros(length(precomputed.all_variables))
+
+        all_K_vec, K_info = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info)
+
+        # Well-conditioned problem should have :ok status
+        @test K_info.status == :ok
+
+        # K values should be finite
+        @test all(isfinite, filter(!iszero, all_K_vec))
+    end
 end
 
 #=
@@ -746,6 +832,65 @@ end
         # Should still return a result (may or may not converge)
         @test result.sol isa Vector{Float64}
         @test result.status in [:solved, :max_iters_reached, :linear_solver_error, :numerical_error]
+    end
+
+    @testset "Singular K matrix produces :numerical_error status" begin
+        # Create a degenerate problem where follower has constant cost (singular M)
+        state_dim = 2
+        control_dim = 2
+        T = 3
+        N = 2
+
+        G = SimpleDiGraph(N)
+        add_edge!(G, 1, 2)
+
+        primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+        primal_dims = fill(primal_dim_per_player, N)
+
+        backend = default_backend()
+        θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
+
+        J1(z1, z2; θ=nothing) = begin
+            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+        end
+
+        # Constant cost → singular M matrix for follower
+        J2_const(z1, z2; θ=nothing) = 0.0
+
+        Js = Dict(1 => J1, 2 => J2_const)
+
+        function make_dyn(player_idx)
+            function dyn(z)
+                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+                constraints = []
+                for t in 1:T
+                    push!(constraints, xs[t+1] - xs[t] - us[t])
+                end
+                push!(constraints, xs[1] - θs[player_idx])
+                return vcat(constraints...)
+            end
+            return dyn
+        end
+
+        gs = [make_dyn(i) for i in 1:N]
+
+        precomputed = preoptimize_nonlinear_solver(
+            G, Js, gs, primal_dims, θs;
+            state_dim=state_dim, control_dim=control_dim, verbose=false
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+
+        # Should not throw - should terminate gracefully
+        result = run_nonlinear_solver(
+            precomputed, initial_states, G;
+            max_iters=10, tol=1e-6, verbose=false
+        )
+
+        # NaN from singular K propagates to residual, triggering :numerical_error
+        @test result.status == :numerical_error
+        @test result.converged == false
     end
 end
 

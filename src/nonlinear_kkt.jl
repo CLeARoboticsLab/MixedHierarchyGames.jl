@@ -546,7 +546,8 @@ See Phase 6 for planned thread-safety improvements.
 # Returns
 Tuple of:
 - `all_K_vec::Vector` - Concatenated K matrix values for all players
-- `info::NamedTuple` - Contains M_evals, N_evals, K_evals
+- `info::NamedTuple` - Contains M_evals, N_evals, K_evals, status
+  - `status` is `:ok` or `:singular_matrix`
 """
 function compute_K_evals(
     z_current::Vector,
@@ -569,6 +570,8 @@ function compute_K_evals(
     follower_cache = Dict{Int, Vector{Int}}()
     buffer_cache = Dict{Int, Vector{Float64}}()
 
+    status = :ok
+
     # Process in reverse topological order (leaves first)
     for ii in reverse(topological_sort_by_dfs(graph))
         if has_leader(graph, ii)
@@ -583,8 +586,11 @@ function compute_K_evals(
             M_evals[ii] = reshape(M_raw, π_sizes[ii], length(ws[ii]))
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
-            # Solve K = M \ N
-            K_evals[ii] = M_evals[ii] \ N_evals[ii]
+            # Solve K = M \ N with singular matrix protection
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii)
+            if any(isnan, K_evals[ii])
+                status = :singular_matrix
+            end
         else
             M_evals[ii] = nothing
             N_evals[ii] = nothing
@@ -596,7 +602,37 @@ function compute_K_evals(
     N = nv(graph)
     all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N]...)
 
-    return all_K_vec, (; M_evals, N_evals, K_evals)
+    return all_K_vec, (; M_evals, N_evals, K_evals, status)
+end
+
+"""
+    _solve_K(M, N, player_idx)
+
+Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
+
+Returns a NaN-filled matrix (same size as expected K) if M is singular or
+severely ill-conditioned, with a warning.
+"""
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int)
+    try
+        K = M \ N
+
+        # Check for NaN/Inf in result (can occur with near-singular matrices)
+        if any(!isfinite, K)
+            @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
+            return fill(NaN, size(K))
+        end
+
+        return K
+    catch e
+        if e isa SingularException || e isa LAPACKException
+            @warn "Singular M matrix for player $player_idx: $e. Using NaN fallback."
+            n_rows = size(N, 1)
+            n_cols = size(N, 2)
+            return fill(NaN, n_rows, n_cols)
+        end
+        rethrow()
+    end
 end
 
 """
