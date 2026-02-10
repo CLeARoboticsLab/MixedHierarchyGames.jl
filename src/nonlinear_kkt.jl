@@ -544,7 +544,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, use_inplace_ksolve=false)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -562,6 +562,8 @@ See Phase 6 for planned thread-safety improvements.
 - `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
   Beneficial for large M matrices (>100 rows) with structural sparsity from the
   KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `use_inplace_ksolve::Bool=false` - If true, use `ldiv!(K_buf, lu(M), N)` instead
+  of `M \\ N`. May reduce allocations for large problems.
 
 # Returns
 Tuple of:
@@ -573,7 +575,8 @@ function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
-    use_sparse::Bool=false
+    use_sparse::Bool=false,
+    use_inplace_ksolve::Bool=false
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -608,7 +611,7 @@ function compute_K_evals(
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse, use_inplace_ksolve)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -627,20 +630,30 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, use_inplace_ksolve=false)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `use_inplace_ksolve=true`, uses `ldiv!(K_buffer, lu(M), N)` to write the result
+directly into a pre-allocated buffer, avoiding the allocation of a new K matrix.
+May reduce GC pressure for large problems. `use_sparse` takes precedence if both are true.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                  use_sparse::Bool=false, use_inplace_ksolve::Bool=false)
     try
         K = if use_sparse
             sparse(M) \ N
+        elseif use_inplace_ksolve && size(M, 1) == size(M, 2)
+            # ldiv! with lu requires square M; non-square M falls back to backslash
+            K_buf = similar(N)
+            ldiv!(K_buf, lu(M), N)
+            K_buf
         else
             M \ N
         end
@@ -675,6 +688,7 @@ end
         linesearch_method::Symbol = :geometric,
         recompute_policy_in_linesearch::Bool = true,
         use_sparse::Bool = false,
+        use_inplace_ksolve::Bool = false,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -698,6 +712,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `use_inplace_ksolve::Bool=false` - Use in-place `ldiv!` for K = M\\N solve
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
@@ -721,6 +736,7 @@ function run_nonlinear_solver(
     linesearch_method::Symbol = :geometric,
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
+    use_inplace_ksolve::Bool = false,
     show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -761,7 +777,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, use_inplace_ksolve)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
