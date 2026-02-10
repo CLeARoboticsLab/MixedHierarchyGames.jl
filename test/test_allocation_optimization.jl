@@ -171,7 +171,7 @@ end
         prob = make_nonlinear_test_problem()
         solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
                                 prob.state_dim, prob.control_dim;
-                                max_iters=50, tol=1e-8, use_armijo=true)
+                                max_iters=50, tol=1e-8, linesearch_method=:armijo)
 
         # Multiple solves to test line search buffer reuse
         param_sets = [

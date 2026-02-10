@@ -30,11 +30,11 @@ using Graphs: SimpleDiGraph
 
     @testset "QPPrecomputed rejects non-Dict πs_solve" begin
         # Pass a non-Dict (Vector) for πs_solve — should be rejected by type bound
-        @test_throws MethodError QPPrecomputed((;), (;), [1, 2], nothing)
+        @test_throws MethodError QPPrecomputed((;), (;), [1, 2], nothing, nothing, Float64[], Float64[])
     end
 
     @testset "QPPrecomputed accepts valid Dict πs_solve" begin
-        qp = QPPrecomputed((;), (;), Dict(1 => [1.0]), nothing)
+        qp = QPPrecomputed((;), (;), Dict(1 => [1.0]), nothing, nothing, Float64[], Float64[])
         @test qp isa QPPrecomputed
     end
 
