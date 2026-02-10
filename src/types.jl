@@ -53,18 +53,25 @@ Precomputed components for QPSolver, cached during construction for efficient re
 - `TK` - Type of KKT conditions result (from get_qp_kkt_conditions)
 - `TP` - Type of stripped policy constraints (Dict)
 - `TM` - Type of parametric MCP (ParametricMCP)
+- `TJ` - Type of Jacobian buffer (sparse or dense matrix)
 
 # Fields
 - `vars::TV` - Problem variables from setup_problem_variables
 - `kkt_result::TK` - KKT conditions from get_qp_kkt_conditions
 - `πs_solve::TP` - Stripped policy constraints for solving
 - `parametric_mcp::TM` - Cached ParametricMCP for solving
+- `J_buffer::TJ` - Pre-allocated Jacobian buffer for solve_qp_linear
+- `F_buffer::Vector{Float64}` - Pre-allocated residual buffer for solve_qp_linear
+- `z0_buffer::Vector{Float64}` - Pre-allocated zero vector for solve_qp_linear
 """
-struct QPPrecomputed{TV, TK, TP, TM}
+struct QPPrecomputed{TV, TK, TP, TM, TJ}
     vars::TV
     kkt_result::TK
     πs_solve::TP
     parametric_mcp::TM
+    J_buffer::TJ
+    F_buffer::Vector{Float64}
+    z0_buffer::Vector{Float64}
 end
 
 """
@@ -271,7 +278,14 @@ function QPSolver(
             _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
         end
 
-        precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp)
+        # Pre-allocate solve buffers for solve_qp_linear
+        n_vars = size(parametric_mcp.jacobian_z!.result_buffer, 1)
+        J_buffer = copy(parametric_mcp.jacobian_z!.result_buffer)
+        F_buffer = zeros(n_vars)
+        z0_buffer = zeros(n_vars)
+
+        precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp,
+                                    J_buffer, F_buffer, z0_buffer)
     end
 
     return QPSolver(problem, solver, precomputed)

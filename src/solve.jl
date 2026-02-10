@@ -55,7 +55,7 @@ function solve(
     to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve, parametric_mcp) = precomputed
+    (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
 
     # Validate parameter_values
@@ -63,7 +63,8 @@ function solve(
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
-            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
+            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
+                                          verbose, to, J_buffer, F_buffer, z0_buffer)
         elseif solver_type == :path
             sol, status, _ = solve_with_path(
                 parametric_mcp, θs, parameter_values;
@@ -112,12 +113,13 @@ function solve_raw(
     to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve, parametric_mcp) = precomputed
+    (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
-            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
+            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
+                                          verbose, to, J_buffer, F_buffer, z0_buffer)
             info = nothing
         elseif solver_type == :path
             sol, status, info = solve_with_path(
@@ -507,19 +509,26 @@ function solve_qp_linear(
     θs::Dict,
     parameter_values::Dict;
     verbose::Bool = false,
-    to::TimerOutput = TimerOutput()
+    to::TimerOutput = TimerOutput(),
+    J_buffer = nothing,
+    F_buffer = nothing,
+    z0_buffer = nothing
 )
     # Order parameters by player index
     order = sort(collect(keys(θs)))
     all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
 
-    # Get Jacobian buffer from MCP (handles sparse structure correctly)
+    # Use pre-allocated buffers if provided, otherwise allocate
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
-    J = copy(parametric_mcp.jacobian_z!.result_buffer)
-    F = zeros(n)
+    J = something(J_buffer, copy(parametric_mcp.jacobian_z!.result_buffer))
+    F = something(F_buffer, zeros(n))
+    z0 = something(z0_buffer, zeros(n))
+
+    # Reset buffers for this solve (required when reusing pre-allocated buffers)
+    fill!(F, 0.0)
+    fill!(z0, 0.0)
 
     # Evaluate at zero (for LQ, any point works since system is linear)
-    z0 = zeros(n)
     @timeit to "residual evaluation" begin
         parametric_mcp.f!(F, z0, all_param_vals_vec)
     end
