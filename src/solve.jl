@@ -195,7 +195,7 @@ function solve(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing,
+    linesearch_method::Union{Nothing, Symbol} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -208,7 +208,7 @@ function solve(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
-    actual_use_armijo = something(use_armijo, options.use_armijo)
+    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -220,7 +220,7 @@ function solve(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
-            use_armijo = actual_use_armijo,
+            linesearch_method = actual_linesearch_method,
             to = to
         )
     end
@@ -238,7 +238,7 @@ Solve and return raw solution with convergence info (for debugging/analysis).
 - `max_iters::Int` - Maximum iterations (default from solver.options)
 - `tol::Float64` - Convergence tolerance (default from solver.options)
 - `verbose::Bool` - Print iteration info (default from solver.options)
-- `use_armijo::Bool` - Use Armijo line search (default from solver.options)
+- `linesearch_method::Symbol` - Line search method (default from solver.options)
 
 # Returns
 Named tuple with fields:
@@ -261,7 +261,7 @@ function solve_raw(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing,
+    linesearch_method::Union{Nothing, Symbol} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -271,7 +271,7 @@ function solve_raw(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
-    actual_use_armijo = something(use_armijo, options.use_armijo)
+    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -283,7 +283,7 @@ function solve_raw(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
-            use_armijo = actual_use_armijo,
+            linesearch_method = actual_linesearch_method,
             to = to
         )
     end

@@ -10,9 +10,9 @@
 # Note: something() returns the first non-nothing value, so something(x, default)
 # is equivalent to isnothing(x) ? default : x
 
-# Line search constants for run_nonlinear_solver
-# Note: These differ from armijo_backtracking_linesearch defaults (20 iters).
-# See Bead 1 for planned unification of line search implementations.
+# Line search constants for run_nonlinear_solver.
+# Passed to armijo_backtracking/geometric_reduction from src/linesearch.jl.
+# Note: These differ from the linesearch module defaults (20 iters).
 const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
@@ -640,15 +640,19 @@ end
         precomputed::NamedTuple,
         initial_states::Dict,
         hierarchy_graph::SimpleDiGraph;
-        initial_guess=nothing, max_iters=100, tol=1e-6,
-        verbose=false, use_armijo=true, to=TimerOutput()
+        initial_guess::Union{Nothing, Vector{Float64}} = nothing,
+        max_iters::Int = 100,
+        tol::Float64 = 1e-6,
+        verbose::Bool = false,
+        linesearch_method::Symbol = :geometric,
+        to::TimerOutput = TimerOutput()
     )
 
 Orchestrates the Newton iteration loop for solving nonlinear hierarchy games.
 
 Each iteration: evaluate the KKT residual, check convergence, compute a Newton
-step via [`compute_newton_step`](@ref), and select a step size via
-[`armijo_backtracking_linesearch`](@ref). Convergence is checked by [`check_convergence`](@ref).
+step via [`compute_newton_step`](@ref), and select a step size via configurable
+line search. Convergence is checked by [`check_convergence`](@ref).
 
 # Arguments
 - `precomputed::NamedTuple` - Precomputed symbolic components from [`preoptimize_nonlinear_solver`](@ref)
@@ -660,7 +664,7 @@ step via [`compute_newton_step`](@ref), and select a step size via
 - `max_iters::Int=100` - Maximum Newton iterations
 - `tol::Float64=1e-6` - Convergence tolerance on KKT residual norm
 - `verbose::Bool=false` - Print per-iteration convergence info
-- `use_armijo::Bool=true` - Use backtracking line search (full Newton step if `false`)
+- `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -680,7 +684,7 @@ function run_nonlinear_solver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true,
+    linesearch_method::Symbol = :geometric,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -767,29 +771,24 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            α = 1.0
+            # Residual function closure that recomputes K at each trial point
+            function residual_at(z)
+                param_trial, _ = params_for_z(z)
+                F_trial = similar(F_eval)
+                mcp_obj.f!(F_trial, z, param_trial)
+                return F_trial
+            end
 
-            if use_armijo
-                # Wrap MCP evaluation for armijo_backtracking_linesearch interface
-                F_buf = similar(F_eval)
-                function f_for_linesearch(z_trial)
-                    param_trial, _ = params_for_z(z_trial)
-                    mcp_obj.f!(F_buf, z_trial, param_trial)
-                    return copy(F_buf)
-                end
-
-                ls_result = armijo_backtracking_linesearch(
-                    f_for_linesearch, z_est, δz, F_eval;
-                    β=LINESEARCH_BACKTRACK_FACTOR,
-                    max_iters=LINESEARCH_MAX_ITERS
-                )
-                α = ls_result.step_size
-
-                if !ls_result.success
-                    verbose && @warn "Line search failed at iteration $num_iterations"
-                    status = :line_search_failed
-                    break
-                end
+            if linesearch_method == :armijo
+                α = armijo_backtracking(residual_at, z_est, δz, 1.0;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+            elseif linesearch_method == :geometric
+                α = geometric_reduction(residual_at, z_est, δz, 1.0;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+            elseif linesearch_method == :constant
+                α = 1.0
+            else
+                error("Unknown linesearch_method: $linesearch_method")
             end
         end
 
@@ -813,70 +812,3 @@ function run_nonlinear_solver(
     )
 end
 
-"""
-    armijo_backtracking_linesearch(
-        f_eval::Function,
-        z::Vector,
-        δz::Vector,
-        f_z::Vector;
-        α_init::Float64 = 1.0,
-        β::Float64 = 0.5,
-        σ::Float64 = 1e-4,
-        max_iters::Int = 20
-    )
-
-Armijo backtracking line search for step size selection.
-
-# Arguments
-- `f_eval::Function` - Function evaluating residual at a point
-- `z::Vector` - Current point
-- `δz::Vector` - Search direction
-- `f_z::Vector` - Residual at current point
-
-# Keyword Arguments
-- `α_init::Float64=1.0` - Initial step size
-- `β::Float64=0.5` - Step size reduction factor
-- `σ::Float64=1e-4` - Sufficient decrease parameter
-- `max_iters::Int=20` - Maximum line search iterations
-
-# Returns
-Named tuple `(step_size::Float64, success::Bool)`:
-- `step_size` - Selected step size (last attempted value on failure)
-- `success` - Whether sufficient decrease was achieved
-"""
-function armijo_backtracking_linesearch(
-    f_eval::Function,
-    z::Vector,
-    δz::Vector,
-    f_z::Vector;
-    α_init::Float64 = 1.0,
-    β::Float64 = 0.5,
-    σ::Float64 = 1e-4,
-    max_iters::Int = 20
-)
-    # Merit function: ϕ(z) = ||f(z)||²
-    ϕ_0 = norm(f_z)^2
-
-    # For Newton-like methods, the directional derivative is approximately -2*||f||²
-    # Armijo condition: ϕ(z + αδz) ≤ ϕ(z) + σ * α * ∇ϕ'δz
-    # With ∇ϕ'δz ≈ -2*||f||², condition becomes: ϕ_new ≤ ϕ_0 * (1 - 2*σ*α)
-
-    α = α_init
-    for _ in 1:max_iters
-        z_new = z .+ α .* δz
-        f_new = f_eval(z_new)
-        ϕ_new = norm(f_new)^2
-
-        # Sufficient decrease condition
-        if ϕ_new <= ϕ_0 + σ * α * (-2 * ϕ_0)
-            return (step_size = α, success = true)
-        end
-
-        # Backtrack
-        α *= β
-    end
-
-    # Signal failure if no sufficient decrease found
-    @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
-    return (step_size = α, success = false)
-end

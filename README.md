@@ -123,11 +123,11 @@ solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; solver=:l
 
 ### NonlinearSolver
 
-For general nonlinear games using iterative quasi-linear policy approximation with Armijo backtracking line search.
+For general nonlinear games using iterative quasi-linear policy approximation with configurable line search.
 
 ```julia
 solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim;
-                         max_iters=100, tol=1e-6, verbose=false, use_armijo=true)
+                         max_iters=100, tol=1e-6, verbose=false, linesearch_method=:geometric)
 
 # Solve with initial guess (optional)
 strategy = solve(solver, parameter_values; initial_guess=z0)

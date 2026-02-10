@@ -21,7 +21,7 @@ using MixedHierarchyGames:
     NonlinearSolver,
     solve_raw
 
-using TrajectoryGamesBase: unflatten_trajectory
+using TrajectoryGamesBase: unflatten_trajectory, JointStrategy
 
 #=
     Test Helpers: Create simple test problems for nonlinear solver testing
@@ -744,23 +744,21 @@ end
 end
 
 #=
-    Tests for armijo_backtracking_linesearch (already implemented, ensure tests exist)
+    Tests for armijo_backtracking (moved to src/linesearch.jl)
 =#
 
-@testset "armijo_backtracking_linesearch" begin
+@testset "armijo_backtracking" begin
     @testset "Returns valid step size" begin
         # Simple quadratic merit function: f(z) = z
         f_eval(z) = z
 
         z = [1.0, 1.0]
         δz = [-1.0, -1.0]  # descent direction
-        f_z = f_eval(z)
 
-        result = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval, z, δz, f_z)
+        α = MixedHierarchyGames.armijo_backtracking(f_eval, z, δz, 1.0)
 
-        @test result.step_size > 0
-        @test result.step_size <= 1.0
-        @test result.success == true
+        @test α > 0
+        @test α <= 1.0
     end
 
     @testset "Returns smaller step for steep problems" begin
@@ -769,12 +767,10 @@ end
 
         z = [1.0, 1.0]
         δz = [-0.1, -0.1]
-        f_z = f_eval_steep(z)
 
-        result = MixedHierarchyGames.armijo_backtracking_linesearch(f_eval_steep, z, δz, f_z)
+        α = MixedHierarchyGames.armijo_backtracking(f_eval_steep, z, δz, 1.0)
 
-        @test result.step_size > 0
-        @test result.success == true
+        @test α > 0
     end
 end
 
@@ -1565,5 +1561,209 @@ end
         # First (and only) evaluation should be at z_est + 1.0 * δz
         @test length(evaluated_points) == 1
         @test evaluated_points[1] ≈ [4.0, -1.5] atol=1e-10
+    end
+end
+
+#=
+    Tests for linesearch_method option in NonlinearSolver
+=#
+
+@testset "NonlinearSolver linesearch_method option" begin
+    using MixedHierarchyGames: NonlinearSolver, solve, solve_raw
+
+    @testset "Default linesearch_method is :geometric" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        @test solver.options.linesearch_method == :geometric
+    end
+
+    @testset "Accepts :armijo linesearch_method" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:armijo
+        )
+
+        @test solver.options.linesearch_method == :armijo
+    end
+
+    @testset "Accepts :geometric linesearch_method" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:geometric
+        )
+
+        @test solver.options.linesearch_method == :geometric
+    end
+
+    @testset "Accepts :constant linesearch_method" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:constant
+        )
+
+        @test solver.options.linesearch_method == :constant
+    end
+
+    @testset "Rejects invalid linesearch_method" begin
+        prob = make_two_player_chain_problem()
+
+        @test_throws ArgumentError NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:invalid_method
+        )
+    end
+
+    @testset "Solver converges with :geometric method" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+
+        @test result.converged
+        @test result.residual < 1e-6
+    end
+
+    @testset "Solver converges with :armijo method" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:armijo
+        )
+
+        @test result.converged
+        @test result.residual < 1e-6
+    end
+
+    @testset "Solver converges with :constant method" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Constant step with α=1.0 (full Newton step) should converge for QP problems
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:constant
+        )
+
+        @test result.converged
+        @test result.residual < 1e-6
+    end
+
+    @testset "All methods produce same solution on QP problem" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result_geo = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6, linesearch_method=:geometric
+        )
+
+        result_armijo = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6, linesearch_method=:armijo
+        )
+
+        result_const = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6, linesearch_method=:constant
+        )
+
+        # All should converge
+        @test result_geo.converged
+        @test result_armijo.converged
+        @test result_const.converged
+
+        # Solutions should match to high precision
+        @test result_geo.sol ≈ result_armijo.sol atol=1e-6
+        @test result_geo.sol ≈ result_const.sol atol=1e-6
+    end
+
+    @testset "linesearch_method propagates through solve interface" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:armijo
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # solve should work without error using the :armijo method
+        strategy = solve(solver, initial_states)
+        @test strategy isa JointStrategy
+    end
+
+    @testset "linesearch_method can be overridden at solve time" begin
+        prob = make_two_player_chain_problem()
+
+        # Construct with :geometric
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            linesearch_method=:geometric
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Override to :armijo at solve time
+        result = solve_raw(solver, initial_states; linesearch_method=:armijo)
+        @test result.converged
+        @test result.residual < 1e-6
     end
 end

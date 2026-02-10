@@ -298,17 +298,19 @@ function QPSolver(
     return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver, to)
 end
 
+const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant)
+
 """
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
 
-Uses iterative quasi-linear policy approximation with Armijo line search.
+Uses iterative quasi-linear policy approximation with configurable line search.
 
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method)
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
@@ -334,7 +336,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
-- `use_armijo::Bool=true` - Use Armijo line search
+- `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -347,10 +349,18 @@ function NonlinearSolver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true,
+    linesearch_method::Symbol = :geometric,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
+        # Validate linesearch method
+        if linesearch_method ∉ VALID_LINESEARCH_METHODS
+            throw(ArgumentError(
+                "Invalid linesearch_method :$linesearch_method. " *
+                "Must be one of: $(join(VALID_LINESEARCH_METHODS, ", "))."
+            ))
+        end
+
         # Validate inputs
         _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
@@ -367,7 +377,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, use_armijo)
+        options = (; max_iters, tol, verbose, linesearch_method)
     end
 
     return NonlinearSolver(problem, precomputed, options)
