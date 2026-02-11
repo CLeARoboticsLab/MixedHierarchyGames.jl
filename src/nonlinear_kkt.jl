@@ -714,6 +714,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -737,6 +738,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
+    regularization::Float64 = 0.0,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -776,7 +778,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end

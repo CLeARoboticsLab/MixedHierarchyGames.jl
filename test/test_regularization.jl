@@ -5,7 +5,10 @@ using MixedHierarchyGames:
     _solve_K,
     compute_K_evals,
     preoptimize_nonlinear_solver,
-    setup_problem_parameter_variables
+    run_nonlinear_solver,
+    setup_problem_parameter_variables,
+    NonlinearSolver,
+    solve_raw
 
 using Graphs: SimpleDiGraph, add_edge!
 using TrajectoryGamesBase: unflatten_trajectory
@@ -256,5 +259,87 @@ end
             relative_error = norm(K_vec_reg - K_vec_base) / max(norm(K_vec_base), 1.0)
             @test relative_error < 1e-6
         end
+    end
+
+    #==========================================================================
+        Integration: run_nonlinear_solver with regularization
+    ==========================================================================#
+
+    @testset "run_nonlinear_solver accepts regularization parameter" begin
+        prob = make_two_player_chain_for_regularization()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim,
+            verbose=false
+        )
+
+        initial_states = Dict(i => zeros(prob.state_dim) for i in 1:prob.N)
+
+        # Default (no regularization) should work
+        result_default = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=20, tol=1e-6
+        )
+        @test result_default.status in (:solved, :solved_initial_point, :max_iters_reached)
+
+        # Explicit regularization=0.0 should give same result
+        result_zero = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=20, tol=1e-6, regularization=0.0
+        )
+        @test norm(result_default.sol - result_zero.sol) < 1e-12
+
+        # Small regularization should also converge with similar solution
+        result_reg = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=20, tol=1e-6, regularization=1e-10
+        )
+        @test result_reg.status in (:solved, :solved_initial_point, :max_iters_reached)
+    end
+
+    #==========================================================================
+        Integration: NonlinearSolver constructor and solve/solve_raw API
+    ==========================================================================#
+
+    @testset "NonlinearSolver constructor accepts regularization" begin
+        prob = make_two_player_chain_for_regularization()
+
+        # Default (no regularization)
+        solver_default = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=20
+        )
+        @test solver_default.options.regularization == 0.0
+
+        # Explicit regularization
+        solver_reg = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=20, regularization=1e-8
+        )
+        @test solver_reg.options.regularization == 1e-8
+    end
+
+    @testset "solve_raw passes regularization through" begin
+        prob = make_two_player_chain_for_regularization()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=20
+        )
+
+        initial_states = Dict(i => zeros(prob.state_dim) for i in 1:prob.N)
+
+        # Default solve
+        result_default = solve_raw(solver, initial_states)
+        @test result_default.status in (:solved, :solved_initial_point, :max_iters_reached)
+
+        # Override regularization at solve time
+        result_reg = solve_raw(solver, initial_states; regularization=1e-10)
+        @test result_reg.status in (:solved, :solved_initial_point, :max_iters_reached)
     end
 end
