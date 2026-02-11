@@ -21,7 +21,7 @@ using TrajectoryGamesBase: unflatten_trajectory
     extract_M_N_matrices(prob; z_current=nothing)
 
 Build a nonlinear solver for `prob` and evaluate M, N matrices at `z_current`.
-Returns (M_evals, N_evals, precomputed) where M_evals/N_evals are Dict{Int, Matrix}.
+Returns (M_evals, N_evals, precomputed) where M_evals/N_evals are Vector{Union{Matrix, Nothing}}.
 """
 function extract_M_N_matrices(prob; z_current=nothing)
     precomputed = preoptimize_nonlinear_solver(
@@ -216,7 +216,7 @@ end
         prob = make_two_player_chain()
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
-        for (ii, M) in M_evals
+        for (ii, M) in enumerate(M_evals)
             isnothing(M) && continue
             N_mat = N_evals[ii]
 
@@ -231,7 +231,7 @@ end
         prob = make_three_player_chain()
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
-        for (ii, M) in M_evals
+        for (ii, M) in enumerate(M_evals)
             isnothing(M) && continue
             N_mat = N_evals[ii]
 
@@ -246,7 +246,7 @@ end
         prob = make_four_player_chain()
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
-        for (ii, M) in M_evals
+        for (ii, M) in enumerate(M_evals)
             isnothing(M) && continue
             N_mat = N_evals[ii]
 
@@ -267,7 +267,7 @@ end
         for (label, prob) in problems
             M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
-            for ii in sort(collect(keys(M_evals)))
+            for ii in eachindex(M_evals)
                 M = M_evals[ii]
                 isnothing(M) && continue
                 N_mat = N_evals[ii]
@@ -299,7 +299,7 @@ end
         z_random = randn(length(precomputed.all_variables))
         _, K_info = compute_K_evals(z_random, precomputed.problem_vars, precomputed.setup_info)
 
-        for ii in sort(collect(keys(K_info.M_evals)))
+        for ii in eachindex(K_info.M_evals)
             M = K_info.M_evals[ii]
             isnothing(M) && continue
             N_mat = K_info.N_evals[ii]
@@ -323,7 +323,7 @@ end
         prob = make_three_player_chain()
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
-        for (ii, M) in M_evals
+        for (ii, M) in enumerate(M_evals)
             isnothing(M) && continue
             N_mat = N_evals[ii]
             M_sp = sparse(M)
