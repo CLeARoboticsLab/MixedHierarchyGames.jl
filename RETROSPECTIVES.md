@@ -701,3 +701,68 @@ Moved M_buffers/N_buffers allocation out of `setup_approximate_kkt_solver()` and
 
 1. Named tuple fields in Julia are structural — removing a field from a NamedTuple is a clean breaking change that tests catch immediately
 2. The `get!()` pattern with a do-block is ideal for lazy Dict initialization in hot loops
+
+---
+
+## PR: perf/inplace-mn-strategy-a (PR #107 merge — remove inplace_MN flag)
+
+**Date:** 2026-02-11
+**Commits:** 1 (merge commit)
+**Tests:** 921 passing
+
+### Summary
+
+Merged Copilot's PR #107 (copilot/sub-pr-106) into the Strategy A branch. This removes the `inplace_MN` flag entirely and makes in-place M/N evaluation the default and only code path. The out-of-place path is deleted. Post-merge benchmarks confirm performance is retained:
+
+| Problem | Current (ms) | Main baseline (ms) | Speedup | Alloc Reduction |
+|---------|-------------|-------------------|---------|-----------------|
+| LQ 3-player chain | 0.42 | 1.76 | 4.2x | 19.0% |
+| Pursuer-Protector-VIP | 12.16 | 78.53 | 6.5x | 70.7% |
+| Lane Change (4-player) | 8277.21 | 41608.54 | 5.0x | 82.3% |
+
+### TDD Compliance
+
+**Score: N/A (merge, not new feature)**
+
+- No new tests written (this was a merge/simplification, not new functionality)
+- All existing 921 tests pass after merge conflict resolution
+- Test references updated from M_fns/N_fns to M_fns!/N_fns! to match new API
+
+### Clean Code
+
+**Score: Good (8/10)**
+
+- Removed dead code path (out-of-place M/N evaluation)
+- Removed unnecessary flag (`inplace_MN`) from full API stack (types, solve, nonlinear_kkt)
+- Deleted test_inplace_strategies.jl (tested the now-removed flag)
+- Minor deduction: `var"M_fns!"` naming convention is ugly but unavoidable in Julia for `!` in identifiers
+
+### Clean Architecture
+
+**Score: Excellent (9/10)**
+
+- API simplified — no more flag threading through 4 layers
+- Buffers remain a solve-time implementation detail (lazy `get!()` allocation)
+- Backward compatible: `compute_K_evals()` works with or without pre-allocated buffers
+
+### Commit Hygiene
+
+**Score: Adequate (6/10)**
+
+- Single large merge commit combining conflict resolution + test fixes
+- Could have been split into: (1) merge with conflict resolution, (2) test reference updates
+- Justified by the fact this was a manual merge in a worktree during overnight script execution
+
+### CLAUDE.md Compliance
+
+- [x] Retrospective recorded
+- [x] PR description updated with fresh benchmark numbers
+- [ ] Benchmark script not committed (in gitignored debug/)
+- [x] No `@test_broken` left on branch
+
+### Key Learnings
+
+1. **Always re-benchmark after merges that change code paths.** The original benchmarks compared two paths; after merging #107 the old path is gone, so fresh numbers are needed.
+2. **Copilot PRs need testing before merge.** PR #107 had no CI and no reviews. The merge introduced two classes of breakage: (a) required kwargs without defaults, (b) removed NamedTuple fields referenced by tests.
+3. **`get!()` with empty Dict default is the right pattern for optional pre-allocation.** Making buffers default to `Dict{Int,Matrix{Float64}}()` with lazy `get!()` gives zero-allocation reuse when buffers are passed, and correct-but-allocating behavior when they're not.
+4. **Git worktree is essential for parallel work.** Merging in `/tmp/shg-worktree-106` while overnight script ran on main repo avoided any interference.
