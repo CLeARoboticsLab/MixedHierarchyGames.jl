@@ -17,6 +17,43 @@ const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
 """
+    detect_stall(residual_history, stall_window; stall_rtol=0.01)
+
+Check whether the solver residual has stalled (stopped making meaningful progress).
+
+Returns `true` if the last `stall_window` residuals are all within `stall_rtol` relative
+tolerance of each other, indicating a plateau.
+
+Returns `false` if `stall_window` is 0 (disabled) or if the history is shorter than
+`stall_window`.
+
+# Arguments
+- `residual_history::Vector{Float64}` - History of residual norms
+- `stall_window::Int` - Number of recent residuals to check (0 = disabled)
+
+# Keyword Arguments
+- `stall_rtol::Float64=0.01` - Relative tolerance for detecting plateau
+"""
+function detect_stall(residual_history::AbstractVector, stall_window::Int; stall_rtol::Float64=0.01)
+    # Disabled or not enough history
+    if stall_window <= 0 || length(residual_history) < stall_window
+        return false
+    end
+
+    # Look at the last stall_window residuals
+    window = @view residual_history[end-stall_window+1:end]
+    ref = window[1]
+
+    # If reference is zero, check if all are zero
+    if ref == 0.0
+        return all(w == 0.0 for w in window)
+    end
+
+    # Check if all values in the window are within stall_rtol of each other
+    return all(abs(w - ref) / abs(ref) <= stall_rtol for w in window)
+end
+
+"""
     check_convergence(residual, tol; verbose=false, iteration=nothing)
 
 Check whether the solver has converged based on the KKT residual norm.
@@ -676,6 +713,7 @@ end
         recompute_policy_in_linesearch::Bool = true,
         use_sparse::Bool = false,
         show_progress::Bool = false,
+        stall_window::Int = 0,
         to::TimerOutput = TimerOutput()
     )
 
@@ -699,6 +737,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `stall_window::Int=0` - Number of recent residuals to track for stall detection. When > 0, terminates with `:stalled` status if residuals plateau. Default 0 disables stall detection.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -708,7 +747,7 @@ Named tuple `(; sol, converged, iterations, residual, status)`:
 - `iterations::Int` - Number of iterations performed
 - `residual::Float64` - Final KKT residual norm
 - `status::Symbol` - One of `:solved`, `:solved_initial_point`, `:max_iters_reached`,
-  `:linear_solver_error`, `:line_search_failed`, `:numerical_error`
+  `:linear_solver_error`, `:line_search_failed`, `:numerical_error`, `:stalled`
 """
 function run_nonlinear_solver(
     precomputed::NamedTuple,
@@ -722,6 +761,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
+    stall_window::Int = 0,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -746,6 +786,9 @@ function run_nonlinear_solver(
     num_iterations = 0
     residual_norm = Inf
     status = :max_iters_reached
+
+    # Stall detection history
+    residual_history = stall_window > 0 ? Float64[] : nothing
 
     # Allocate buffers
     n = length(all_variables)
@@ -798,6 +841,16 @@ function run_nonlinear_solver(
         if conv.converged
             status = num_iterations > 0 ? :solved : :solved_initial_point
             break
+        end
+
+        # Stall detection: check if residual has plateaued
+        if !isnothing(residual_history)
+            push!(residual_history, residual_norm)
+            if detect_stall(residual_history, stall_window)
+                verbose && @warn "Convergence stall detected: residual plateaued over last $stall_window iterations at ≈$(residual_norm)"
+                status = :stalled
+                break
+            end
         end
 
         if num_iterations >= max_iters

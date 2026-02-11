@@ -11,6 +11,7 @@ using MixedHierarchyGames:
     compute_K_evals,
     compute_newton_step,
     check_convergence,
+    detect_stall,
     perform_linesearch,
     setup_approximate_kkt_solver,
     setup_problem_variables,
@@ -2146,5 +2147,194 @@ end
         end
 
         @test contains(output, "iter")
+    end
+end
+
+#=
+    Tests for convergence stall detection
+=#
+
+@testset "detect_stall" begin
+    @testset "Returns false when history is shorter than window" begin
+        history = [1.0, 0.5, 0.3]
+        @test detect_stall(history, 5) == false
+    end
+
+    @testset "Returns false when residuals are decreasing" begin
+        history = [1.0, 0.5, 0.25, 0.125, 0.0625]
+        @test detect_stall(history, 4) == false
+    end
+
+    @testset "Returns true when residuals are plateaued" begin
+        # Last 4 values are within 1e-10 relative tolerance of each other
+        history = [1.0, 0.5, 0.1, 0.1, 0.1, 0.1]
+        @test detect_stall(history, 4) == true
+    end
+
+    @testset "Returns true when residuals oscillate within tolerance" begin
+        # Oscillating but not making progress
+        history = [1.0, 0.5, 0.1001, 0.0999, 0.1001, 0.0999]
+        @test detect_stall(history, 4) == true
+    end
+
+    @testset "Returns false with window=0 (disabled)" begin
+        history = [0.1, 0.1, 0.1, 0.1]
+        @test detect_stall(history, 0) == false
+    end
+
+    @testset "Returns false when only recent values decrease" begin
+        # First few are flat, but the most recent window shows progress
+        history = [1.0, 1.0, 1.0, 0.5, 0.25, 0.1]
+        @test detect_stall(history, 4) == false
+    end
+
+    @testset "Custom stall_rtol" begin
+        # Values differ by ~5%, which is within rtol=0.1 but not rtol=0.01
+        history = [1.0, 0.5, 0.105, 0.100, 0.095, 0.102]
+        @test detect_stall(history, 4; stall_rtol=0.1) == true
+        @test detect_stall(history, 4; stall_rtol=0.001) == false
+    end
+end
+
+@testset "Convergence Stall Detection in Solver" begin
+    @testset "Default stall_window=0 does not change behavior" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # With stall_window=0 (default), behavior should be unchanged
+        result_default = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6
+        )
+
+        result_explicit = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            stall_window=0
+        )
+
+        @test result_default.converged == result_explicit.converged
+        @test result_default.iterations == result_explicit.iterations
+        @test result_default.status == result_explicit.status
+        @test result_default.residual ≈ result_explicit.residual atol=1e-14
+    end
+
+    @testset "Stall detection terminates with :stalled status" begin
+        # Use a problem with tight tolerance and many iterations so it stalls
+        # (residual plateaus above the tolerance)
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Use a very tight tolerance that the solver will plateau above
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=200,
+            tol=1e-16,  # Unreachably tight
+            stall_window=5
+        )
+
+        # The solver should detect the stall and terminate early
+        @test result.status == :stalled
+        @test result.converged == false
+        @test result.iterations < 200  # Should terminate before max_iters
+    end
+
+    @testset "Stall detection emits warning when verbose" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        test_logger = TestLogger(; min_level=Logging.Warn)
+        result = with_logger(test_logger) do
+            run_nonlinear_solver(
+                precomputed,
+                initial_states,
+                prob.G;
+                max_iters=200,
+                tol=1e-16,
+                stall_window=5,
+                verbose=true
+            )
+        end
+
+        # Should emit a warning about stall detection
+        warn_logs = filter(l -> l.level == Logging.Warn, test_logger.logs)
+        @test any(occursin("stall", lowercase(string(l.message))) for l in warn_logs)
+    end
+
+    @testset "stall_window via NonlinearSolver constructor" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=200,
+            tol=1e-16,
+            stall_window=5
+        )
+
+        @test solver.options.stall_window == 5
+    end
+
+    @testset "stall_window override at solve_raw time" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=200,
+            tol=1e-16,
+            stall_window=0  # Default: disabled
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Override stall_window at call site
+        result = solve_raw(solver, initial_states; stall_window=5)
+
+        @test result.status == :stalled
+        @test result.converged == false
+        @test result.iterations < 200
+    end
+
+    @testset "Converging problem is not falsely flagged as stalled" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Reasonable tolerance — solver should converge before stall detection triggers
+        result = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            stall_window=10
+        )
+
+        @test result.converged == true
+        @test result.status in (:solved, :solved_initial_point)
     end
 end

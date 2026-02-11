@@ -202,6 +202,7 @@ function solve(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    stall_window::Union{Nothing, Int} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -218,6 +219,7 @@ function solve(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_stall_window = something(stall_window, options.stall_window)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -233,6 +235,7 @@ function solve(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            stall_window = actual_stall_window,
             to = to
         )
     end
@@ -253,6 +256,7 @@ Solve and return raw solution with convergence info (for debugging/analysis).
 - `linesearch_method::Symbol` - Line search method (default from solver.options)
 - `recompute_policy_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default from solver.options)
 - `show_progress::Bool` - Display iteration progress table (default from solver.options)
+- `stall_window::Int` - Number of recent residuals for stall detection (default from solver.options)
 
 # Returns
 Named tuple with fields:
@@ -267,6 +271,7 @@ Named tuple with fields:
   - `:linear_solver_error` - Newton step computation failed
   - `:line_search_failed` - Armijo line search failed to find sufficient decrease
   - `:numerical_error` - NaN or Inf encountered
+  - `:stalled` - Residual plateau detected (stall_window > 0)
 """
 function solve_raw(
     solver::NonlinearSolver,
@@ -279,6 +284,7 @@ function solve_raw(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    stall_window::Union{Nothing, Int} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -292,6 +298,7 @@ function solve_raw(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_stall_window = something(stall_window, options.stall_window)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -307,6 +314,7 @@ function solve_raw(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            stall_window = actual_stall_window,
             to = to
         )
     end
