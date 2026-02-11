@@ -551,7 +551,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, M_buffers, N_buffers)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, M_buffers, N_buffers)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -568,9 +568,12 @@ See Phase 6 for planned thread-safety improvements.
 - `setup_info::NamedTuple` - Setup info (from setup_approximate_kkt_solver)
 
 # Keyword Arguments
-- `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
-  Beneficial for large M matrices (>100 rows) with structural sparsity from the
-  KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
+  - `:auto` - Use sparse for non-leaf players (leaders with followers have larger M),
+    dense for leaf players (small M, no sparse overhead)
+  - `:always` - Always use sparse LU factorization
+  - `:never` - Always use dense solve
+  - `true`/`false` - Backward-compatible aliases for `:always`/`:never`
 - `M_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated M matrix buffers.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
@@ -586,10 +589,20 @@ function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
-    use_sparse::Bool=false,
+    use_sparse::Union{Symbol,Bool}=:auto,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}()
 )
+    # Normalize Bool to Symbol for backward compatibility
+    mode = if use_sparse isa Bool
+        use_sparse ? :always : :never
+    else
+        use_sparse
+    end
+    if mode ∉ (:auto, :always, :never)
+        throw(ArgumentError("use_sparse must be :auto, :always, :never, or Bool. Got: $(repr(mode))"))
+    end
+
     ws = problem_vars.ws
     ys = problem_vars.ys
     zs = problem_vars.zs
@@ -624,8 +637,15 @@ function compute_K_evals(
             M_evals[ii] = M_buf
             N_evals[ii] = N_buf
 
+            # Decide per-player whether to use sparse solve
+            player_use_sparse = if mode == :auto
+                !is_leaf(graph, ii)  # sparse for leaders (large M), dense for leaves (small M)
+            else
+                mode == :always
+            end
+
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -714,7 +734,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `verbose::Bool=false` - Print per-iteration convergence info
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
-- `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve (see `compute_K_evals`)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
@@ -737,7 +757,7 @@ function run_nonlinear_solver(
     verbose::Bool = false,
     linesearch_method::Symbol = :geometric,
     recompute_policy_in_linesearch::Bool = true,
-    use_sparse::Bool = false,
+    use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )

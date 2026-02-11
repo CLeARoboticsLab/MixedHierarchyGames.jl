@@ -200,7 +200,7 @@ function solve(
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
-    use_sparse::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -277,7 +277,7 @@ function solve_raw(
     verbose::Union{Nothing, Bool} = nothing,
     linesearch_method::Union{Nothing, Symbol} = nothing,
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
-    use_sparse::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )

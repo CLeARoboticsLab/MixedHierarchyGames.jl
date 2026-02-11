@@ -9,7 +9,8 @@ using MixedHierarchyGames:
     setup_problem_variables,
     setup_problem_parameter_variables,
     default_backend,
-    has_leader
+    has_leader,
+    is_leaf
 
 using TrajectoryGamesBase: unflatten_trajectory
 
@@ -411,5 +412,235 @@ end
         )
 
         @test norm(K_vec_sparse - K_vec_dense) / max(norm(K_vec_dense), 1.0) < 1e-10
+    end
+end
+
+#=
+    Adaptive sparse solve tests (:auto, :always, :never)
+=#
+
+"""
+    make_nash_game(; N=3, T=3, state_dim=2, control_dim=2)
+
+Nash game (flat, no hierarchy): All players are leaves — no edges in graph.
+"""
+function make_nash_game(; N=3, T=3, state_dim=2, control_dim=2)
+    G = SimpleDiGraph(N)
+    # No edges — pure Nash game, all players are leaves
+
+    primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+    primal_dims = fill(primal_dim_per_player, N)
+
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
+
+    function make_cost(player_idx, goal)
+        function cost(zs...; θ=nothing)
+            z = zs[player_idx]
+            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+            sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+        end
+        return cost
+    end
+
+    goals = [[Float64(i), Float64(i)] for i in 1:N]
+    Js = Dict(i => make_cost(i, goals[i]) for i in 1:N)
+
+    function make_dynamics_constraint(player_idx)
+        function dynamics_constraint(z)
+            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+            constraints = []
+            for t in 1:T
+                push!(constraints, xs[t+1] - xs[t] - us[t])
+            end
+            push!(constraints, xs[1] - θs[player_idx])
+            return vcat(constraints...)
+        end
+        return dynamics_constraint
+    end
+
+    gs = [make_dynamics_constraint(i) for i in 1:N]
+    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
+end
+
+"""
+    make_five_player_chain(; T=3, state_dim=2, control_dim=2)
+
+5-player chain: P1 -> P2 -> P3 -> P4 -> P5.
+"""
+function make_five_player_chain(; T=3, state_dim=2, control_dim=2)
+    N = 5
+    G = SimpleDiGraph(N)
+    add_edge!(G, 1, 2)
+    add_edge!(G, 2, 3)
+    add_edge!(G, 3, 4)
+    add_edge!(G, 4, 5)
+
+    primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
+    primal_dims = fill(primal_dim_per_player, N)
+
+    θs = setup_problem_parameter_variables(fill(state_dim, N))
+
+    function make_cost(player_idx, goal)
+        function cost(zs...; θ=nothing)
+            z = zs[player_idx]
+            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+            sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+        end
+        return cost
+    end
+
+    goals = [[Float64(i), Float64(i)] for i in 1:N]
+    Js = Dict(i => make_cost(i, goals[i]) for i in 1:N)
+
+    function make_dynamics_constraint(player_idx)
+        function dynamics_constraint(z)
+            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+            constraints = []
+            for t in 1:T
+                push!(constraints, xs[t+1] - xs[t] - us[t])
+            end
+            push!(constraints, xs[1] - θs[player_idx])
+            return vcat(constraints...)
+        end
+        return dynamics_constraint
+    end
+
+    gs = [make_dynamics_constraint(i) for i in 1:N]
+    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
+end
+
+@testset "Adaptive Sparse Solve (:auto/:always/:never)" begin
+
+    @testset "compute_K_evals accepts Symbol use_sparse — 3-player chain" begin
+        prob = make_three_player_chain()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+        z_current = randn(length(precomputed.all_variables))
+
+        # All three Symbol modes should work without error
+        K_never, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:never)
+        K_always, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:always)
+        K_auto, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:auto)
+
+        # All modes produce identical numerical results
+        @test norm(K_always - K_never) / max(norm(K_never), 1.0) < 1e-10
+        @test norm(K_auto - K_never) / max(norm(K_never), 1.0) < 1e-10
+    end
+
+    @testset "compute_K_evals accepts Symbol use_sparse — 4-player chain" begin
+        prob = make_four_player_chain()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+        z_current = randn(length(precomputed.all_variables))
+
+        K_never, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:never)
+        K_always, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:always)
+        K_auto, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:auto)
+
+        @test norm(K_always - K_never) / max(norm(K_never), 1.0) < 1e-10
+        @test norm(K_auto - K_never) / max(norm(K_never), 1.0) < 1e-10
+    end
+
+    @testset "Bool use_sparse still works (backward compatibility)" begin
+        prob = make_three_player_chain()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+        z_current = randn(length(precomputed.all_variables))
+
+        # Bool false = :never, Bool true = :always
+        K_false, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=false)
+        K_true, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=true)
+        K_never, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:never)
+        K_always, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:always)
+
+        @test norm(K_false - K_never) / max(norm(K_never), 1.0) < 1e-10
+        @test norm(K_true - K_always) / max(norm(K_always), 1.0) < 1e-10
+    end
+
+    @testset ":auto selects sparse for leaders, dense for leaves — 3-player chain" begin
+        # In 1→2→3: Player 1 is root+leader, Player 2 is mid (leader+follower), Player 3 is leaf
+        # Only players with leaders (2, 3) compute M\N
+        # Player 2 is NOT a leaf (has follower 3) → :auto should use sparse
+        # Player 3 IS a leaf (no followers) → :auto should use dense
+        prob = make_three_player_chain()
+
+        # Verify graph structure expectations
+        @test !is_leaf(prob.G, 1)  # P1 has followers
+        @test !is_leaf(prob.G, 2)  # P2 has followers
+        @test is_leaf(prob.G, 3)   # P3 is leaf
+
+        # Player 1 has no leader → no M\N solve needed
+        @test !has_leader(prob.G, 1)
+        # Players 2 and 3 have leaders → M\N solve needed
+        @test has_leader(prob.G, 2)
+        @test has_leader(prob.G, 3)
+    end
+
+    @testset ":auto gives same results as :never on Nash game (all leaves)" begin
+        prob = make_nash_game()
+        # In Nash game, all players are leaves — no one has a leader, so no M\N solve
+        # :auto and :never should produce identical (empty) results
+        for ii in 1:prob.N
+            @test is_leaf(prob.G, ii)
+            @test !has_leader(prob.G, ii)
+        end
+    end
+
+    @testset "Invalid use_sparse Symbol raises error" begin
+        prob = make_three_player_chain()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+        z_current = randn(length(precomputed.all_variables))
+
+        @test_throws ArgumentError compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info;
+            use_sparse=:invalid
+        )
+    end
+
+    @testset "5-player chain — :auto matches :never numerically" begin
+        prob = make_five_player_chain()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim, verbose=false
+        )
+        z_current = randn(length(precomputed.all_variables))
+
+        K_never, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:never)
+        K_auto, _ = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info; use_sparse=:auto)
+
+        @test norm(K_auto - K_never) / max(norm(K_never), 1.0) < 1e-10
+    end
+
+    @testset "5-player chain — :auto selects correctly per player" begin
+        prob = make_five_player_chain()
+        # 1→2→3→4→5
+        # P1: root (no leader, not leaf) → no M\N solve
+        # P2: has leader P1, has follower P3 → not leaf → :auto uses sparse
+        # P3: has leader P2, has follower P4 → not leaf → :auto uses sparse
+        # P4: has leader P3, has follower P5 → not leaf → :auto uses sparse
+        # P5: has leader P4, no followers → leaf → :auto uses dense
+        @test !has_leader(prob.G, 1)
+        @test !is_leaf(prob.G, 1)
+
+        @test has_leader(prob.G, 2)
+        @test !is_leaf(prob.G, 2)
+
+        @test has_leader(prob.G, 3)
+        @test !is_leaf(prob.G, 3)
+
+        @test has_leader(prob.G, 4)
+        @test !is_leaf(prob.G, 4)
+
+        @test has_leader(prob.G, 5)
+        @test is_leaf(prob.G, 5)
     end
 end
