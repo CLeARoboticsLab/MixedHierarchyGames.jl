@@ -593,3 +593,81 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: proposal/unified-solver-interface (bead yc2)
+
+**Date:** 2026-02-11
+**Commits:** 2
+**Tests:** 945 passing (24 new)
+
+### Summary
+
+API design proposal evaluating whether to consolidate the low-level solver API and TrajectoryGamesBase interface. Found that `solve()` already serves as a unified entry point. Implemented two incremental improvements: `AbstractHierarchySolver` abstract type and flexible input format (Vector-of-Vectors alongside Dict).
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Tests written first and confirmed failing (9 errors) before any implementation
+  - Clean 2-commit structure: RED (tests) then GREEN (implementation)
+  - All 24 new tests verify behavior, not implementation details
+  - Existing 921 tests continue passing (+ 24 new = 945 total)
+
+- **What could improve:**
+  - Could have written the `_to_parameter_dict` unit tests as a separate first commit for even finer granularity
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - `_to_parameter_dict` is a small, single-purpose function with clear error messages
+  - Used multiple dispatch (3 methods) instead of if-else chains for type conversion
+  - Abstract type is minimal — just documents the contract, no unnecessary methods
+  - Docstrings updated to reflect new parameter names and accepted formats
+
+- **What could improve:**
+  - Parameter rename from `parameter_values` to `initial_state` in function signatures is a minor API change; kept Dict passthrough for zero-cost backward compatibility
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Conversion function lives in solve.jl (close to usage, not in a separate utils file)
+  - Abstract type in types.jl alongside concrete types
+  - No new dependencies or module changes needed
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Exactly 2 commits: tests then implementation
+  - Each commit is focused and self-contained
+  - Messages describe what and why, not just what
+
+### CLAUDE.md Compliance
+
+**Score: Strong (9/10)**
+
+- [x] TDD followed (red-green-refactor)
+- [x] Tolerances tight (1e-10)
+- [x] Full test suite verified
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Retrospective written before PR finalized
+
+### Key Learnings
+
+1. **Analysis before implementation saves effort.** Thorough API surface audit revealed that unification already existed — the real issues were small ergonomic gaps, not architectural flaws.
+2. **Proposals can be small.** The temptation was to redesign the whole solver API. The right answer was two targeted improvements totaling ~60 lines of implementation.
+3. **`solve_trajectory_game!` is dead infrastructure.** The TGB adapter is never called outside tests. Future work could deprecate it if TGB compatibility isn't needed.
+
+### Action Items for Next PR
+
+- [ ] Consider deprecating `solve_trajectory_game!` if TGB compatibility is confirmed unnecessary
+- [ ] Consider whether `solve_raw` return types should be unified (currently different NamedTuples per solver)
