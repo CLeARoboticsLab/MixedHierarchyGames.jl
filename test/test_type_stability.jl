@@ -66,9 +66,9 @@ using MixedHierarchyGames:
         # which is done once at solver creation, not in the hot solve path.
         @test setup_info.πs isa Dict{Int, Any}
 
-        # M_fns and N_fns should be Dict{Int, Function}
-        @test setup_info.M_fns isa Dict{Int, Function}
-        @test setup_info.N_fns isa Dict{Int, Function}
+        # M_fns! and N_fns! should be Dict{Int, Function}
+        @test setup_info.var"M_fns!" isa Dict{Int, Function}
+        @test setup_info.var"N_fns!" isa Dict{Int, Function}
     end
 
     @testset "compute_K_evals returns typed containers" begin
