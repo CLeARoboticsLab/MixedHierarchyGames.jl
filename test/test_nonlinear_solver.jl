@@ -2148,3 +2148,151 @@ end
         @test contains(output, "iter")
     end
 end
+
+#=
+    Tests for pre-allocated parameter buffers
+=#
+
+@testset "Pre-allocated parameter buffers" begin
+    @testset "F_trial buffer is reused across linesearch iterations (2-player)" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Baseline result
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        # Run again - must produce identical results (buffer reuse must not corrupt)
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+        @test result_rerun.status == result_baseline.status
+    end
+
+    @testset "F_trial buffer is reused across linesearch iterations (3-player)" begin
+        prob = make_three_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5], 3 => [1.0, 1.0])
+
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+    end
+
+    @testset "Armijo linesearch produces identical results with buffer reuse" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result_geometric = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+
+        result_armijo = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:armijo
+        )
+
+        # Both should converge to same solution
+        @test result_geometric.converged
+        @test result_armijo.converged
+        @test result_geometric.sol ≈ result_armijo.sol atol=1e-6
+    end
+
+    @testset "all_K_vec buffer reused in compute_K_evals" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        z_test = zeros(length(precomputed.all_variables))
+
+        # Call compute_K_evals twice - results must be identical
+        all_K_vec_1, info_1 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_vec_2, info_2 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+
+        @test all_K_vec_1 ≈ all_K_vec_2 atol=1e-14
+        @test info_1.status == info_2.status
+    end
+
+    @testset "Solver iteration allocations are reduced" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Warm up (first run triggers compilation)
+        run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6
+        )
+
+        # Measure allocations on second run
+        allocs = @allocated run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6
+        )
+
+        # Pre-allocated buffers should keep allocations under control.
+        # Without pre-allocation, F_trial alone allocates ~n*8 bytes per linesearch trial.
+        # This threshold is generous but ensures we're not allocating excessively.
+        # For a 2-player problem with n≈40 variables, 100KB is reasonable with pre-allocation.
+        @test allocs < 100_000  # 100KB threshold
+    end
+end
