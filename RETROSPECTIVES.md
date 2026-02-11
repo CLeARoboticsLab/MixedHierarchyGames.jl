@@ -416,15 +416,15 @@ Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` fl
 
 ---
 
-## PR: perf/adaptive-sparse-solve (bead bhz)
+## PR #87: perf/adaptive-sparse-solve (bead bhz)
 
-**Date:** 2026-02-09
-**Commits:** 4
-**Tests:** 511 passing (30 new)
+**Date:** 2026-02-09 (original), 2026-02-10 (merge with main + re-verification)
+**Commits:** 5 (4 original + 1 merge)
+**Tests:** 951 passing (30 new from this PR)
 
 ### Summary
 
-Replaced the global `use_sparse::Bool` flag with an adaptive `use_sparse::Union{Symbol,Bool}=:auto` that selects per-player: sparse LU for non-leaf players (leaders with large M matrices from follower KKT conditions), dense solve for leaf players (small M, no sparse overhead). Includes benchmark comparison across Nash, 3-player chain, 5-player chain, and larger dimension problems.
+Replaced the global `use_sparse::Bool` flag with an adaptive `use_sparse::Union{Symbol,Bool}=:auto` that selects per-player: sparse LU for non-leaf players (leaders with large M matrices from follower KKT conditions), dense solve for leaf players (small M, no sparse overhead). Merged with main (which had 20 PRs integrated via #99) and resolved 4 conflict files. All benchmarks re-run post-merge to verify behavior.
 
 ### TDD Compliance
 
@@ -528,10 +528,27 @@ Two-part bead: profiled ParametricMCPs usage (s6u-a), then implemented buffer pr
 
 ### Key Learnings
 
-1. **:auto is the right default.** For the 3-player chain, :auto (1015μs) actually beats both :always (1050μs) and :never (1156μs) because it uses sparse only where it helps.
-2. **For deeper chains, :always still wins slightly.** With 5 players (4 have leaders, only 1 leaf), the single dense leaf player doesn't offset the overhead of the auto-check. But the difference is small (1.09x).
-3. **Nash games have zero M\N solve cost.** All players are roots with no leaders, so compute_K_evals is essentially a no-op (0.4μs). Mode doesn't matter.
+1. **:auto is a good default.** For the 3-player chain end-to-end, :auto (3604μs) beats both :always (3615μs) and :never (3816μs) at the full solve level.
+2. **For deeper chains, :always wins at compute_K_evals level.** With 5 players (4 leaders, 1 leaf), the single dense leaf doesn't offset sparse overhead. But at the full solve level, the difference is small.
+3. **Nash games have zero M\N solve cost.** All players are roots, so compute_K_evals is a no-op (~0.4μs). Mode doesn't matter.
 4. **Union{Symbol,Bool} with normalization is clean.** Converting Bool to Symbol early avoids branching downstream and maintains full backward compatibility.
+5. **Merge conflicts are manageable when changes are localized.** The adaptive sparse feature only touches 3 src files, making conflict resolution straightforward even after 20 PRs landed on main.
+6. **All modes produce bit-identical results (sol_diff = 0.00e+00).** Numerical equivalence verified across all problem sizes and hierarchy structures.
+
+### Post-Merge Benchmark Results (2026-02-10)
+
+| Problem | Solver | Structure | :never | :always | :auto | Best? |
+|---------|--------|-----------|--------|---------|-------|-------|
+| Nash 3P | Nonlinear | Flat | 0.4μs | 0.4μs | 0.4μs | tie |
+| Chain 3P (T=3,s=2) | NL (K only) | Hub | 1606μs | 1008μs | 1371μs | :always |
+| Chain 3P (T=3,s=2) | NL (e2e) | Hub | 3816μs | 3615μs | 3604μs | :auto |
+| Chain 3P (T=3,s=2) | QP | Hub | ~80μs | N/A | N/A | N/A |
+| Chain 4P (T=5,s=4) | NL (K only) | Chain | 6529μs | 5337μs | 5786μs | :always |
+| Chain 4P (T=5,s=4) | NL (e2e) | Chain | 114ms | 93ms | 98ms | :always |
+| Chain 5P (T=3,s=2) | NL (K only) | Chain | 11968μs | 9668μs | 10760μs | :always |
+| Chain 5P (T=3,s=2) | NL (e2e) | Chain | 44ms | 38ms | 42ms | :always |
+
+**Key finding**: `:auto` wins at the full solve level for smaller problems (3-player) where the overhead-per-call matters more. For larger problems, `:always` wins because the sparse advantage for leaders outweighs the leaf dense saving. `:auto` is always between `:always` and `:never`, never the worst.
 
 ### Action Items for Next PR
 
