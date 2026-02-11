@@ -355,6 +355,8 @@ Construct a NonlinearSolver from low-level problem components.
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `inplace_MN::Bool=false` - Use pre-allocated buffers for M/N matrix evaluation,
   avoiding per-call allocations. Provides significant speedup for iterative solves.
+- `inplace_ldiv::Bool=false` - Use `ldiv!(K_buf, lu(M), N)` instead of `M \\ N`
+  to avoid allocating the K result matrix on each iteration.
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
@@ -377,6 +379,7 @@ function NonlinearSolver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     inplace_MN::Bool = false,
+    inplace_ldiv::Bool = false,
     show_progress::Bool = false,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
@@ -407,7 +410,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, inplace_MN, show_progress)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, inplace_MN, inplace_ldiv, show_progress)
     end
 
     return NonlinearSolver(problem, precomputed, options)

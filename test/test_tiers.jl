@@ -28,6 +28,7 @@ const SLOW_TEST_FILES = [
     "test_sparse_solve.jl",
     "test_allocation_optimization.jl",
     "test_inplace_strategies.jl",
+    "test_inplace_ksolve.jl",
 ]
 
 """

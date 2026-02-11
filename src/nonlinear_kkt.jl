@@ -559,7 +559,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false, MN_buffers=nothing)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false, MN_buffers=nothing, inplace_ldiv=false, K_buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -583,6 +583,12 @@ See Phase 6 for planned thread-safety improvements.
   (M_buffers, N_buffers Dicts). When `inplace_MN=true` and this is `nothing`,
   buffers are allocated on first call. Pass pre-allocated buffers from
   `run_nonlinear_solver` to avoid re-allocation across iterations.
+- `inplace_ldiv::Bool=false` - If true, use `ldiv!(K_buf, lu(M), N)` instead of
+  `M \\ N` to avoid allocating the result matrix. K_buffers are lazily allocated
+  on first use if not provided.
+- `K_buffers::Union{Nothing, Dict{Int, Matrix{Float64}}}=nothing` - Pre-allocated
+  K result buffers (one per follower player). When `inplace_ldiv=true` and this is
+  `nothing`, buffers are allocated on first call.
 
 # Returns
 Tuple of:
@@ -596,7 +602,9 @@ function compute_K_evals(
     setup_info::NamedTuple;
     use_sparse::Bool=false,
     inplace_MN::Bool=false,
-    MN_buffers::Union{Nothing, NamedTuple}=nothing
+    MN_buffers::Union{Nothing, NamedTuple}=nothing,
+    inplace_ldiv::Bool=false,
+    K_buffers::Union{Nothing, Dict{Int, Matrix{Float64}}}=nothing
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -650,7 +658,18 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            K_buf = if inplace_ldiv
+                if K_buffers !== nothing
+                    get!(K_buffers, ii) do
+                        zeros(Float64, length(ws[ii]), length(ys[ii]))
+                    end
+                else
+                    zeros(Float64, length(ws[ii]), length(ys[ii]))
+                end
+            else
+                nothing
+            end
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse, K_buffer=K_buf)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -669,19 +688,28 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, K_buffer=nothing)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `K_buffer` is provided, uses `ldiv!(K_buffer, lu(M), N)` to write the result
+into the pre-allocated buffer, avoiding allocation of the result matrix.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                  use_sparse::Bool=false, K_buffer::Union{Nothing, Matrix{Float64}}=nothing)
     try
-        K = if use_sparse
+        K = if K_buffer !== nothing && size(M, 1) == size(M, 2)
+            # In-place path for square M: ldiv!(factorization, B) overwrites B with M\B
+            copyto!(K_buffer, N)
+            ldiv!(lu(M), K_buffer)
+            K_buffer
+        elseif use_sparse
             sparse(M) \ N
         else
             M \ N
@@ -718,6 +746,7 @@ end
         recompute_policy_in_linesearch::Bool = true,
         use_sparse::Bool = false,
         inplace_MN::Bool = false,
+        inplace_ldiv::Bool = false,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -743,6 +772,8 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `inplace_MN::Bool=false` - Use pre-allocated buffers for M/N matrix evaluation,
   avoiding per-call allocations. Provides significant speedup for iterative solves.
+- `inplace_ldiv::Bool=false` - Use `ldiv!(K_buf, lu(M), N)` instead of `M \\ N`
+  to avoid allocating the K result matrix on each iteration.
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
@@ -767,6 +798,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     inplace_MN::Bool = false,
+    inplace_ldiv::Bool = false,
     show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -812,9 +844,18 @@ function run_nonlinear_solver(
         nothing
     end
 
+    # Pre-allocate K result buffers for in-place ldiv! (lazily filled on first use)
+    k_buffers = if inplace_ldiv
+        Dict{Int, Matrix{Float64}}()
+    else
+        nothing
+    end
+
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, inplace_MN, MN_buffers=mn_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info;
+            use_sparse, inplace_MN, MN_buffers=mn_buffers,
+            inplace_ldiv, K_buffers=k_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end

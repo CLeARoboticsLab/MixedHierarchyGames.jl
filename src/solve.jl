@@ -203,6 +203,7 @@ function solve(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     inplace_MN::Union{Nothing, Bool} = nothing,
+    inplace_ldiv::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -220,6 +221,7 @@ function solve(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_inplace_MN = something(inplace_MN, options.inplace_MN)
+    actual_inplace_ldiv = something(inplace_ldiv, options.inplace_ldiv)
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
@@ -236,6 +238,7 @@ function solve(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             inplace_MN = actual_inplace_MN,
+            inplace_ldiv = actual_inplace_ldiv,
             show_progress = actual_show_progress,
             to = to
         )
@@ -283,6 +286,7 @@ function solve_raw(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     inplace_MN::Union{Nothing, Bool} = nothing,
+    inplace_ldiv::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -297,6 +301,7 @@ function solve_raw(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_inplace_MN = something(inplace_MN, options.inplace_MN)
+    actual_inplace_ldiv = something(inplace_ldiv, options.inplace_ldiv)
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
@@ -313,6 +318,7 @@ function solve_raw(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             inplace_MN = actual_inplace_MN,
+            inplace_ldiv = actual_inplace_ldiv,
             show_progress = actual_show_progress,
             to = to
         )
