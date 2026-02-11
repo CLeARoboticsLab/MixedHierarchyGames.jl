@@ -648,14 +648,11 @@ severely ill-conditioned, with a warning.
 function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
                   use_sparse::Bool=false, refinement_steps::Int=0)
     try
-        # Factorize once and reuse for initial solve + refinement corrections
-        F = if use_sparse
-            lu(sparse(M))
+        K = if use_sparse
+            sparse(M) \ N
         else
-            lu(M)
+            M \ N
         end
-
-        K = F \ N
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
@@ -664,10 +661,14 @@ function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
         end
 
         # Iterative refinement: compute residual in working precision,
-        # solve correction with same factorization, update K
+        # solve correction reusing the same approach, update K
         for _ in 1:refinement_steps
             R = N - M * K
-            D = F \ R
+            D = if use_sparse
+                sparse(M) \ R
+            else
+                M \ R
+            end
             if any(!isfinite, D)
                 break  # Stop refinement if correction is non-finite
             end
