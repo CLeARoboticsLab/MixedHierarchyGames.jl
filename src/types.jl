@@ -354,6 +354,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
+- `stall_window::Int=0` - Number of recent residuals to track for stall detection. When > 0, terminates with `:stalled` status if residuals plateau. Default 0 disables stall detection.
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
   symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
@@ -375,6 +376,7 @@ function NonlinearSolver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
+    stall_window::Int = 0,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -404,7 +406,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress, stall_window)
     end
 
     return NonlinearSolver(problem, precomputed, options)
