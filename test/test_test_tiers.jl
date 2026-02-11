@@ -30,6 +30,7 @@
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
             "test_inplace_strategies.jl",
+            "test_inplace_ksolve.jl",
         ]
         @test Set(SLOW_TEST_FILES) == Set(expected_slow)
     end
@@ -60,6 +61,7 @@
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
             "test_inplace_strategies.jl",
+            "test_inplace_ksolve.jl",
         ])
         @test all_classified == expected_all
     end
