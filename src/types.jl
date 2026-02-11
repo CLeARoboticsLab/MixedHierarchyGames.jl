@@ -249,7 +249,7 @@ function QPSolver(
     solver::Symbol = :linear,
     to::TimerOutput = TimerOutput()
 )
-    @timeit to "QPSolver construction" begin
+    @timeit_debug to "QPSolver construction" begin
         # Validate inputs
         _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
@@ -259,7 +259,7 @@ function QPSolver(
         # Note: setup_problem_variables validates constraint function signatures internally
         vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
-        @timeit to "KKT conditions" begin
+        @timeit_debug to "KKT conditions" begin
             θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
             kkt_result = get_qp_kkt_conditions(
                 hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
@@ -269,12 +269,12 @@ function QPSolver(
         end
 
         # Build and cache ParametricMCP for solving
-        @timeit to "ParametricMCP build" begin
+        @timeit_debug to "ParametricMCP build" begin
             parametric_mcp = _build_parametric_mcp(πs_solve, vars.all_variables, θs)
         end
 
         # Verify the system is linear (QP assumption) during construction
-        @timeit to "linearity check" begin
+        @timeit_debug to "linearity check" begin
             _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
         end
 
@@ -378,7 +378,7 @@ function NonlinearSolver(
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
-    @timeit to "NonlinearSolver construction" begin
+    @timeit_debug to "NonlinearSolver construction" begin
         # Validate linesearch method
         if linesearch_method ∉ VALID_LINESEARCH_METHODS
             throw(ArgumentError(

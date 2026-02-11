@@ -33,9 +33,12 @@ end
 """
     @timeit_debug timer_output "label" expr
 
-Conditionally timed block. When `TIMING_ENABLED[]` is `true`, behaves like
-`@timeit timer_output "label" expr`. When `false`, executes `expr` directly
-with zero overhead (the timer output and label are not evaluated).
+Conditionally timed block. When `TIMING_ENABLED[]` is `true`, records
+timing via `begin_timed_section!`/`end_timed_section!` from TimerOutputs.jl.
+When `false`, executes `expr` directly with near-zero overhead (one branch check).
+
+The body is never duplicated in the macro expansion, so function definitions
+inside the body work correctly.
 
 # Examples
 ```julia
@@ -46,16 +49,30 @@ enable_timing!()
 end
 disable_timing!()
 @timeit_debug to "my section" begin
-    # NOT timed — zero overhead
+    # NOT timed — near-zero overhead
 end
 ```
 """
 macro timeit_debug(timer_output, label, expr)
-    quote
-        if $TIMING_ENABLED[]
-            @timeit $(esc(timer_output)) $(esc(label)) $(esc(expr))
+    _section = gensym("section")
+
+    # Use Expr(:tryfinally, body, cleanup) to avoid creating a new scope
+    # (same pattern as TimerOutputs.@timeit uses internally).
+    setup = quote
+        local $_section = if $TIMING_ENABLED[]
+            TimerOutputs.begin_timed_section!($(esc(timer_output)), $(esc(label)))
         else
-            $(esc(expr))
+            nothing
         end
     end
+
+    cleanup = quote
+        if $_section !== nothing
+            TimerOutputs.end_timed_section!($(esc(timer_output)), $_section)
+        end
+    end
+
+    Expr(:block,
+        setup,
+        Expr(:tryfinally, esc(expr), cleanup))
 end

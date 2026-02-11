@@ -14,6 +14,7 @@
             "test_qp_failure_modes.jl",
             "test_interface.jl",
             "test_timer.jl",
+            "test_timeit_debug.jl",
             "test_type_bounds.jl",
             "test_block_arrays.jl",
             "olse/test_qp_solver.jl",
@@ -56,6 +57,7 @@
             "test_type_bounds.jl",
             "test_block_arrays.jl",
             "test_timer.jl",
+            "test_timeit_debug.jl",
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
         ])

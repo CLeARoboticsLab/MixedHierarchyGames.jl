@@ -58,7 +58,7 @@ function solve(
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
 
-    @timeit to "QPSolver solve" begin
+    @timeit_debug to "QPSolver solve" begin
         if solver_type == :linear
             sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
                                           verbose, to, J_buffer, F_buffer, z0_buffer)
@@ -113,7 +113,7 @@ function solve_raw(
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
 
-    @timeit to "QPSolver solve" begin
+    @timeit_debug to "QPSolver solve" begin
         if solver_type == :linear
             sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
                                           verbose, to, J_buffer, F_buffer, z0_buffer)
@@ -220,7 +220,7 @@ function solve(
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
-    @timeit to "NonlinearSolver solve" begin
+    @timeit_debug to "NonlinearSolver solve" begin
         result = run_nonlinear_solver(
             precomputed,
             parameter_values,
@@ -294,7 +294,7 @@ function solve_raw(
     actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
-    @timeit to "NonlinearSolver solve" begin
+    @timeit_debug to "NonlinearSolver solve" begin
         result = run_nonlinear_solver(
             precomputed,
             parameter_values,
@@ -548,17 +548,17 @@ function solve_qp_linear(
     fill!(z0, 0.0)
 
     # Evaluate at zero (for LQ, any point works since system is linear)
-    @timeit to "residual evaluation" begin
+    @timeit_debug to "residual evaluation" begin
         parametric_mcp.f!(F, z0, all_param_vals_vec)
     end
-    @timeit to "Jacobian evaluation" begin
+    @timeit_debug to "Jacobian evaluation" begin
         parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
     end
 
     # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
     # Note: No regularization is applied. For ill-conditioned systems, this may fail
     # or produce inaccurate results. See Phase 5 bead for planned Tikhonov regularization.
-    @timeit to "linear solve" begin
+    @timeit_debug to "linear solve" begin
         try
             sol = J \ (-F)
 
