@@ -593,3 +593,56 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: proposal/thread-safety (bead bq8)
+
+**Date:** 2026-02-11
+**Commits:** 1
+**Tests:** 921 passing (no new tests — analysis-only PR)
+
+### Summary
+
+Evaluated thread safety for nonlinear solver buffers. Identified all mutable state that would be unsafe under concurrent `solve()` calls. Found no current threading usage in the codebase. Recommendation: do not implement — no current need.
+
+### TDD Compliance
+
+**Score: N/A** — Analysis/investigation PR, no new code written.
+
+### Clean Code Practices
+
+**Score: N/A** — No code changes.
+
+### Clean Architecture Practices
+
+**Score: N/A** — No code changes.
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- Single focused commit containing only the retrospective entry for an analysis-only PR
+- PR description contains the full analysis as the deliverable
+
+### CLAUDE.md Compliance
+
+**Score: Good (9/10)**
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Full test suite verified (921 passing)
+- [x] Retrospective recorded
+- [x] Bead status updated
+- [x] PR created with full description (analysis is the deliverable)
+- [x] No code changes — pure investigation as requested
+
+### Key Learnings
+
+1. **Thread safety is a known, documented issue** — the codebase already has a docstring noting `compute_K_evals` is not thread-safe (line 551-554 of nonlinear_kkt.jl).
+2. **The immutable solver / mutable precomputed pattern is the core issue** — `NonlinearSolver` is an immutable struct, but its `precomputed` NamedTuple holds shared mutable state (`linsolver`, `mcp_obj`).
+3. **No users exercise threading today** — zero `@threads`, `@spawn`, or `Threads.*` calls in the entire codebase.
+4. **The right fix when needed is workspace separation** — either per-thread solver copies or an explicit `SolverWorkspace` struct that users allocate per-thread.
+
+### Action Items for Next PR
+
+- [ ] If threading becomes a real use case, implement workspace separation pattern (bead bq8 has full analysis)
