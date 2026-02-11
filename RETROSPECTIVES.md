@@ -593,3 +593,74 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: proposal/iterative-refinement
+
+**Date:** 2026-02-11
+**Commits:** 4
+**Tests:** 27 new (all passing), 920+ existing (no regressions from this PR)
+
+### Summary
+
+Evaluated adding iterative refinement for `M\N` linear solves in the solver hot loop. Added `refinement_steps::Int=0` parameter threaded through the full solver pipeline (`_solve_K` → `compute_K_evals` → `run_nonlinear_solver` → `solve`/`solve_raw` → `NonlinearSolver`). Analysis showed standard double-precision iterative refinement provides inconsistent and often negligible benefit. **Recommendation: do NOT land.**
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Failing tests written first (RED commit with 7 erroring test sets)
+  - Implementation written to make tests pass (GREEN commit)
+  - Test expectations adjusted based on empirical findings rather than relaxing tolerances
+  - Tests document actual behavior rather than asserting unrealistic improvement
+
+- **What could be better:**
+  - Initial test expectations assumed refinement would always improve accuracy — had to revise after discovering the actual behavior. A quick prototype before writing assertions would have avoided the revision.
+
+### Clean Code
+
+**Score: Good (8/10)**
+
+- Functions remain small and focused
+- `_solve_K` change is minimal: ~12 lines added for the refinement loop
+- Parameter threading follows existing patterns (`use_sparse` was the template)
+- No dead code introduced
+
+### Clean Architecture
+
+**Score: Good (8/10)**
+
+- Parameter flows cleanly through existing layers
+- Default `0` preserves backward compatibility at every level
+- No architectural changes needed
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- 4 focused commits: (1) failing tests, (2) implementation + passing tests, (3) pipeline threading, (4) regression fix
+- Each commit is self-contained with clear messages
+- The LU factorization regression (commit 3→4) could have been avoided by testing the sparse path earlier
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances at 1e-10 or tighter
+- [x] Retrospective written
+- [x] No dead code introduced
+- [x] PR description will recommend NOT landing with data
+
+### Key Learnings
+
+1. Standard double-precision iterative refinement (computing residuals in same precision as solve) provides inconsistent benefit: helps at cond~1e8 (~1.3x), hurts at cond~1e10 (0.15x worse), mixed at cond~1e12.
+2. For iterative refinement to reliably help, residuals must be computed in higher precision (mixed-precision approach), which is not available in Julia's standard `\` operator.
+3. Overhead is significant: 2-9x per solve depending on matrix size and number of steps.
+4. `lu(sparse(M))` behaves differently from `sparse(M) \ N` — the backslash operator handles non-square matrices and edge cases more robustly.
+5. When evaluating a numerical technique, prototype the core behavior BEFORE writing test assertions.
+
+### Action Items for Next PR
+
+- [ ] If mixed-precision refinement is ever desired, investigate `GenericLinearAlgebra.jl` or manual `BigFloat` residual computation
+- [ ] Pre-existing test failures (4-player chain BoundsError, 3-player convergence, KKT verification) need separate investigation
