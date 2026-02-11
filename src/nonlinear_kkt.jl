@@ -559,7 +559,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false, MN_buffers=nothing)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, inplace_MN=false, MN_buffers=nothing, inplace_lu=false, lu_buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -583,6 +583,12 @@ See Phase 6 for planned thread-safety improvements.
   (M_buffers, N_buffers Dicts). When `inplace_MN=true` and this is `nothing`,
   buffers are allocated on first call. Pass pre-allocated buffers from
   `run_nonlinear_solver` to avoid re-allocation across iterations.
+- `inplace_lu::Bool=false` - If true, use `lu!` + `ldiv!` for in-place LU
+  factorization and solve of K = M \\ N, avoiding allocations. Requires
+  scratch buffers for M (destroyed by lu!) and K (written by ldiv!).
+- `lu_buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers
+  for in-place LU solve (M_scratch, K_buffer Dicts). When `inplace_lu=true`
+  and this is `nothing`, buffers are allocated on first call.
 
 # Returns
 Tuple of:
@@ -596,7 +602,9 @@ function compute_K_evals(
     setup_info::NamedTuple;
     use_sparse::Bool=false,
     inplace_MN::Bool=false,
-    MN_buffers::Union{Nothing, NamedTuple}=nothing
+    MN_buffers::Union{Nothing, NamedTuple}=nothing,
+    inplace_lu::Bool=false,
+    lu_buffers::Union{Nothing, NamedTuple}=nothing
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -650,7 +658,13 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            # lu!+ldiv! only works for square M; fall back to default for rectangular
+            M_is_square = size(M_evals[ii], 1) == size(M_evals[ii], 2)
+            if inplace_lu && !use_sparse && M_is_square
+                K_evals[ii] = _solve_K_inplace!(M_evals[ii], N_evals[ii], ii, lu_buffers)
+            else
+                K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            end
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -706,6 +720,55 @@ function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_s
 end
 
 """
+    _solve_K_inplace!(M, N, player_idx, lu_buffers)
+
+Solve `K = M \\ N` using in-place `lu!` + `ldiv!` to avoid allocations.
+
+Uses pre-allocated scratch buffers: `M_scratch` (since `lu!` destroys input)
+and `K_buffer` (written by `ldiv!`). Buffers are lazily allocated on first use.
+
+Falls back to NaN-filled matrix on singular or ill-conditioned M, with a warning.
+"""
+function _solve_K_inplace!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int,
+                           lu_buffers::Union{Nothing, NamedTuple})
+    n_rows, n_cols_n = size(N)
+    try
+        if lu_buffers !== nothing
+            # Get or allocate scratch buffer for M (lu! destroys input)
+            M_scratch = get!(lu_buffers.M_scratch, player_idx) do
+                Matrix{Float64}(undef, size(M)...)
+            end
+            # Get or allocate K buffer
+            K_buf = get!(lu_buffers.K_buffer, player_idx) do
+                Matrix{Float64}(undef, n_rows, n_cols_n)
+            end
+            copyto!(M_scratch, M)
+            lu_factored = lu!(M_scratch)
+            ldiv!(K_buf, lu_factored, N)
+        else
+            # No buffers provided — allocate fresh
+            M_copy = copy(M)
+            K_buf = similar(N)
+            lu_factored = lu!(M_copy)
+            ldiv!(K_buf, lu_factored, N)
+        end
+
+        if any(!isfinite, K_buf)
+            @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
+            return fill(NaN, n_rows, n_cols_n)
+        end
+
+        return K_buf
+    catch e
+        if e isa SingularException || e isa LAPACKException
+            @warn "Singular M matrix for player $player_idx: $e. Using NaN fallback."
+            return fill(NaN, n_rows, n_cols_n)
+        end
+        rethrow()
+    end
+end
+
+"""
     run_nonlinear_solver(
         precomputed::NamedTuple,
         initial_states::Dict,
@@ -718,6 +781,7 @@ end
         recompute_policy_in_linesearch::Bool = true,
         use_sparse::Bool = false,
         inplace_MN::Bool = false,
+        inplace_lu::Bool = false,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -743,6 +807,8 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `inplace_MN::Bool=false` - Use pre-allocated buffers for M/N matrix evaluation,
   avoiding per-call allocations. Provides significant speedup for iterative solves.
+- `inplace_lu::Bool=false` - Use `lu!` + `ldiv!` for in-place LU factorization and
+  solve of K = M \\ N, avoiding allocations in the K solve step.
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
@@ -767,6 +833,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     inplace_MN::Bool = false,
+    inplace_lu::Bool = false,
     show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -812,9 +879,16 @@ function run_nonlinear_solver(
         nothing
     end
 
+    # Pre-allocate LU scratch buffers (lazily filled on first use)
+    lu_bufs = if inplace_lu
+        (; M_scratch = Dict{Int, Matrix{Float64}}(), K_buffer = Dict{Int, Matrix{Float64}}())
+    else
+        nothing
+    end
+
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, inplace_MN, MN_buffers=mn_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, inplace_MN, MN_buffers=mn_buffers, inplace_lu, lu_buffers=lu_bufs)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
