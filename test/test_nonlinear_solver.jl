@@ -176,8 +176,8 @@ end
         @test haskey(setup_info, :graph) || hasproperty(setup_info, :graph)
         @test haskey(setup_info, :πs) || hasproperty(setup_info, :πs)
         @test haskey(setup_info, :K_syms) || hasproperty(setup_info, :K_syms)
-        @test haskey(setup_info, :M_fns) || hasproperty(setup_info, :M_fns)
-        @test haskey(setup_info, :N_fns) || hasproperty(setup_info, :N_fns)
+        @test haskey(setup_info, Symbol("M_fns!")) || hasproperty(setup_info, Symbol("M_fns!"))
+        @test haskey(setup_info, Symbol("N_fns!")) || hasproperty(setup_info, Symbol("N_fns!"))
         @test haskey(setup_info, :π_sizes) || hasproperty(setup_info, :π_sizes)
     end
 
@@ -202,7 +202,7 @@ end
         @test size(K_syms[2]) == (length(vars.ws[2]), length(vars.ys[2]))
     end
 
-    @testset "M_fns and N_fns are callable" begin
+    @testset "M_fns! and N_fns! are callable" begin
         prob = make_two_player_chain_problem()
         backend = default_backend()
         vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
@@ -213,18 +213,20 @@ end
             vars.ws, vars.ys, prob.θs, all_variables, backend
         )
 
-        # Only player 2 has M_fns and N_fns (has a leader)
-        @test haskey(setup_info.M_fns, 2)
-        @test haskey(setup_info.N_fns, 2)
+        # Only player 2 has M_fns! and N_fns! (has a leader)
+        @test haskey(setup_info.var"M_fns!", 2)
+        @test haskey(setup_info.var"N_fns!", 2)
 
-        # Test that they are callable with numeric input
+        # Test that they are callable with numeric input (in-place)
         test_input = zeros(length(augmented_vars))
-        M_result = setup_info.M_fns[2](test_input)
-        N_result = setup_info.N_fns[2](test_input)
+        M_buffer = zeros(Float64, setup_info.π_sizes[2], length(vars.ws[2]))
+        N_buffer = zeros(Float64, setup_info.π_sizes[2], length(vars.ys[2]))
+        setup_info.var"M_fns!"[2](M_buffer, test_input)
+        setup_info.var"N_fns!"[2](N_buffer, test_input)
 
         # Results should be matrices of correct size
-        @test M_result isa AbstractArray
-        @test N_result isa AbstractArray
+        @test M_buffer isa AbstractArray
+        @test N_buffer isa AbstractArray
     end
 
     @testset "Works for 3-player chain graph" begin
@@ -240,17 +242,17 @@ end
 
         # P1 has no leader (root)
         @test isempty(setup_info.K_syms[1])
-        @test !haskey(setup_info.M_fns, 1)
+        @test !haskey(setup_info.var"M_fns!", 1)
 
         # P2 has P1 as leader
         @test !isempty(setup_info.K_syms[2])
-        @test haskey(setup_info.M_fns, 2)
-        @test haskey(setup_info.N_fns, 2)
+        @test haskey(setup_info.var"M_fns!", 2)
+        @test haskey(setup_info.var"N_fns!", 2)
 
         # P3 has P2 as leader
         @test !isempty(setup_info.K_syms[3])
-        @test haskey(setup_info.M_fns, 3)
-        @test haskey(setup_info.N_fns, 3)
+        @test haskey(setup_info.var"M_fns!", 3)
+        @test haskey(setup_info.var"N_fns!", 3)
     end
 end
 
@@ -293,7 +295,7 @@ end
         @test hasproperty(vars, :ys) || haskey(vars, :ys)
     end
 
-    @testset "setup_info contains M_fns, N_fns, K_syms" begin
+    @testset "setup_info contains M_fns!, N_fns!, K_syms" begin
         prob = make_two_player_chain_problem()
 
         precomputed = preoptimize_nonlinear_solver(
@@ -303,8 +305,8 @@ end
         )
 
         setup_info = precomputed.setup_info
-        @test hasproperty(setup_info, :M_fns) || haskey(setup_info, :M_fns)
-        @test hasproperty(setup_info, :N_fns) || haskey(setup_info, :N_fns)
+        @test hasproperty(setup_info, Symbol("M_fns!")) || haskey(setup_info, Symbol("M_fns!"))
+        @test hasproperty(setup_info, Symbol("N_fns!")) || haskey(setup_info, Symbol("N_fns!"))
         @test hasproperty(setup_info, :K_syms) || haskey(setup_info, :K_syms)
     end
 end
@@ -626,9 +628,9 @@ end
             vars.ws, vars.ys, prob.θs, vars.all_variables, backend
         )
 
-        # M_fns and N_fns should still be callable (Jacobian computed from collected πs)
-        @test haskey(setup_info.M_fns, 2)
-        @test haskey(setup_info.N_fns, 2)
+        # M_fns! and N_fns! should still be callable (Jacobian computed from collected πs)
+        @test haskey(setup_info.var"M_fns!", 2)
+        @test haskey(setup_info.var"N_fns!", 2)
     end
 end
 
@@ -1922,8 +1924,8 @@ end
             cse=true
         )
 
-        @test haskey(setup_info.M_fns, 2)
-        @test haskey(setup_info.N_fns, 2)
+        @test haskey(setup_info.var"M_fns!", 2)
+        @test haskey(setup_info.var"N_fns!", 2)
     end
 
     @testset "CSE-compiled M/N functions produce identical results (2-player)" begin
@@ -1946,17 +1948,21 @@ end
             cse=true
         )
 
-        # Evaluate at multiple random points and compare
+        # Evaluate at multiple random points and compare (in-place)
         n_vars = length(augmented_vars_no_cse)
+        M_buf_no_cse = zeros(Float64, info_no_cse.π_sizes[2], length(vars.ws[2]))
+        M_buf_cse = zeros(Float64, info_cse.π_sizes[2], length(vars.ws[2]))
+        N_buf_no_cse = zeros(Float64, info_no_cse.π_sizes[2], length(vars.ys[2]))
+        N_buf_cse = zeros(Float64, info_cse.π_sizes[2], length(vars.ys[2]))
         for _ in 1:5
             test_input = randn(n_vars)
-            M_no_cse = info_no_cse.M_fns[2](test_input)
-            M_cse = info_cse.M_fns[2](test_input)
-            N_no_cse = info_no_cse.N_fns[2](test_input)
-            N_cse = info_cse.N_fns[2](test_input)
+            info_no_cse.var"M_fns!"[2](M_buf_no_cse, test_input)
+            info_cse.var"M_fns!"[2](M_buf_cse, test_input)
+            info_no_cse.var"N_fns!"[2](N_buf_no_cse, test_input)
+            info_cse.var"N_fns!"[2](N_buf_cse, test_input)
 
-            @test M_no_cse ≈ M_cse atol=1e-10
-            @test N_no_cse ≈ N_cse atol=1e-10
+            @test M_buf_no_cse ≈ M_buf_cse atol=1e-10
+            @test N_buf_no_cse ≈ N_buf_cse atol=1e-10
         end
     end
 
@@ -1980,18 +1986,22 @@ end
             cse=true
         )
 
-        # Evaluate at multiple random points for players 2 and 3
+        # Evaluate at multiple random points for players 2 and 3 (in-place)
         n_vars = length(augmented_vars_no_cse)
         for player in [2, 3]
+            M_buf_no_cse = zeros(Float64, info_no_cse.π_sizes[player], length(vars.ws[player]))
+            M_buf_cse = zeros(Float64, info_cse.π_sizes[player], length(vars.ws[player]))
+            N_buf_no_cse = zeros(Float64, info_no_cse.π_sizes[player], length(vars.ys[player]))
+            N_buf_cse = zeros(Float64, info_cse.π_sizes[player], length(vars.ys[player]))
             for _ in 1:5
                 test_input = randn(n_vars)
-                M_no_cse = info_no_cse.M_fns[player](test_input)
-                M_cse = info_cse.M_fns[player](test_input)
-                N_no_cse = info_no_cse.N_fns[player](test_input)
-                N_cse = info_cse.N_fns[player](test_input)
+                info_no_cse.var"M_fns!"[player](M_buf_no_cse, test_input)
+                info_cse.var"M_fns!"[player](M_buf_cse, test_input)
+                info_no_cse.var"N_fns!"[player](N_buf_no_cse, test_input)
+                info_cse.var"N_fns!"[player](N_buf_cse, test_input)
 
-                @test M_no_cse ≈ M_cse atol=1e-10
-                @test N_no_cse ≈ N_cse atol=1e-10
+                @test M_buf_no_cse ≈ M_buf_cse atol=1e-10
+                @test N_buf_no_cse ≈ N_buf_cse atol=1e-10
             end
         end
     end
