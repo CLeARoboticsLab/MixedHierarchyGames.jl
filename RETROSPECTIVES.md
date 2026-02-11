@@ -418,8 +418,8 @@ Investigated sparse M\N solve for `compute_K_evals`. Added `use_sparse::Bool` fl
 
 ## PR #87: perf/adaptive-sparse-solve (bead bhz)
 
-**Date:** 2026-02-09 (original), 2026-02-10 (merge with main + re-verification)
-**Commits:** 5 (4 original + 1 merge)
+**Date:** 2026-02-09 (original), 2026-02-10 (merge with main + re-verification), 2026-02-11 (final merge after PR #106 landed)
+**Commits:** 7 (4 original + 1 merge with main + 1 retrospective + 1 final merge)
 **Tests:** 951 passing (30 new from this PR)
 
 ### Summary
@@ -549,6 +549,10 @@ Two-part bead: profiled ParametricMCPs usage (s6u-a), then implemented buffer pr
 | Chain 5P (T=3,s=2) | NL (e2e) | Chain | 44ms | 38ms | 42ms | :always |
 
 **Key finding**: `:auto` wins at the full solve level for smaller problems (3-player) where the overhead-per-call matters more. For larger problems, `:always` wins because the sparse advantage for leaders outweighs the leaf dense saving. `:auto` is always between `:always` and `:never`, never the worst.
+
+### Final Merge Notes (2026-02-11)
+
+PR #106 (in-place M/N) landed on main before this PR. Merged main into this branch — 3 conflicts in `src/nonlinear_kkt.jl` (docstring + function signature), all straightforward: combined adaptive sparse kwargs with in-place buffer kwargs. 951/951 tests pass. 3-expert code review posted as PR comment (0 issues). Base changed from `perf/inplace-mn-strategy-a` to `main`.
 
 ### Action Items for Next PR
 
