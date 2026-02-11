@@ -653,3 +653,51 @@ Implemented in-place M/N evaluation with pre-allocated buffers (Strategy A) for 
 
 - [ ] Consider making `inplace_MN=true` the default in a follow-up PR after broader testing
 - [ ] Profile remaining allocations in the in-place path to find further optimization opportunities
+
+---
+
+## PR: perf/inplace-mn-strategy-a (buffer relocation follow-up)
+
+**Date:** 2026-02-10
+**Commits:** 2 (on same branch as above)
+**Tests:** 950 passing
+
+### Summary
+
+Moved M_buffers/N_buffers allocation out of `setup_approximate_kkt_solver()` and into the solve path. Buffers are now created lazily in `compute_K_evals()` when `inplace_MN=true`, with `run_nonlinear_solver()` pre-allocating them once and passing through. This makes buffers a solve-time implementation detail rather than a setup-time concern.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- RED: Wrote failing test asserting `!hasproperty(setup_info, :M_buffers)` — failed as expected
+- GREEN: Removed buffers from setup_info, added lazy allocation in compute_K_evals — all 950 tests pass
+- Clean single-cycle TDD
+
+### Clean Code
+
+**Score: Excellent (9/10)**
+
+- Buffers are no longer leaked into setup_info (separation of concerns)
+- `MN_buffers` kwarg is optional — standalone `compute_K_evals` calls work without it
+- `run_nonlinear_solver` creates buffer dicts once and reuses across iterations
+- get!() pattern provides clean lazy allocation
+
+### Commit Hygiene
+
+**Score: Excellent (9/10)**
+
+- 2 commits: RED (failing test) → GREEN (implementation)
+- Each commit is small and focused
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed strictly
+- [x] Full test suite verified (950 pass)
+- [x] PR description to be updated
+- [x] Retrospective recorded
+
+### Key Learnings
+
+1. Named tuple fields in Julia are structural — removing a field from a NamedTuple is a clean breaking change that tests catch immediately
+2. The `get!()` pattern with a do-block is ideal for lazy Dict initialization in hot loops
