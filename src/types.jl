@@ -33,7 +33,7 @@ Used by both QPSolver and NonlinearSolver.
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
-struct HierarchyProblem{TG<:SimpleDiGraph, TJ, TC, TP}
+struct HierarchyProblem{TG<:SimpleDiGraph, TJ<:AbstractDict, TC<:AbstractVector, TP<:AbstractDict}
     hierarchy_graph::TG
     Js::TJ
     gs::TC
@@ -51,20 +51,27 @@ Precomputed components for QPSolver, cached during construction for efficient re
 # Type Parameters
 - `TV` - Type of problem variables (from setup_problem_variables)
 - `TK` - Type of KKT conditions result (from get_qp_kkt_conditions)
-- `TP` - Type of stripped policy constraints (Dict)
+- `TP<:AbstractDict` - Type of stripped policy constraints (Dict)
 - `TM` - Type of parametric MCP (ParametricMCP)
+- `TJ` - Type of Jacobian buffer (sparse or dense matrix)
 
 # Fields
 - `vars::TV` - Problem variables from setup_problem_variables
 - `kkt_result::TK` - KKT conditions from get_qp_kkt_conditions
 - `πs_solve::TP` - Stripped policy constraints for solving
 - `parametric_mcp::TM` - Cached ParametricMCP for solving
+- `J_buffer::TJ` - Pre-allocated Jacobian buffer for solve_qp_linear
+- `F_buffer::Vector{Float64}` - Pre-allocated residual buffer for solve_qp_linear
+- `z0_buffer::Vector{Float64}` - Pre-allocated zero vector for solve_qp_linear
 """
-struct QPPrecomputed{TV, TK, TP, TM}
+struct QPPrecomputed{TV, TK, TP<:AbstractDict, TM, TJ}
     vars::TV
     kkt_result::TK
     πs_solve::TP
     parametric_mcp::TM
+    J_buffer::TJ
+    F_buffer::Vector{Float64}
+    z0_buffer::Vector{Float64}
 end
 
 """
@@ -153,14 +160,14 @@ parameter values (e.g., different initial states).
 
 Note: We use ParametricMCPs primarily for its compiled f! and jacobian_z! functions.
 The bounds infrastructure (-∞ to ∞) is unused since we only support equality constraints.
-See task StackelbergHierarchyGames.jl-s6u for potential future optimization.
+See task MixedHierarchyGames.jl-s6u for potential future optimization.
 """
 function _build_parametric_mcp(πs::Dict, variables::Vector, θs::Dict)
     symbolic_type = eltype(variables)
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index for consistency
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
     all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Unconstrained bounds (equality-only KKT)
@@ -196,7 +203,7 @@ function _verify_linear_system(mcp, n::Int, θs::Dict)
     z1, z2 = randn(n), randn(n)
 
     # Create dummy parameter values (actual values don't affect linearity check)
-    order = sort(collect(keys(θs)))
+    order = ordered_player_indices(θs)
     θ_vals = reduce(vcat, (zeros(length(θs[k])) for k in order))
 
     # Allocate Jacobian buffers
@@ -253,7 +260,7 @@ function QPSolver(
         vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
         @timeit to "KKT conditions" begin
-            θ_all = reduce(vcat, (θs[k] for k in sort(collect(keys(θs)))))
+            θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
             kkt_result = get_qp_kkt_conditions(
                 hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
                 θ = θ_all, verbose = false
@@ -271,7 +278,14 @@ function QPSolver(
             _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
         end
 
-        precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp)
+        # Pre-allocate solve buffers for solve_qp_linear
+        n_vars = size(parametric_mcp.jacobian_z!.result_buffer, 1)
+        J_buffer = copy(parametric_mcp.jacobian_z!.result_buffer)
+        F_buffer = zeros(n_vars)
+        z0_buffer = zeros(n_vars)
+
+        precomputed = QPPrecomputed(vars, kkt_result, πs_solve, parametric_mcp,
+                                    J_buffer, F_buffer, z0_buffer)
     end
 
     return QPSolver(problem, solver, precomputed)
@@ -298,20 +312,22 @@ function QPSolver(
     return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver, to)
 end
 
+const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant)
+
 """
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
 
-Uses iterative quasi-linear policy approximation with Armijo line search.
+Uses iterative quasi-linear policy approximation with configurable line search.
 
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, use_armijo, use_sparse)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse)
   - `use_sparse` can be `:auto` (sparse for leaders, dense for leaves), `:always`, or `:never`
 """
-struct NonlinearSolver{TP<:HierarchyProblem, TC}
+struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
     problem::TP
     precomputed::TC
     options::NamedTuple
@@ -335,9 +351,16 @@ Construct a NonlinearSolver from low-level problem components.
 - `max_iters::Int=100` - Maximum iterations
 - `tol::Float64=1e-6` - Convergence tolerance
 - `verbose::Bool=false` - Print iteration info
-- `use_armijo::Bool=true` - Use Armijo line search
+- `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
+- `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
   `:auto` (sparse for leaders, dense for leaves), `:always`, `:never`, or Bool
+- `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
+- `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
+  CSE can dramatically reduce construction time and memory for problems with redundant
+  symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
+  Recommended only when construction time is a bottleneck and you can tolerate slightly
+  slower solve times. Default: false for maximum runtime performance.
 """
 function NonlinearSolver(
     hierarchy_graph::SimpleDiGraph,
@@ -350,11 +373,22 @@ function NonlinearSolver(
     max_iters::Int = 100,
     tol::Float64 = 1e-6,
     verbose::Bool = false,
-    use_armijo::Bool = true,
+    linesearch_method::Symbol = :geometric,
+    recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
+    show_progress::Bool = false,
+    cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
     @timeit to "NonlinearSolver construction" begin
+        # Validate linesearch method
+        if linesearch_method ∉ VALID_LINESEARCH_METHODS
+            throw(ArgumentError(
+                "Invalid linesearch_method :$linesearch_method. " *
+                "Must be one of: $(join(VALID_LINESEARCH_METHODS, ", "))."
+            ))
+        end
+
         # Validate inputs
         _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
@@ -367,11 +401,12 @@ function NonlinearSolver(
             state_dim = state_dim,
             control_dim = control_dim,
             verbose = verbose,
+            cse = cse,
             to = to
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, use_armijo, use_sparse)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress)
     end
 
     return NonlinearSolver(problem, precomputed, options)

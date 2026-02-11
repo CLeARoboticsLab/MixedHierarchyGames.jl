@@ -7,19 +7,16 @@
 
 Extract per-player trajectories from solution vector and build JointStrategy.
 Shared helper used by both QPSolver and NonlinearSolver.
+
+The solution vector may contain dual variables (λ, μ) after the primal variables.
+Only the first `sum(primal_dims)` elements are used.
 """
 function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, state_dim::Int, control_dim::Int)
-    N = length(primal_dims)
-    substrategies = Vector{OpenLoopStrategy}(undef, N)
-
-    offset = 1
-    for i in 1:N
-        zi = sol[offset:(offset + primal_dims[i] - 1)]
-        offset += primal_dims[i]
+    primal_sol = @view sol[1:sum(primal_dims)]
+    substrategies = map(split_solution_vector(primal_sol, primal_dims)) do zi
         (; xs, us) = TrajectoryGamesBase.unflatten_trajectory(zi, state_dim, control_dim)
-        substrategies[i] = OpenLoopStrategy(xs, us)
+        OpenLoopStrategy(xs, us)
     end
-
     return JointStrategy(substrategies)
 end
 
@@ -55,7 +52,7 @@ function solve(
     to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve, parametric_mcp) = precomputed
+    (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
 
     # Validate parameter_values
@@ -63,7 +60,8 @@ function solve(
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
-            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
+            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
+                                          verbose, to, J_buffer, F_buffer, z0_buffer)
         elseif solver_type == :path
             sol, status, _ = solve_with_path(
                 parametric_mcp, θs, parameter_values;
@@ -112,12 +110,13 @@ function solve_raw(
     to::TimerOutput = TimerOutput()
 )
     (; problem, solver_type, precomputed) = solver
-    (; vars, πs_solve, parametric_mcp) = precomputed
+    (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
-            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values; verbose, to)
+            sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
+                                          verbose, to, J_buffer, F_buffer, z0_buffer)
             info = nothing
         elseif solver_type == :path
             sol, status, info = solve_with_path(
@@ -186,6 +185,7 @@ Uses precomputed symbolic components for efficiency.
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
+- `show_progress::Union{Nothing, Bool}=nothing` - Display iteration progress table
 - Additional options override solver.options
 
 # Returns
@@ -198,8 +198,10 @@ function solve(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing,
+    linesearch_method::Union{Nothing, Symbol} = nothing,
+    recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
+    show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -212,8 +214,10 @@ function solve(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
-    actual_use_armijo = something(use_armijo, options.use_armijo)
-    actual_use_sparse = something(use_sparse, get(options, :use_sparse, :auto))
+    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
+    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
+    actual_use_sparse = something(use_sparse, options.use_sparse)
+    actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -225,8 +229,10 @@ function solve(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
-            use_armijo = actual_use_armijo,
+            linesearch_method = actual_linesearch_method,
+            recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
+            show_progress = actual_show_progress,
             to = to
         )
     end
@@ -244,7 +250,9 @@ Solve and return raw solution with convergence info (for debugging/analysis).
 - `max_iters::Int` - Maximum iterations (default from solver.options)
 - `tol::Float64` - Convergence tolerance (default from solver.options)
 - `verbose::Bool` - Print iteration info (default from solver.options)
-- `use_armijo::Bool` - Use Armijo line search (default from solver.options)
+- `linesearch_method::Symbol` - Line search method (default from solver.options)
+- `recompute_policy_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default from solver.options)
+- `show_progress::Bool` - Display iteration progress table (default from solver.options)
 
 # Returns
 Named tuple with fields:
@@ -257,6 +265,7 @@ Named tuple with fields:
   - `:solved_initial_point` - Initial guess was already a solution
   - `:max_iters_reached` - Did not converge within iteration limit
   - `:linear_solver_error` - Newton step computation failed
+  - `:line_search_failed` - Armijo line search failed to find sufficient decrease
   - `:numerical_error` - NaN or Inf encountered
 """
 function solve_raw(
@@ -266,8 +275,10 @@ function solve_raw(
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
     verbose::Union{Nothing, Bool} = nothing,
-    use_armijo::Union{Nothing, Bool} = nothing,
+    linesearch_method::Union{Nothing, Symbol} = nothing,
+    recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
+    show_progress::Union{Nothing, Bool} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -277,8 +288,10 @@ function solve_raw(
     actual_max_iters = something(max_iters, options.max_iters)
     actual_tol = something(tol, options.tol)
     actual_verbose = something(verbose, options.verbose)
-    actual_use_armijo = something(use_armijo, options.use_armijo)
-    actual_use_sparse = something(use_sparse, get(options, :use_sparse, :auto))
+    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
+    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
+    actual_use_sparse = something(use_sparse, options.use_sparse)
+    actual_show_progress = something(show_progress, options.show_progress)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -290,8 +303,10 @@ function solve_raw(
             max_iters = actual_max_iters,
             tol = actual_tol,
             verbose = actual_verbose,
-            use_armijo = actual_use_armijo,
+            linesearch_method = actual_linesearch_method,
+            recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
+            show_progress = actual_show_progress,
             to = to
         )
     end
@@ -382,7 +397,7 @@ function solve_with_path(
     use_start::Bool = true,
 )
     # Order parameters by player index
-    order = sort(collect(keys(θs)))
+    order = ordered_player_indices(θs)
     all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
 
     # Initial guess
@@ -451,7 +466,7 @@ function solve_with_path(
     z_upper = fill(Inf, length(F))
 
     # Order parameters by player index
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
     all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Build parametric MCP
@@ -513,19 +528,26 @@ function solve_qp_linear(
     θs::Dict,
     parameter_values::Dict;
     verbose::Bool = false,
-    to::TimerOutput = TimerOutput()
+    to::TimerOutput = TimerOutput(),
+    J_buffer = nothing,
+    F_buffer = nothing,
+    z0_buffer = nothing
 )
     # Order parameters by player index
-    order = sort(collect(keys(θs)))
+    order = ordered_player_indices(θs)
     all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
 
-    # Get Jacobian buffer from MCP (handles sparse structure correctly)
+    # Use pre-allocated buffers if provided, otherwise allocate
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
-    J = copy(parametric_mcp.jacobian_z!.result_buffer)
-    F = zeros(n)
+    J = something(J_buffer, copy(parametric_mcp.jacobian_z!.result_buffer))
+    F = something(F_buffer, zeros(n))
+    z0 = something(z0_buffer, zeros(n))
+
+    # Reset buffers for this solve (required when reusing pre-allocated buffers)
+    fill!(F, 0.0)
+    fill!(z0, 0.0)
 
     # Evaluate at zero (for LQ, any point works since system is linear)
-    z0 = zeros(n)
     @timeit to "residual evaluation" begin
         parametric_mcp.f!(F, z0, all_param_vals_vec)
     end
@@ -602,7 +624,7 @@ function solve_qp_linear(
     F_sym = Vector{symbolic_type}(vcat(collect(values(πs))...))
 
     # Order parameters by player index
-    order = sort(collect(keys(πs)))
+    order = ordered_player_indices(πs)
     all_θ_vec = reduce(vcat, (θs[k] for k in order))
 
     # Build parametric MCP
@@ -663,24 +685,22 @@ function extract_trajectories(sol::Vector, dims::NamedTuple, T::Int, n_players::
     xs = Dict{Int, Vector{Vector{Float64}}}()
     us = Dict{Int, Vector{Vector{Float64}}}()
 
-    idx = 1
-    for i in 1:n_players
+    # Split solution into per-player blocks
+    player_block_sizes = [(T + 1) * dims.state_dims[i] + T * dims.control_dims[i] for i in 1:n_players]
+    player_blocks = split_solution_vector(sol, player_block_sizes)
+
+    for (i, player_sol) in enumerate(player_blocks)
         state_dim = dims.state_dims[i]
         control_dim = dims.control_dims[i]
 
-        # Extract states: T+1 states (t=0 to t=T)
-        xs[i] = Vector{Vector{Float64}}()
-        for t in 1:(T+1)
-            push!(xs[i], sol[idx:idx+state_dim-1])
-            idx += state_dim
-        end
+        # Split player block into state and control segments
+        state_block_size = (T + 1) * state_dim
+        control_block_size = T * control_dim
+        state_data, control_data = split_solution_vector(player_sol, [state_block_size, control_block_size])
 
-        # Extract controls: T controls (t=0 to t=T-1)
-        us[i] = Vector{Vector{Float64}}()
-        for t in 1:T
-            push!(us[i], sol[idx:idx+control_dim-1])
-            idx += control_dim
-        end
+        # Split into per-timestep vectors
+        xs[i] = collect(split_solution_vector(state_data, fill(state_dim, T + 1)))
+        us[i] = collect(split_solution_vector(control_data, fill(control_dim, T)))
     end
 
     return xs, us

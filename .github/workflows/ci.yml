@@ -1,20 +1,57 @@
 name: CI
 on:
   workflow_dispatch:  # Manual trigger from Actions tab
-  issue_comment:      # Trigger via "/run-ci" comment on PR
+    inputs:
+      test_tier:
+        description: 'Test tier to run'
+        required: true
+        default: 'fast'
+        type: choice
+        options:
+          - fast
+          - full
+  issue_comment:      # Trigger via "/run-ci" or "/run-ci-full" comment on PR
     types: [created]
 
 jobs:
-  test:
-    # Run on manual trigger OR when "/run-ci" comment on PR
+  fast-tests:
+    # Run fast tests on "/run-ci" comment or manual trigger with fast tier
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.issue.pull_request && contains(github.event.comment.body, '/run-ci'))
-    strategy:
-      fail-fast: false
-      matrix:
-        julia_version: ["1"]
-    name: Julia ${{ matrix.julia_version }}
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_tier == 'fast') ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, '/run-ci') && !contains(github.event.comment.body, '/run-ci-full'))
+    name: Fast Tests
+    runs-on: ubuntu-latest
+    env:
+      FAST_TESTS_ONLY: "true"
+    steps:
+      - name: Get PR head ref
+        if: github.event_name == 'issue_comment'
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('ref', pr.data.head.ref);
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.ref || github.ref }}
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+
+  full-tests:
+    # Run all tests on "/run-ci-full" comment or manual trigger with full tier
+    if: >
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_tier == 'full') ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, '/run-ci-full'))
+    name: Full Tests
     runs-on: ubuntu-latest
     steps:
       - name: Get PR head ref
@@ -34,14 +71,15 @@ jobs:
           ref: ${{ steps.pr.outputs.ref || github.ref }}
       - uses: julia-actions/setup-julia@v2
         with:
-          version: ${{ matrix.julia_version }}
+          version: "1"
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./lcov.info
           flags: unittests
           name: codecov-umbrella
+          fail_ci_if_error: false

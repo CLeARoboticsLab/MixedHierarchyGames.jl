@@ -88,14 +88,9 @@ function run_nonlinear_lane_change(;
     parameter_values = Dict(i => x0[i] for i in 1:N)
     result = solve_raw(solver, parameter_values; initial_guess = z0_guess, verbose = verbose)
 
-    # Extract per-player solutions
+    # Extract per-player solutions (primal portion only; sol may include duals)
     sol = result.sol
-    sols = Vector{Vector{Float64}}(undef, N)
-    offs = 1
-    for i in 1:N
-        sols[i] = sol[offs:offs+primal_dim-1]
-        offs += primal_dim
-    end
+    sols = collect.(split_solution_vector(sol[1:sum(primal_dims)], primal_dims))
 
     # Extract trajectories and compute costs
     trajectories = [unflatten_trajectory(z, STATE_DIM, CONTROL_DIM) for z in sols]
