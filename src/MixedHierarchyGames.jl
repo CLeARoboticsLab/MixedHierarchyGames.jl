@@ -57,7 +57,7 @@ include("linesearch.jl")
 export armijo_backtracking, geometric_reduction, constant_step
 
 include("nonlinear_kkt.jl")
-export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch
+export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, detect_stall, compute_newton_step, perform_linesearch
 
 # Solvers
 include("solve.jl")
