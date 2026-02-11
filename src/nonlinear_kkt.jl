@@ -15,6 +15,7 @@
 # Note: These differ from the linesearch module defaults (20 iters).
 const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
+const VALID_SPARSE_MODES = (:auto, :always, :never)
 
 """
     check_convergence(residual, tol; verbose=false, iteration=nothing)
@@ -603,7 +604,7 @@ function compute_K_evals(
     else
         use_sparse
     end
-    if mode ∉ (:auto, :always, :never)
+    if mode ∉ VALID_SPARSE_MODES
         throw(ArgumentError("use_sparse must be :auto, :always, :never, or Bool. Got: $(repr(mode))"))
     end
 
