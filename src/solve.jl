@@ -43,7 +43,7 @@ Uses precomputed symbolic KKT conditions for efficiency.
 """
 function solve(
     solver::QPSolver,
-    parameter_values::Dict;
+    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -54,6 +54,8 @@ function solve(
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
+
+    parameter_values = _to_parameter_dict(parameter_values)
 
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
@@ -101,7 +103,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::QPSolver,
-    parameter_values::Dict;
+    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -112,6 +114,8 @@ function solve_raw(
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
+
+    parameter_values = _to_parameter_dict(parameter_values)
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
@@ -193,7 +197,7 @@ Uses precomputed symbolic components for efficiency.
 """
 function solve(
     solver::NonlinearSolver,
-    parameter_values::Dict;
+    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -202,10 +206,13 @@ function solve(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
     (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
+
+    parameter_values = _to_parameter_dict(parameter_values)
 
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
@@ -233,6 +240,7 @@ function solve(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            callback = callback,
             to = to
         )
     end
@@ -270,7 +278,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::NonlinearSolver,
-    parameter_values::Dict;
+    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -279,10 +287,13 @@ function solve_raw(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
     (; hierarchy_graph) = problem
+
+    parameter_values = _to_parameter_dict(parameter_values)
 
     # Use options from solver unless overridden
     actual_max_iters = something(max_iters, options.max_iters)
@@ -307,6 +318,7 @@ function solve_raw(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            callback = callback,
             to = to
         )
     end
@@ -643,6 +655,24 @@ end
 #=
     Input validation utilities
 =#
+
+"""
+    _to_parameter_dict(parameter_values::Dict)
+
+Identity conversion — parameter_values is already a Dict.
+"""
+_to_parameter_dict(parameter_values::Dict) = parameter_values
+
+"""
+    _to_parameter_dict(parameter_values::AbstractVector{<:AbstractVector})
+
+Convert Vector of Vectors to Dict{Int, Vector} for parameter passing.
+Enables `solve(solver, [[1.0, 0.0], [0.0, 1.0]])` as a shorthand for
+`solve(solver, Dict(1 => [1.0, 0.0], 2 => [0.0, 1.0]))`.
+"""
+function _to_parameter_dict(parameter_values::AbstractVector{<:AbstractVector})
+    return Dict(i => parameter_values[i] for i in 1:length(parameter_values))
+end
 
 """
     _validate_parameter_values(parameter_values::Dict, θs::Dict)

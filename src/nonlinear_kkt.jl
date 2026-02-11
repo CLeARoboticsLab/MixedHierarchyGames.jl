@@ -699,6 +699,8 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
+  `(; iteration, residual, step_size)`. Enables iteration history tracking and external monitoring.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -722,6 +724,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
     show_progress::Bool = false,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -861,6 +864,11 @@ function run_nonlinear_solver(
             α_str = lpad(string(round(α; digits=4)), 8)
             t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
             println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+        end
+
+        # Invoke callback with iteration info
+        if callback !== nothing
+            callback((; iteration=num_iterations, residual=residual_norm, step_size=α))
         end
 
         # Guard against NaN/Inf in solution
