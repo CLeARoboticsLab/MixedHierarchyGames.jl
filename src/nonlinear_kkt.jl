@@ -215,10 +215,8 @@ Tuple of:
   - `graph` - Hierarchy graph
   - `πs` - KKT conditions per player
   - `K_syms` - Symbolic K matrices per player
-  - `M_fns` - Compiled M matrix evaluation functions (out-of-place)
-  - `N_fns` - Compiled N matrix evaluation functions (out-of-place)
-  - `M_fns!` - Compiled M matrix evaluation functions (in-place)
-  - `N_fns!` - Compiled N matrix evaluation functions (in-place)
+  - `M_fns!` - Compiled M matrix evaluation functions (in-place, writes into caller-provided buffer)
+  - `N_fns!` - Compiled N matrix evaluation functions (in-place, writes into caller-provided buffer)
   - `π_sizes` - KKT condition sizes per player
 """
 function setup_approximate_kkt_solver(
@@ -243,8 +241,6 @@ function setup_approximate_kkt_solver(
     π_sizes = Dict{Int, Int}()
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
-    M_fns_inplace = Dict{Int, Function}()
-    N_fns_inplace = Dict{Int, Function}()
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
