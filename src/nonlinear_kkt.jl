@@ -614,10 +614,10 @@ function compute_K_evals(
 
             # In-place path: write M/N into buffers (lazily allocated if not pre-populated)
             M_buf = get!(M_buffers, ii) do
-                zeros(Float64, π_sizes[ii], length(ws[ii]))
+                Matrix{Float64}(undef, π_sizes[ii], length(ws[ii]))
             end
             N_buf = get!(N_buffers, ii) do
-                zeros(Float64, π_sizes[ii], length(ys[ii]))
+                Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
             end
             setup_info.var"M_fns!"[ii](M_buf, augmented_z)
             setup_info.var"N_fns!"[ii](N_buf, augmented_z)
@@ -781,8 +781,8 @@ function run_nonlinear_solver(
     N_buffers = Dict{Int, Matrix{Float64}}()
     for ii in 1:nv(graph)
         if has_leader(graph, ii)
-            M_buffers[ii] = zeros(Float64, π_sizes[ii], length(ws[ii]))
-            N_buffers[ii] = zeros(Float64, π_sizes[ii], length(ys[ii]))
+            M_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ws[ii]))
+            N_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
         end
     end
 
