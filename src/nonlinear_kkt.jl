@@ -544,7 +544,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, refinement_steps=0)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -562,6 +562,9 @@ See Phase 6 for planned thread-safety improvements.
 - `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
   Beneficial for large M matrices (>100 rows) with structural sparsity from the
   KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `refinement_steps::Int=0` - Number of iterative refinement steps after M\\N solve.
+  Each step computes residual R = N - M*K, solves D = M\\R, updates K += D.
+  Can improve accuracy for ill-conditioned M. Default 0 means no refinement.
 
 # Returns
 Tuple of:
@@ -573,7 +576,8 @@ function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
-    use_sparse::Bool=false
+    use_sparse::Bool=false,
+    refinement_steps::Int=0
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -608,7 +612,7 @@ function compute_K_evals(
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse, refinement_steps)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -627,28 +631,47 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, refinement_steps=0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `refinement_steps > 0`, applies iterative refinement after the initial solve:
+for each step, computes residual `R = N - M*K`, solves correction `D = M \\ R`,
+and updates `K += D`. This can improve accuracy for ill-conditioned M matrices.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                  use_sparse::Bool=false, refinement_steps::Int=0)
     try
-        K = if use_sparse
-            sparse(M) \ N
+        # Factorize once and reuse for initial solve + refinement corrections
+        F = if use_sparse
+            lu(sparse(M))
         else
-            M \ N
+            lu(M)
         end
+
+        K = F \ N
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
             @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
             return fill(NaN, size(K))
+        end
+
+        # Iterative refinement: compute residual in working precision,
+        # solve correction with same factorization, update K
+        for _ in 1:refinement_steps
+            R = N - M * K
+            D = F \ R
+            if any(!isfinite, D)
+                break  # Stop refinement if correction is non-finite
+            end
+            K += D
         end
 
         return K
