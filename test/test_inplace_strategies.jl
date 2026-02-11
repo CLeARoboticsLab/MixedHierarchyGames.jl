@@ -196,7 +196,7 @@ end
         end
     end
 
-    @testset "setup_info contains in-place function dicts" begin
+    @testset "setup_info contains in-place functions but NOT buffers" begin
         prob = make_two_player_chain_problem_inplace()
         precomputed = preoptimize_nonlinear_solver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -204,11 +204,13 @@ end
         )
 
         setup_info = precomputed.setup_info
-        # New fields: M_fns!, N_fns!, M_buffers, N_buffers
-        @test haskey(setup_info, :M_fns!) || hasproperty(setup_info, Symbol("M_fns!"))
-        @test haskey(setup_info, :N_fns!) || hasproperty(setup_info, Symbol("N_fns!"))
-        @test haskey(setup_info, :M_buffers) || hasproperty(setup_info, :M_buffers)
-        @test haskey(setup_info, :N_buffers) || hasproperty(setup_info, :N_buffers)
+        # In-place functions should be in setup_info
+        @test hasproperty(setup_info, Symbol("M_fns!"))
+        @test hasproperty(setup_info, Symbol("N_fns!"))
+        # Buffers should NOT be in setup_info — they are an implementation detail
+        # of the solve loop, allocated lazily in compute_K_evals
+        @test !hasproperty(setup_info, :M_buffers)
+        @test !hasproperty(setup_info, :N_buffers)
     end
 
     @testset "run_nonlinear_solver: inplace_MN produces identical solution (2-player)" begin
