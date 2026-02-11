@@ -550,6 +550,39 @@ Two-part bead: profiled ParametricMCPs usage (s6u-a), then implemented buffer pr
 
 **Key finding**: `:auto` wins at the full solve level for smaller problems (3-player) where the overhead-per-call matters more. For larger problems, `:always` wins because the sparse advantage for leaders outweighs the leaf dense saving. `:auto` is always between `:always` and `:never`, never the worst.
 
+### Post-Rebase Benchmark Results (2026-02-11, stacked on PR #106 in-place M/N)
+
+The story changes dramatically when adaptive sparse is combined with in-place M/N evaluation:
+
+#### compute_K_evals level (200 trials)
+
+| Structure | :never (μs) | :always (μs) | :auto (μs) | :auto vs best |
+|---|---|---|---|---|
+| Nash 3P (no hierarchy) | 0.4 | 0.4 | 0.4 | 1.00x (tie) |
+| Chain 3P | 137 | 330 | **56** | **0.41x** |
+| Chain 3P large (T=5, s=4) | 924 | 427 | **295** | **0.69x** |
+| Chain 5P | 703 | 436 | **276** | **0.63x** |
+
+#### End-to-end solver
+
+| Problem | :never (ms) | :always (ms) | :auto (ms) | :auto vs :never |
+|---|---|---|---|---|
+| Chain 3P (small) | 0.33 | 0.22 | **0.20** | **1.66x** |
+| Chain 3P (medium, T=5 s=4) | 3.94 | 1.12 | **1.10** | **3.57x** |
+| Chain 5P (large) | 5.29 | 1.18 | **1.07** | **4.92x** |
+
+**Key shift**: With in-place M/N removing allocation overhead, the sparse conversion cost in `:always` becomes relatively larger. This makes `:auto`'s per-player decision much more impactful — it now beats both fixed strategies everywhere, not just on small problems. Combined speedup vs vanilla main: 24-39x at K-eval level.
+
+### Code Review (2026-02-11)
+
+Reviewed from 5 expert perspectives (Master Software Engineer, Numerical Computing, Test Engineer, Performance Engineer, Julia Expert). **No blocking issues found.** Key observations:
+- Clean 46-line src/ diff across 3 files
+- `Union{Symbol,Bool}` is a concrete union — type-stable after normalization
+- 30 new tests with good coverage of modes, backward compat, and graph structure
+- Minor nit: `mode ∉ (:auto, :always, :never)` allocates a tuple per call (negligible)
+
+**Verdict: Ready to land.**
+
 ### Action Items for Next PR
 
 - [ ] Consider size-based threshold (use sparse only when M rows > 100) as an alternative/complement to topology-based selection
