@@ -17,6 +17,7 @@ const FAST_TEST_FILES = [
     "test_timer.jl",
     "test_type_bounds.jl",
     "test_block_arrays.jl",
+    "test_unified_interface.jl",
     "olse/test_qp_solver.jl",
 ]
 
