@@ -701,3 +701,72 @@ Moved M_buffers/N_buffers allocation out of `setup_approximate_kkt_solver()` and
 
 1. Named tuple fields in Julia are structural — removing a field from a NamedTuple is a clean breaking change that tests catch immediately
 2. The `get!()` pattern with a do-block is ideal for lazy Dict initialization in hot loops
+
+---
+
+## PR: perf/inplace-k-ldiv (bead 7zq)
+
+**Date:** 2026-02-10
+**Commits:** 4
+**Tests:** 977 passing (27 new)
+
+### Summary
+
+Implemented Strategy B — `ldiv!` for K solve path. Added `inplace_ldiv::Bool` flag through the full solver stack (`_solve_K` → `compute_K_evals` → `run_nonlinear_solver` → `NonlinearSolver` → `solve`/`solve_raw`). For square M matrices, uses `ldiv!(lu(M), K_buffer)` instead of `M \ N`. For non-square M (intermediate hierarchy players), falls back to allocating backslash.
+
+**Key finding:** No measurable speedup. The `ldiv!` path adds overhead from explicit `lu()` factorization with no benefit, since `\` already uses LU internally for dense square matrices. Recommend NOT landing this PR.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- **What went well:**
+  - Strict red-green-refactor: commit 1 (RED) all 8 test sets error, commit 2 (GREEN) all 27 tests pass
+  - Tests verify numerical equivalence at `atol=1e-12`
+  - Both `compute_K_evals`-level and full `run_nonlinear_solver`-level tests
+  - Flag threading tested through `NonlinearSolver` constructor and `solve_raw` override
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Minimal diff — only touched 4 source files + 2 test files
+  - Graceful fallback for non-square M (detected automatically)
+  - Flag defaults to `false` preserving backward compatibility
+  - Follows identical pattern to existing `inplace_MN` flag
+
+- **What could improve:**
+  - K_buffer allocation happens even for non-square M players (wasteful but harmless)
+  - Could detect squareness earlier and skip K_buffer allocation entirely
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- Follows existing flag propagation patterns exactly
+- Only added `ldiv!` and `lu` to LinearAlgebra imports — minimal footprint
+- K_buffers lazily allocated like M/N buffers
+
+### Commit Hygiene
+
+**Score: Excellent (9/10)**
+
+- 4 clean commits: RED, GREEN, tier fix, benchmark
+- Each commit leaves codebase in working state
+- Clear commit messages describing what and why
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed strictly (red-green-refactor)
+- [x] Tolerances tight (1e-12 for K equivalence, 1e-10 for solver convergence)
+- [x] Full test suite verified (977 pass)
+- [x] PR description with benchmark results
+- [x] Retrospective recorded
+
+### Key Learnings
+
+1. `M \ N` for dense square matrices already uses LU factorization internally — wrapping in explicit `lu()` + `ldiv!()` adds overhead without reducing allocations
+2. For non-square M matrices (underdetermined KKT systems for intermediate hierarchy players), LU factorization is not applicable — must fall back to QR-based backslash
+3. The real allocation bottleneck is in compute_K_evals M/N evaluation, not the solve step — Strategy A (inplace_MN) was the main win
+4. Investigation PRs are valuable even with negative results — they prevent re-investigation and document dead ends
