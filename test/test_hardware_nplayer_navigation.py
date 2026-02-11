@@ -3,7 +3,7 @@
 Python integration test for `hardware_nplayer_hierarchy_navigation`.
 
 This follows the style of `test_python_integration.py` but exercises the
-single-step hardware helper in `examples/hardware_functions.jl`.
+single-step hardware helper in `legacy/hardware_functions.jl`.
 
 It:
 - Activates the project
@@ -51,9 +51,9 @@ def main():
         using Logging
         global_logger(NullLogger())
 
-    Base.include(Main, joinpath(raw"{project_root}", "examples", "automatic_solver.jl"))
-    Base.include(Main, joinpath(raw"{project_root}", "examples", "test_automatic_solver.jl"))
-    Base.include(Main, joinpath(raw"{project_root}", "examples", "hardware_functions.jl"))
+    Base.include(Main, joinpath(raw"{project_root}", "legacy", "automatic_solver.jl"))
+    Base.include(Main, joinpath(raw"{project_root}", "legacy", "test_automatic_solver.jl"))
+    Base.include(Main, joinpath(raw"{project_root}", "legacy", "hardware_functions.jl"))
         """
     )
 

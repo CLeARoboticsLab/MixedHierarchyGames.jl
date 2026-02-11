@@ -593,3 +593,60 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: cleanup/rename-examples-legacy (bead gyg)
+
+**Date:** 2026-02-11
+**Commits:** 1
+**Tests:** 921 passing (no new tests — rename only)
+
+### Summary
+
+Renamed `examples/` folder to `legacy/` to clarify that these are historical standalone scripts predating the `MixedHierarchyGames` package. Updated all references in Python test files, experiment comments, and added a `legacy/README.md`.
+
+### TDD Compliance
+
+**Score: N/A** — File rename with no new logic. Existing test suite (921 tests) serves as the verification that no references are broken.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Systematic grep for all `examples/` references before making changes
+  - Updated live code references (Python test files) but left historical prose (RETROSPECTIVES.md, benchmarks README) untouched — correct judgment call
+  - Added README.md explaining the legacy folder's purpose and what still references it
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Naming now accurately reflects purpose: `legacy/` (historical reference) vs `experiments/` (active)
+  - Follows the pattern of `reference_archive/old_examples/` already in the repo
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single commit appropriate for a rename operation — splitting would be artificial
+- All changes are cohesive: rename + reference updates + README
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Full test suite verified (921 tests passing)
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Retrospective recorded
+
+### Key Learnings
+
+1. **Grep before rename.** Systematic search for all references before renaming prevents broken paths. The Python test files (`test_python_integration.py`, `test_hardware_nplayer_navigation.py`) would have silently broken without updating their `include()` paths.
+2. **Historical prose doesn't need updating.** References in retrospectives and benchmark READMEs describe past events — changing them would rewrite history.
+
+### Action Items for Next PR
+
+- [ ] Consider whether the Python test files should be migrated to use the package API instead of including legacy scripts directly
