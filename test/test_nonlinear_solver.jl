@@ -2257,7 +2257,6 @@ end
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
             state_dim=prob.state_dim, control_dim=prob.control_dim
         )
-        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
 
         z_test = zeros(length(precomputed.all_variables))
 
@@ -2269,30 +2268,64 @@ end
         @test info_1.status == info_2.status
     end
 
-    @testset "Solver iteration allocations are reduced" begin
+    @testset "compute_K_evals allocates less with pre-allocated buffers" begin
         prob = make_two_player_chain_problem()
         precomputed = preoptimize_nonlinear_solver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
             state_dim=prob.state_dim, control_dim=prob.control_dim
         )
-        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
 
-        # Warm up (first run triggers compilation)
-        run_nonlinear_solver(
-            precomputed, initial_states, prob.G;
-            max_iters=100, tol=1e-6
+        z_test = zeros(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4  # 2 players × 2 state_dim
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        bufs = (;
+            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            follower_cache = Dict{Int, Vector{Int}}(),
+            buffer_cache = Dict{Int, Vector{Float64}}(),
+            all_K_vec = Vector{Float64}(undef, K_len),
         )
 
-        # Measure allocations on second run
-        allocs = @allocated run_nonlinear_solver(
-            precomputed, initial_states, prob.G;
-            max_iters=100, tol=1e-6
+        # Warmup both paths
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Measure
+        allocs_without = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        allocs_with = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Pre-allocated buffers should allocate less than fresh Dicts
+        @test allocs_with < allocs_without
+    end
+
+    @testset "compute_K_evals with buffers returns identical results" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
         )
 
-        # Pre-allocated buffers should keep allocations under control.
-        # Without pre-allocation, F_trial alone allocates ~n*8 bytes per linesearch trial.
-        # This threshold is generous but ensures we're not allocating excessively.
-        # For a 2-player problem with n≈40 variables, 100KB is reasonable with pre-allocation.
-        @test allocs < 100_000  # 100KB threshold
+        z_test = randn(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        bufs = (;
+            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            follower_cache = Dict{Int, Vector{Int}}(),
+            buffer_cache = Dict{Int, Vector{Float64}}(),
+            all_K_vec = Vector{Float64}(undef, K_len),
+        )
+
+        all_K_fresh, info_fresh = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_buf, info_buf = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        @test all_K_fresh ≈ all_K_buf atol=1e-14
+        @test info_fresh.status == info_buf.status
     end
 end
