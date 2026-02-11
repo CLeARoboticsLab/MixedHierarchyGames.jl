@@ -1346,6 +1346,62 @@ end
         @test result.converged isa Bool
         @test result.status isa Symbol
     end
+
+    @testset "Relative tolerance (rtol)" begin
+        @testset "rtol=Inf (default) has no effect — only absolute tol applies" begin
+            # Above absolute tol, should not converge even with rtol=Inf
+            result = check_convergence(1e-4, 1e-6; initial_residual=1.0, rtol=Inf)
+            @test result.converged == false
+            @test result.status == :not_converged
+        end
+
+        @testset "Converges via rtol when absolute tol not met" begin
+            # residual=0.5, tol=1e-10 (not met), but residual/initial=0.5/1000=5e-4 < rtol=1e-3
+            result = check_convergence(0.5, 1e-10; initial_residual=1000.0, rtol=1e-3)
+            @test result.converged == true
+            @test result.status == :solved
+        end
+
+        @testset "Converges via absolute tol even when rtol not met" begin
+            # residual=1e-8, tol=1e-6 (met), rtol=1e-20 (not met)
+            result = check_convergence(1e-8, 1e-6; initial_residual=1e-7, rtol=1e-20)
+            @test result.converged == true
+            @test result.status == :solved
+        end
+
+        @testset "Does not converge when neither tol nor rtol met" begin
+            result = check_convergence(1e-2, 1e-6; initial_residual=1.0, rtol=1e-6)
+            @test result.converged == false
+            @test result.status == :not_converged
+        end
+
+        @testset "rtol boundary: exact ratio should not converge (strict <)" begin
+            # residual/initial = 0.1/1.0 = 0.1, rtol=0.1 → strict < means no convergence
+            result = check_convergence(0.1, 1e-10; initial_residual=1.0, rtol=0.1)
+            @test result.converged == false
+            @test result.status == :not_converged
+        end
+
+        @testset "rtol with zero initial_residual skips relative check" begin
+            # If initial_residual is zero, relative check is undefined; only use absolute tol
+            result = check_convergence(1e-4, 1e-6; initial_residual=0.0, rtol=1e-3)
+            @test result.converged == false
+            @test result.status == :not_converged
+        end
+
+        @testset "NaN/Inf residual still returns numerical_error with rtol" begin
+            result = check_convergence(NaN, 1e-6; initial_residual=1.0, rtol=1e-3)
+            @test result.converged == false
+            @test result.status == :numerical_error
+        end
+
+        @testset "No initial_residual kwarg defaults to rtol having no effect" begin
+            # Without initial_residual, behaves as if rtol is disabled
+            result = check_convergence(1e-4, 1e-6; rtol=1e-3)
+            @test result.converged == false
+            @test result.status == :not_converged
+        end
+    end
 end
 
 #=
