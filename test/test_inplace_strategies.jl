@@ -307,3 +307,188 @@ end
     end
 
 end
+
+@testset "In-place LU Factorization (Strategy C)" begin
+
+    @testset "compute_K_evals: inplace_lu matches default (2-player)" begin
+        prob = make_two_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_current = zeros(length(precomputed.all_variables))
+        all_K_default, info_default = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info
+        )
+        all_K_lu, info_lu = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info;
+            inplace_lu=true
+        )
+
+        @test all_K_default ≈ all_K_lu atol=1e-14
+        @test info_default.status == info_lu.status
+
+        for ii in 1:prob.N
+            if info_default.K_evals[ii] !== nothing
+                @test info_default.K_evals[ii] ≈ info_lu.K_evals[ii] atol=1e-14
+            end
+        end
+    end
+
+    @testset "compute_K_evals: inplace_lu matches default (3-player chain)" begin
+        prob = make_three_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_current = randn(length(precomputed.all_variables))
+        all_K_default, info_default = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info
+        )
+        all_K_lu, info_lu = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info;
+            inplace_lu=true
+        )
+
+        @test all_K_default ≈ all_K_lu atol=1e-14
+        @test info_default.status == info_lu.status
+
+        for ii in 1:prob.N
+            if info_default.K_evals[ii] !== nothing
+                @test info_default.K_evals[ii] ≈ info_lu.K_evals[ii] atol=1e-14
+            end
+        end
+    end
+
+    @testset "compute_K_evals: inplace_lu repeated calls (buffer reuse)" begin
+        prob = make_two_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        for trial in 1:5
+            z_current = randn(length(precomputed.all_variables))
+            all_K_default, _ = compute_K_evals(
+                z_current, precomputed.problem_vars, precomputed.setup_info
+            )
+            all_K_lu, _ = compute_K_evals(
+                z_current, precomputed.problem_vars, precomputed.setup_info;
+                inplace_lu=true
+            )
+            @test all_K_default ≈ all_K_lu atol=1e-14
+        end
+    end
+
+    @testset "compute_K_evals: inplace_lu combined with inplace_MN" begin
+        # Both flags together should still produce identical results
+        prob = make_two_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_current = randn(length(precomputed.all_variables))
+        all_K_default, info_default = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info
+        )
+        all_K_both, info_both = compute_K_evals(
+            z_current, precomputed.problem_vars, precomputed.setup_info;
+            inplace_MN=true, inplace_lu=true
+        )
+
+        @test all_K_default ≈ all_K_both atol=1e-14
+        @test info_default.status == info_both.status
+    end
+
+    @testset "run_nonlinear_solver: inplace_lu produces identical solution (2-player)" begin
+        prob = make_two_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+
+        result_default = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6
+        )
+        result_lu = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6, inplace_lu=true
+        )
+
+        @test result_default.converged
+        @test result_lu.converged
+        @test result_default.sol ≈ result_lu.sol atol=1e-10
+        @test result_default.iterations == result_lu.iterations
+    end
+
+    @testset "run_nonlinear_solver: inplace_lu + inplace_MN combined (3-player)" begin
+        prob = make_three_player_chain_problem_inplace()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0], 3 => [0.0, 0.0])
+
+        result_default = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6
+        )
+        result_both = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-6, inplace_MN=true, inplace_lu=true
+        )
+
+        @test result_default.converged
+        @test result_both.converged
+        @test result_default.sol ≈ result_both.sol atol=1e-10
+        @test result_default.iterations == result_both.iterations
+    end
+
+    @testset "NonlinearSolver: inplace_lu option threads through" begin
+        prob = make_two_player_chain_problem_inplace()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            inplace_lu=true
+        )
+        @test solver.options.inplace_lu == true
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+        result = solve_raw(solver, initial_states)
+        @test result.converged
+
+        # Compare with default
+        solver_default = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+        result_default = solve_raw(solver_default, initial_states)
+        @test result.sol ≈ result_default.sol atol=1e-10
+    end
+
+    @testset "solve_raw: inplace_lu override at solve time" begin
+        prob = make_two_player_chain_problem_inplace()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.0, 0.0])
+
+        result = solve_raw(solver, initial_states; inplace_lu=true)
+        @test result.converged
+
+        result_default = solve_raw(solver, initial_states)
+        @test result.sol ≈ result_default.sol atol=1e-10
+    end
+
+end
