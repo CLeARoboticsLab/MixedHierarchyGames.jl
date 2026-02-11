@@ -593,3 +593,52 @@ Set up Documenter.jl infrastructure for API documentation. Created docs/ directo
 ### Action Items for Next PR
 
 - [ ] Consider escaping array-index notation in docstrings with backticks (e.g., `` `gs[i]` `` instead of `gs[i]`) to eliminate cross-reference warnings
+
+---
+
+## PR: proposal/configurable-sparse-factorization
+
+**Date:** 2026-02-11
+**Commits:** 1 (analysis-only, no src/ changes)
+**Tests:** 921 passing (unchanged)
+
+### Summary
+
+Investigation/proposal PR evaluating whether making sparse factorization strategy configurable would benefit the solver. Conducted comprehensive analysis of M matrix properties, factorization dispatch behavior, micro-benchmarks of dense vs sparse vs LU, iterative solver feasibility assessment, and full solve timing profiling. Conclusion: **Recommend NOT landing** — the existing `use_sparse::Bool` toggle is sufficient, and adding configurability would add complexity without measurable benefit.
+
+### TDD Compliance
+**Score: N/A** — No new `src/` code written. This is a pure analysis/investigation PR.
+
+### Clean Code Practices
+**Score: 8/10**
+- Analysis script is well-structured with clear sections (6 parts)
+- Script lives in `debug/` (gitignored) as per CLAUDE.md guidelines
+- Findings clearly documented in PR description with data tables
+
+### Clean Architecture Practices
+**Score: N/A** — No architectural changes proposed or made.
+
+### Commit Hygiene
+**Score: 9/10**
+- Single focused commit for analysis script + retrospective
+- No `src/` changes means no risk of regression
+
+### CLAUDE.md Compliance
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Pre-merge checklist completed (all 921 tests pass)
+- [x] Retrospective recorded
+- [x] Bead (ef8) tracked and updated
+- [x] No TDD violations (no implementation code written)
+- [x] Debug script placed in `debug/` folder
+
+### Key Learnings
+
+1. **M matrices from KKT systems are never SPD** — they are non-symmetric (symmetry error ~1.8) with complex eigenvalues. CHOLMOD/Cholesky is categorically inapplicable.
+2. **Many M matrices are rectangular** (non-square), particularly for intermediate hierarchy players. This is an important structural property — only leaf players have square M.
+3. **Sparse wins big on non-square, loses on small square** — sparse(M)\N gives 3-24x speedup on rectangular M (where dense uses expensive QR) but is 2-7x slower on small square M (where dense LU is optimal).
+4. **Matrix sizes are small** (24-252 rows) — far below the >1000 threshold where iterative solvers become competitive.
+5. **K-evaluation is <3% of total solve time** — even with a perfect factorization strategy, the ceiling for improvement is tiny.
+
+### Action Items for Next PR
+
+- [ ] None — this investigation closes cleanly with a "do not land" recommendation
