@@ -544,7 +544,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -562,6 +562,10 @@ See Phase 6 for planned thread-safety improvements.
 - `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
   Beneficial for large M matrices (>100 rows) with structural sparsity from the
   KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
+  across calls, reducing Dict and vector allocation overhead. When provided, must
+  contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
+  and `all_K_vec`. When `nothing`, fresh containers are allocated each call.
 
 # Returns
 Tuple of:
