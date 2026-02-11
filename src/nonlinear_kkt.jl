@@ -544,7 +544,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=false, regularization=0.0)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -562,6 +562,9 @@ See Phase 6 for planned thread-safety improvements.
 - `use_sparse::Bool=false` - If true, use sparse LU factorization for M\\N solve.
   Beneficial for large M matrices (>100 rows) with structural sparsity from the
   KKT system. For small matrices, dense solve is faster due to sparse overhead.
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ. When > 0,
+  solves `K = (M + λI) \\ N` instead of `K = M \\ N`. Improves numerical stability
+  for near-singular M at the cost of a small bias.
 
 # Returns
 Tuple of:
@@ -573,7 +576,8 @@ function compute_K_evals(
     z_current::Vector,
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
-    use_sparse::Bool=false
+    use_sparse::Bool=false,
+    regularization::Float64=0.0
 )
     ws = problem_vars.ws
     ys = problem_vars.ys
@@ -608,7 +612,7 @@ function compute_K_evals(
             N_evals[ii] = reshape(N_raw, π_sizes[ii], length(ys[ii]))
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -627,22 +631,33 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, regularization=0.0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
+which improves numerical stability for near-singular M at the cost of a small bias
+in the solution.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
     try
-        K = if use_sparse
-            sparse(M) \ N
+        # Apply Tikhonov regularization if requested
+        M_solve = if regularization > 0
+            M + regularization * I
         else
-            M \ N
+            M
+        end
+
+        K = if use_sparse
+            sparse(M_solve) \ N
+        else
+            M_solve \ N
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
