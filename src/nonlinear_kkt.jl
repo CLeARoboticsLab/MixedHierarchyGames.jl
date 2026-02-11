@@ -698,6 +698,7 @@ end
         linesearch_method::Symbol = :geometric,
         recompute_policy_in_linesearch::Bool = true,
         use_sparse::Bool = false,
+        refinement_steps::Int = 0,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -721,6 +722,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Bool=false` - Use sparse LU for M\\N solve (beneficial for large problems)
+- `refinement_steps::Int=0` - Number of iterative refinement steps for M\\N solve (default 0 = disabled)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
@@ -744,6 +746,7 @@ function run_nonlinear_solver(
     linesearch_method::Symbol = :geometric,
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Bool = false,
+    refinement_steps::Int = 0,
     show_progress::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -784,7 +787,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, refinement_steps)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
