@@ -1014,3 +1014,50 @@ Added `test/README.md` update requirement to CLAUDE.md verification checklist. U
 ### Action Items for Next PR
 
 - [ ] Verify the new checklist item is being followed (first PR after this one should check test/README.md if adding tests)
+
+---
+
+## PR: docs/readme-docs-link
+
+**Date:** 2026-02-10
+**Commits:** 1
+**Tests:** 466 passing (no new tests — docs-only change)
+
+### Summary
+
+Added a documentation badge to README.md linking to the Documenter.jl-generated docs site at `/dev/`. Verified `/stable/` returns 404 (no tagged release yet), so linked to `/dev/`.
+
+### TDD Compliance
+
+**Score: N/A** — No application or test code changed. README-only edit.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Used standard shields.io badge format consistent with Julia ecosystem conventions
+  - Placed badge immediately after title, following standard README layout
+  - Verified docs URL accessibility before linking
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single commit for a single-line change — appropriate granularity
+- Descriptive commit message
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Full test suite verified (466 passing)
+- [x] PR created with full description
+- [x] Retrospective written before final PR description
+
+### Key Learnings
+
+1. `/stable/` docs URL requires a tagged release. Until then, link to `/dev/`.
+
+### Action Items for Next PR
+
+- [ ] After first tagged release, update badge to link to `/stable/` or add both `/stable/` and `/dev/` badges

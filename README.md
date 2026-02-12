@@ -1,5 +1,7 @@
 # MixedHierarchyGames.jl
 
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://CLeARoboticsLab.github.io/MixedHierarchyGames.jl/dev/)
+
 A Julia package for solving mixed hierarchy games. This implementation uses the `TrajectoryGamesBase.jl` interface, though the solver is more general and can be used for general equality-constrained games.
 
 Based on: H. Khan, D. H. Lee, J. Li, T. Qiu, C. Ellis, J. Milzman, W. Suttle, and D. Fridovich-Keil, "[Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations](https://arxiv.org/abs/2602.01568)," 2026.
