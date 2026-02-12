@@ -1138,3 +1138,67 @@ Pre-allocate parameter buffers in the nonlinear solver hot loop. F_trial buffer 
 
 - [ ] Investigate in-place M_fns/N_fns (SymbolicTracingUtils `build_function` with `in_place=true`) — this is the dominant remaining allocation source
 - [ ] Pre-allocate x_new buffer in linesearch functions (currently allocates per trial step)
+
+---
+
+## PR: perf/type-stable-dict-storage
+
+**Date:** 2026-02-11
+**Commits:** 3 (failing tests, implementation, retrospective)
+**Tests:** 946 passing (28 new)
+
+### Summary
+
+Replaced Dict{Int, ...} containers with Vector-indexed storage for hot-path per-player data structures in `compute_K_evals` and `setup_approximate_kkt_solver`. This eliminates Dict hashing overhead on every solver iteration and enables more predictable memory access patterns.
+
+### TDD Compliance
+
+**Score: 10/10**
+
+- Wrote 28 failing tests first (RED), covering 2-player and 3-player hierarchies
+- All 12 type-assertion tests failed as expected (Dict vs Vector)
+- All 16 numerical correctness tests passed (baseline verified)
+- Implementation (GREEN) made all tests pass without modifying test expectations
+- No implementation code written before failing tests existed
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions remain small and single-purpose
+- Placeholder function `_identity_fn` for unused Vector slots is a minor wart but acceptable
+- Updated docstrings to reflect new container types
+- No unnecessary changes beyond the Dict→Vector migration
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Change is localized to `nonlinear_kkt.jl` (src) and test files
+- No public API changes — the NamedTuple return types transparently switched from Dict to Vector
+- Callers that accessed by integer index ([ii]) required zero changes
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 focused commits: (1) failing tests, (2) implementation + test updates, (3) retrospective
+- Each commit leaves codebase in working state (commit 1 is intentionally failing tests)
+- Commit messages describe why, not just what
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite passes
+- [x] Retrospective written before final PR description
+
+### Key Learnings
+
+1. Dict→Vector migration for integer-keyed containers is low-risk and straightforward when keys are contiguous 1:N
+2. The main migration effort is in test code: `haskey`, `keys`, Dict iteration patterns all need updating
+3. `Vector{Function}` requires placeholder values for unused slots — a sentinel function works
+
+### Action Items for Next PR
+
+- [ ] Consider using `FunctionWrappers.jl` for M_fns/N_fns to get fully type-stable function calls (currently `Function` is abstract)

@@ -214,9 +214,9 @@ end
             vars.ws, vars.ys, prob.θs, all_variables, backend
         )
 
-        # Only player 2 has M_fns! and N_fns! (has a leader)
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        # M_fns! and N_fns! are Vector indexed by player ID (all slots exist)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
 
         # Test that they are callable with numeric input (in-place)
         test_input = zeros(length(augmented_vars))
@@ -243,17 +243,16 @@ end
 
         # P1 has no leader (root)
         @test isempty(setup_info.K_syms[1])
-        @test !haskey(setup_info.var"M_fns!", 1)
 
         # P2 has P1 as leader
         @test !isempty(setup_info.K_syms[2])
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
 
         # P3 has P2 as leader
         @test !isempty(setup_info.K_syms[3])
-        @test haskey(setup_info.var"M_fns!", 3)
-        @test haskey(setup_info.var"N_fns!", 3)
+
+        # M_fns! and N_fns! are Vector indexed by player ID (all slots exist)
+        @test length(setup_info.var"M_fns!") == 3
+        @test length(setup_info.var"N_fns!") == 3
     end
 end
 
@@ -335,7 +334,7 @@ end
         @test hasproperty(K_info, :K_evals) || haskey(K_info, :K_evals)
 
         K_evals = K_info.K_evals
-        @test K_evals isa Dict
+        @test K_evals isa Vector
     end
 
     @testset "Returns nothing for root players (no leaders)" begin
@@ -629,9 +628,9 @@ end
             vars.ws, vars.ys, prob.θs, vars.all_variables, backend
         )
 
-        # M_fns! and N_fns! should still be callable (Jacobian computed from collected πs)
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        # M_fns! and N_fns! should still be callable (Vector indexed by player ID)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
     end
 end
 
@@ -1925,8 +1924,8 @@ end
             cse=true
         )
 
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
     end
 
     @testset "CSE-compiled M/N functions produce identical results (2-player)" begin

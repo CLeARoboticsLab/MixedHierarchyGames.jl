@@ -237,10 +237,15 @@ function setup_approximate_kkt_solver(
     N = nv(G)
     reverse_order = reverse(topological_sort_by_dfs(G))
 
-    # Output containers
-    π_sizes = Dict{Int, Int}()
+    # Output containers — use Vector indexed by player ID for hot-path access
+    π_sizes = Vector{Int}(undef, N)
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
+    _identity_fn(_) = nothing  # placeholder for unused slots
+    M_fns_inplace = Vector{Function}(undef, N)
+    N_fns_inplace = Vector{Function}(undef, N)
+    fill!(M_fns_inplace, _identity_fn)
+    fill!(N_fns_inplace, _identity_fn)
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -257,10 +262,6 @@ function setup_approximate_kkt_solver(
             K_syms[ii] = eltype(all_variables)[]  # Empty for roots
         end
     end
-
-    # In-place function variants
-    M_fns_inplace = Dict{Int, Function}()
-    N_fns_inplace = Dict{Int, Function}()
 
     # Second pass: build KKT conditions and M/N functions
     for ii in reverse_order
@@ -505,18 +506,20 @@ Build augmented z vector for player ii including follower K evaluations.
 # Arguments
 - `ii::Int` - Player index
 - `z_est::Vector` - Current z estimate
-- `K_evals::Dict` - Numerical K matrices per player
+- `K_evals::Vector` - Numerical K matrices per player (indexed by player ID)
 - `graph::SimpleDiGraph` - Hierarchy graph
-- `follower_cache::Dict` - Cache for follower lists
-- `buffer_cache::Dict` - Cache for augmented buffers
+- `follower_cache::Vector` - Cache for follower lists (indexed by player ID)
+- `buffer_cache::Vector` - Cache for augmented buffers (indexed by player ID)
 
 # Returns
 - `augmented_z::Vector` - z_est augmented with follower K values
 """
 function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffer_cache)
     # Get cached follower list
-    followers = get!(follower_cache, ii) do
-        collect(BFSIterator(graph, ii))[2:end]  # Exclude self
+    followers = follower_cache[ii]
+    if isnothing(followers)
+        followers = collect(BFSIterator(graph, ii))[2:end]  # Exclude self
+        follower_cache[ii] = followers
     end
 
     # Compute required length
@@ -527,10 +530,11 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
     end
 
     # Get or resize buffer
-    buf = get!(buffer_cache, ii) do
-        Vector{Float64}(undef, aug_len)
-    end
-    if length(buf) != aug_len
+    buf = buffer_cache[ii]
+    if isnothing(buf)
+        buf = Vector{Float64}(undef, aug_len)
+        buffer_cache[ii] = buf
+    elseif length(buf) != aug_len
         resize!(buf, aug_len)
     end
 
@@ -614,13 +618,15 @@ function compute_K_evals(
     π_sizes = setup_info.π_sizes
     graph = setup_info.graph
 
-    # Use pre-allocated buffers if provided, otherwise allocate fresh
+    N_players = nv(graph)
+
+    # Use pre-allocated buffers if provided, otherwise allocate fresh Vector-indexed containers
     if isnothing(buffers)
-        M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-        N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-        K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-        follower_cache = Dict{Int, Vector{Int}}()
-        buffer_cache = Dict{Int, Vector{Float64}}()
+        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players)
+        buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players)
     else
         M_evals = buffers.M_evals
         N_evals = buffers.N_evals
@@ -669,8 +675,7 @@ function compute_K_evals(
     end
 
     # Concatenate all K values into single vector, reusing buffer if provided
-    N_players = nv(graph)
-    if !isnothing(buffers) && haskey(buffers, :all_K_vec)
+    if !isnothing(buffers) && hasproperty(buffers, :all_K_vec)
         all_K_vec = buffers.all_K_vec
         offset = 0
         for ii in 1:N_players
@@ -847,14 +852,14 @@ function run_nonlinear_solver(
     param_vec = Vector{Float64}(undef, mcp_obj.parameter_dimension)
     copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
 
-    # Pre-allocate buffers for compute_K_evals to avoid per-iteration Dict/vector allocation
+    # Pre-allocate buffers for compute_K_evals to avoid per-iteration allocation
     N_players = nv(hierarchy_graph)
     k_eval_buffers = (;
-        M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-        N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-        K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-        follower_cache = Dict{Int, Vector{Int}}(),
-        buffer_cache = Dict{Int, Vector{Float64}}(),
+        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+        buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
         all_K_vec = Vector{Float64}(undef, K_len),
     )
 
