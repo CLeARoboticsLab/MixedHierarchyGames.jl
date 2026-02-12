@@ -1202,3 +1202,59 @@ Replaced Dict{Int, ...} containers with Vector-indexed storage for hot-path per-
 ### Action Items for Next PR
 
 - [ ] Consider using `FunctionWrappers.jl` for M_fns/N_fns to get fully type-stable function calls (currently `Function` is abstract)
+
+---
+
+## PR: perf/zero-jacobian-buffers
+
+**Date:** 2026-02-11
+**Commits:** 1
+**Tests:** 939 passing (18 new)
+
+### Summary
+
+Investigation of whether pre-allocated Jacobian buffers need zeroing before reuse. Found that `jacobian_z!` (via ParametricMCPs/SymbolicTracingUtils SparseFunction) fully overwrites all structural nonzero entries every call, so no zeroing is needed. Added 18 defensive regression tests that corrupt buffers between solves to verify this invariant.
+
+### TDD Compliance
+
+**Score: 8/10**
+
+- **What went well:**
+  - Tests written first (defensive tests verifying existing behavior)
+  - Sentinel-value test directly proves `jacobian_z!` overwrites all `.nzval` entries
+  - Tests cover both QPSolver (`J_buffer`) and NonlinearSolver (`∇F`) code paths
+
+- **What could be improved:**
+  - This was an investigation task, so "red-green-refactor" is not strictly applicable — no implementation code was written. The tests document the safety invariant.
+
+### Clean Code
+
+**Score: 9/10**
+
+- Test file is well-organized with shared helpers and clear test names
+- No production code changes needed (investigation confirmed safety)
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- Single commit is appropriate for this investigation+test PR
+- All changes are logically related
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests written before concluding no code changes needed)
+- [x] Full test suite verified (939 tests passing)
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Test tiers updated for new test file
+
+### Key Learnings
+
+1. `ParametricMCPs.SparseFunction` wraps compiled symbolic functions that write to all structural nonzero positions. The sparsity pattern is determined at symbolic compile time and is immutable.
+2. `F_buffer` and `z0_buffer` in `solve_qp_linear` are already zeroed with `fill!` — this is correct because they're used as inputs (not outputs of compiled functions).
+3. `∇F` in `run_nonlinear_solver` is allocated fresh each call via `copy(mcp_obj.jacobian_z!.result_buffer)`, so cross-call contamination is impossible even if the result_buffer template is corrupted.
+
+### Action Items for Next PR
+
+- None — this investigation is self-contained

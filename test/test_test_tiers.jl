@@ -30,6 +30,7 @@
             "olse/test_nonlinear_solver.jl",
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
+            "test_jacobian_buffer_safety.jl",
         ]
         @test Set(SLOW_TEST_FILES) == Set(expected_slow)
     end
@@ -60,6 +61,7 @@
             "test_timer.jl",
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
+            "test_jacobian_buffer_safety.jl",
         ])
         @test all_classified == expected_all
     end

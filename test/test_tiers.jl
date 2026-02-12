@@ -28,6 +28,7 @@ const SLOW_TEST_FILES = [
     "olse/test_nonlinear_solver.jl",
     "test_sparse_solve.jl",
     "test_allocation_optimization.jl",
+    "test_jacobian_buffer_safety.jl",
 ]
 
 """
