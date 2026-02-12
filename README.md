@@ -151,6 +151,84 @@ result = solve_raw(solver, parameter_values)
 # result.sol, result.converged, result.iterations, result.residual, result.status
 ```
 
+## Performance Profiling
+
+MixedHierarchyGames.jl includes a zero-overhead timing system for performance profiling. By default, timing is **disabled** to ensure minimal overhead in production use.
+
+### Basic Usage
+
+```julia
+using MixedHierarchyGames
+using TimerOutputs
+
+# Create a TimerOutput to collect timing data
+to = TimerOutput()
+
+# Enable timing (opt-in)
+enable_timing!()
+
+# Run solver - timing data will be collected
+solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+strategy = solve(solver, parameter_values)
+
+# Display timing report
+show(to)
+
+# Disable timing when done (restores zero overhead)
+disable_timing!()
+```
+
+### Performance Characteristics
+
+The `@timeit_debug` macro has different overhead depending on whether timing is enabled:
+
+- **Disabled (default)**: ~6 nanoseconds per call (single branch check)
+- **Enabled**: ~33 nanoseconds per call (full TimerOutputs instrumentation)
+
+For a typical `QPSolver.solve()` call with 5-10 timing points:
+- Disabled overhead: <0.2% (~30-60 ns on a ~22 μs solve)
+- Enabled overhead: ~5-7% (full timing data collection)
+
+### API
+
+```julia
+# Control timing globally
+enable_timing!()   # Turn on timing instrumentation
+disable_timing!()  # Turn off timing (default, zero overhead)
+
+# Use in your own code
+@timeit_debug to "my operation" begin
+    # code to time
+end
+```
+
+The `@timeit_debug` macro is a drop-in replacement for TimerOutputs' `@timeit`, but with conditional execution based on the `TIMING_ENABLED` flag. When disabled, it executes the body directly with near-zero overhead.
+
+### Example: Profiling Nonlinear Solver
+
+```julia
+using MixedHierarchyGames
+using TimerOutputs
+
+to = TimerOutput()
+enable_timing!()
+
+solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; 
+                        max_iters=100, verbose=true)
+strategy = solve(solver, parameter_values)
+
+# View timing breakdown
+show(to)
+# Output shows time spent in:
+# - KKT system setup
+# - Linear solves
+# - Residual evaluation
+# - Line search
+# - etc.
+
+disable_timing!()
+```
+
 ## Equilibrium Concept
 
 This solver computes an **Open-Loop Mixed-Hierarchy Equilibrium (OLMHE)**, where:
