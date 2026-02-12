@@ -551,7 +551,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, M_buffers, N_buffers)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, M_buffers, N_buffers, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -578,6 +578,10 @@ See Phase 6 for planned thread-safety improvements.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
 - `N_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated N matrix buffers (same semantics as M_buffers).
+- `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
+  across calls, reducing Dict and vector allocation overhead. When provided, must
+  contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
+  and `all_K_vec`. When `nothing`, fresh containers are allocated each call.
 
 # Returns
 Tuple of:
@@ -591,7 +595,8 @@ function compute_K_evals(
     setup_info::NamedTuple;
     use_sparse::Union{Symbol,Bool}=:auto,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
-    N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}()
+    N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
+    buffers::Union{Nothing, NamedTuple}=nothing
 )
     # Normalize Bool to Symbol for backward compatibility
     mode = if use_sparse isa Bool
@@ -609,13 +614,20 @@ function compute_K_evals(
     π_sizes = setup_info.π_sizes
     graph = setup_info.graph
 
-    M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-    N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-    K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-
-    # Caches to reduce allocations
-    follower_cache = Dict{Int, Vector{Int}}()
-    buffer_cache = Dict{Int, Vector{Float64}}()
+    # Use pre-allocated buffers if provided, otherwise allocate fresh
+    if isnothing(buffers)
+        M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+        N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+        K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+        follower_cache = Dict{Int, Vector{Int}}()
+        buffer_cache = Dict{Int, Vector{Float64}}()
+    else
+        M_evals = buffers.M_evals
+        N_evals = buffers.N_evals
+        K_evals = buffers.K_evals
+        follower_cache = buffers.follower_cache
+        buffer_cache = buffers.buffer_cache
+    end
 
     status = :ok
 
@@ -656,9 +668,23 @@ function compute_K_evals(
         end
     end
 
-    # Concatenate all K values into single vector
-    N = nv(graph)
-    all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N]...)
+    # Concatenate all K values into single vector, reusing buffer if provided
+    N_players = nv(graph)
+    if !isnothing(buffers) && haskey(buffers, :all_K_vec)
+        all_K_vec = buffers.all_K_vec
+        offset = 0
+        for ii in 1:N_players
+            k = K_evals[ii]
+            if isnothing(k)
+                continue
+            end
+            flat = reshape(k, :)
+            copyto!(all_K_vec, offset + 1, flat, 1, length(flat))
+            offset += length(flat)
+        end
+    else
+        all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N_players]...)
+    end
 
     return all_K_vec, (; M_evals, N_evals, K_evals, status)
 end
@@ -711,7 +737,7 @@ end
         verbose::Bool = false,
         linesearch_method::Symbol = :geometric,
         recompute_policy_in_linesearch::Bool = true,
-        use_sparse::Bool = false,
+        use_sparse::Union{Symbol,Bool} = :auto,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -768,9 +794,16 @@ function run_nonlinear_solver(
     linsolver = precomputed.linsolver
     all_variables = precomputed.all_variables
 
-    # Build parameter values vector
+    # Build parameter values vector (avoid comprehension + vcat allocation)
     θs_order = ordered_player_indices(initial_states)
-    θ_vals_vec = vcat([initial_states[k] for k in θs_order]...)
+    θ_len_total = sum(length(initial_states[k]) for k in θs_order)
+    θ_vals_vec = Vector{Float64}(undef, θ_len_total)
+    offset = 0
+    for k in θs_order
+        v = initial_states[k]
+        copyto!(θ_vals_vec, offset + 1, v, 1, length(v))
+        offset += length(v)
+    end
 
     # Initialize z estimate
     z_est = something(initial_guess, zeros(length(all_variables)))
@@ -787,6 +820,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    F_trial = zeros(n)  # Reused across linesearch iterations
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
 
@@ -809,12 +843,24 @@ function run_nonlinear_solver(
     # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
     # Size is determined from the MCP's parameter_dimension (set during preoptimize)
     θ_len = length(θ_vals_vec)
+    K_len = mcp_obj.parameter_dimension - θ_len
     param_vec = Vector{Float64}(undef, mcp_obj.parameter_dimension)
     copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
 
+    # Pre-allocate buffers for compute_K_evals to avoid per-iteration Dict/vector allocation
+    N_players = nv(hierarchy_graph)
+    k_eval_buffers = (;
+        M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+        N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+        K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+        follower_cache = Dict{Int, Vector{Int}}(),
+        buffer_cache = Dict{Int, Vector{Float64}}(),
+        all_K_vec = Vector{Float64}(undef, K_len),
+    )
+
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, M_buffers, N_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, M_buffers, N_buffers, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
@@ -878,14 +924,14 @@ function run_nonlinear_solver(
 
         # Line search for step size
         @timeit to "line search" begin
-            # Residual function closure that optionally recomputes K at each trial point
+            # Residual function closure that optionally recomputes K at each trial point.
+            # Reuses pre-allocated F_trial buffer to avoid per-call allocation.
             function residual_at_trial(z)
                 param_trial = if recompute_policy_in_linesearch
                     first(params_for_z!(z))
                 else
                     param_vec
                 end
-                F_trial = similar(F_eval)
                 mcp_obj.f!(F_trial, z, param_trial)
                 return F_trial
             end

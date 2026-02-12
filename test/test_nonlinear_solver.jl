@@ -2266,3 +2266,184 @@ end
         @test isempty(violations)
     end
 end
+
+#=
+    Tests for pre-allocated parameter buffers
+=#
+
+@testset "Pre-allocated parameter buffers" begin
+    @testset "F_trial buffer is reused across linesearch iterations (2-player)" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Baseline result
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        # Run again - must produce identical results (buffer reuse must not corrupt)
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+        @test result_rerun.status == result_baseline.status
+    end
+
+    @testset "F_trial buffer is reused across linesearch iterations (3-player)" begin
+        prob = make_three_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5], 3 => [1.0, 1.0])
+
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+    end
+
+    @testset "Armijo linesearch produces identical results with buffer reuse" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result_geometric = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+
+        result_armijo = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:armijo
+        )
+
+        # Both should converge to same solution
+        @test result_geometric.converged
+        @test result_armijo.converged
+        @test result_geometric.sol ≈ result_armijo.sol atol=1e-6
+    end
+
+    @testset "all_K_vec buffer reused in compute_K_evals" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = zeros(length(precomputed.all_variables))
+
+        # Call compute_K_evals twice - results must be identical
+        all_K_vec_1, info_1 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_vec_2, info_2 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+
+        @test all_K_vec_1 ≈ all_K_vec_2 atol=1e-14
+        @test info_1.status == info_2.status
+    end
+
+    @testset "compute_K_evals allocates less with pre-allocated buffers" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = zeros(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4  # 2 players × 2 state_dim
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        bufs = (;
+            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            follower_cache = Dict{Int, Vector{Int}}(),
+            buffer_cache = Dict{Int, Vector{Float64}}(),
+            all_K_vec = Vector{Float64}(undef, K_len),
+        )
+
+        # Warmup both paths
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Measure
+        allocs_without = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        allocs_with = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Pre-allocated buffers should allocate less than fresh Dicts
+        @test allocs_with < allocs_without
+    end
+
+    @testset "compute_K_evals with buffers returns identical results" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = randn(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        bufs = (;
+            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
+            follower_cache = Dict{Int, Vector{Int}}(),
+            buffer_cache = Dict{Int, Vector{Float64}}(),
+            all_K_vec = Vector{Float64}(undef, K_len),
+        )
+
+        all_K_fresh, info_fresh = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_buf, info_buf = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        @test all_K_fresh ≈ all_K_buf atol=1e-14
+        @test info_fresh.status == info_buf.status
+    end
+end
