@@ -2397,12 +2397,13 @@ end
         θ_len = 4  # 2 players × 2 state_dim
         K_len = mcp_obj.parameter_dimension - θ_len
 
+        N_players = 2
         bufs = (;
-            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            follower_cache = Dict{Int, Vector{Int}}(),
-            buffer_cache = Dict{Int, Vector{Float64}}(),
+            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+            buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
             all_K_vec = Vector{Float64}(undef, K_len),
         )
 
@@ -2414,7 +2415,7 @@ end
         allocs_without = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
         allocs_with = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
 
-        # Pre-allocated buffers should allocate less than fresh Dicts
+        # Pre-allocated buffers should allocate less than fresh Vectors
         @test allocs_with < allocs_without
     end
 
@@ -2430,12 +2431,13 @@ end
         θ_len = 4
         K_len = mcp_obj.parameter_dimension - θ_len
 
+        N_players = 2
         bufs = (;
-            M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}(),
-            follower_cache = Dict{Int, Vector{Int}}(),
-            buffer_cache = Dict{Int, Vector{Float64}}(),
+            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+            buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
             all_K_vec = Vector{Float64}(undef, K_len),
         )
 
