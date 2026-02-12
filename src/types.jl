@@ -3,6 +3,17 @@
 =#
 
 """
+    AbstractMixedHierarchyGameSolver
+
+Abstract supertype for all hierarchy game solvers.
+
+Subtypes must implement:
+- `solve(solver, parameter_values; kwargs...) → JointStrategy`
+- `solve_raw(solver, parameter_values; kwargs...) → NamedTuple`
+"""
+abstract type AbstractMixedHierarchyGameSolver end
+
+"""
     HierarchyGame
 
 A trajectory game with hierarchical (Stackelberg) structure.
@@ -84,7 +95,7 @@ Solver for quadratic programming hierarchy games (linear dynamics, quadratic cos
 - `solver_type::Symbol` - Solver backend (:linear or :path)
 - `precomputed::QPPrecomputed` - Precomputed symbolic components (variables, KKT conditions)
 """
-struct QPSolver{TP<:HierarchyProblem, TC<:QPPrecomputed}
+struct QPSolver{TP<:HierarchyProblem, TC<:QPPrecomputed} <: AbstractMixedHierarchyGameSolver
     problem::TP
     solver_type::Symbol
     precomputed::TC
@@ -327,7 +338,7 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 - `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse)
   - `use_sparse` can be `:auto` (sparse for leaders, dense for leaves), `:always`, or `:never`
 """
-struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
+struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple} <: AbstractMixedHierarchyGameSolver
     problem::TP
     precomputed::TC
     options::NamedTuple

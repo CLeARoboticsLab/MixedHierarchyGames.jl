@@ -16,6 +16,7 @@
             "test_timer.jl",
             "test_type_bounds.jl",
             "test_block_arrays.jl",
+            "test_unified_interface.jl",
             "olse/test_qp_solver.jl",
         ]
         @test Set(FAST_TEST_FILES) == Set(expected_fast)
@@ -60,6 +61,7 @@
             "test_timer.jl",
             "test_sparse_solve.jl",
             "test_allocation_optimization.jl",
+            "test_unified_interface.jl",
         ])
         @test all_classified == expected_all
     end

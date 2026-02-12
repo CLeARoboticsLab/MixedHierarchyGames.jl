@@ -3,6 +3,38 @@
 =#
 
 """
+    _to_parameter_dict(initial_state)
+
+Convert initial state to Dict{Int, Vector} parameter format.
+
+Accepted formats:
+- `Dict{Int, Vector}`: Returned as-is (no copy)
+- `AbstractVector` of `AbstractVector`s: Converted to Dict with 1-based integer keys
+
+Throws `ArgumentError` for unrecognized types.
+"""
+function _to_parameter_dict(initial_state::Dict)
+    return initial_state
+end
+
+function _to_parameter_dict(initial_state::AbstractVector)
+    if !isempty(initial_state) && eltype(initial_state) <: AbstractVector
+        return Dict(i => initial_state[i] for i in 1:length(initial_state))
+    end
+    throw(ArgumentError(
+        "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
+        "got Vector{$(eltype(initial_state))}"
+    ))
+end
+
+function _to_parameter_dict(initial_state)
+    throw(ArgumentError(
+        "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
+        "got $(typeof(initial_state))"
+    ))
+end
+
+"""
     _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 
 Extract per-player trajectories from solution vector and build JointStrategy.
@@ -21,15 +53,17 @@ function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, 
 end
 
 """
-    solve(solver::QPSolver, parameter_values::Dict; kwargs...)
+    solve(solver::QPSolver, initial_state; kwargs...)
 
-Solve the QP hierarchy game with given parameter values (typically initial states).
+Solve the QP hierarchy game with given initial state (parameter values).
 
 Uses precomputed symbolic KKT conditions for efficiency.
 
 # Arguments
 - `solver::QPSolver` - The QP solver with precomputed components
-- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+- `initial_state` - Per-player parameter values. Accepts:
+  - `Dict{Int, Vector}`: Player index → parameter vector
+  - `Vector{Vector}`: Converted to Dict with 1-based keys
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
@@ -43,7 +77,7 @@ Uses precomputed symbolic KKT conditions for efficiency.
 """
 function solve(
     solver::QPSolver,
-    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
+    initial_state;
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -51,11 +85,10 @@ function solve(
     use_start::Bool = true,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
-
-    parameter_values = _to_parameter_dict(parameter_values)
 
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
@@ -83,9 +116,13 @@ function solve(
 end
 
 """
-    solve_raw(solver::QPSolver, parameter_values::Dict; kwargs...)
+    solve_raw(solver::QPSolver, initial_state; kwargs...)
 
 Solve and return raw solution vector (for debugging/analysis).
+
+# Arguments
+- `solver::QPSolver` - The QP solver
+- `initial_state` - Per-player parameter values (Dict or Vector of Vectors)
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
@@ -103,7 +140,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::QPSolver,
-    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
+    initial_state;
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -111,11 +148,10 @@ function solve_raw(
     use_start::Bool = true,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
-
-    parameter_values = _to_parameter_dict(parameter_values)
 
     @timeit to "QPSolver solve" begin
         if solver_type == :linear
@@ -177,15 +213,17 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 end
 
 """
-    solve(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+    solve(solver::NonlinearSolver, initial_state; kwargs...)
 
-Solve the nonlinear hierarchy game with given parameter values (typically initial states).
+Solve the nonlinear hierarchy game with given initial state (parameter values).
 
 Uses precomputed symbolic components for efficiency.
 
 # Arguments
 - `solver::NonlinearSolver` - The nonlinear solver with precomputed components
-- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+- `initial_state` - Per-player parameter values. Accepts:
+  - `Dict{Int, Vector}`: Player index → parameter vector
+  - `Vector{Vector}`: Converted to Dict with 1-based keys
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
@@ -197,7 +235,7 @@ Uses precomputed symbolic components for efficiency.
 """
 function solve(
     solver::NonlinearSolver,
-    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
+    initial_state;
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -209,10 +247,9 @@ function solve(
     callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, precomputed, options) = solver
     (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
-
-    parameter_values = _to_parameter_dict(parameter_values)
 
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
@@ -249,9 +286,13 @@ function solve(
 end
 
 """
-    solve_raw(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+    solve_raw(solver::NonlinearSolver, initial_state; kwargs...)
 
 Solve and return raw solution with convergence info (for debugging/analysis).
+
+# Arguments
+- `solver::NonlinearSolver` - The nonlinear solver
+- `initial_state` - Per-player parameter values (Dict or Vector of Vectors)
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
@@ -278,7 +319,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::NonlinearSolver,
-    parameter_values::Union{Dict, AbstractVector{<:AbstractVector}};
+    initial_state;
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -290,10 +331,9 @@ function solve_raw(
     callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, precomputed, options) = solver
     (; hierarchy_graph) = problem
-
-    parameter_values = _to_parameter_dict(parameter_values)
 
     # Use options from solver unless overridden
     actual_max_iters = something(max_iters, options.max_iters)
@@ -655,24 +695,6 @@ end
 #=
     Input validation utilities
 =#
-
-"""
-    _to_parameter_dict(parameter_values::Dict)
-
-Identity conversion — parameter_values is already a Dict.
-"""
-_to_parameter_dict(parameter_values::Dict) = parameter_values
-
-"""
-    _to_parameter_dict(parameter_values::AbstractVector{<:AbstractVector})
-
-Convert Vector of Vectors to Dict{Int, Vector} for parameter passing.
-Enables `solve(solver, [[1.0, 0.0], [0.0, 1.0]])` as a shorthand for
-`solve(solver, Dict(1 => [1.0, 0.0], 2 => [0.0, 1.0]))`.
-"""
-function _to_parameter_dict(parameter_values::AbstractVector{<:AbstractVector})
-    return Dict(i => parameter_values[i] for i in 1:length(parameter_values))
-end
 
 """
     _validate_parameter_values(parameter_values::Dict, θs::Dict)
