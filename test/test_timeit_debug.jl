@@ -3,7 +3,7 @@ using TimerOutputs: TimerOutput, TimerOutputs, ncalls
 
 @testset "@timeit_debug macro" begin
     @testset "TIMING_ENABLED flag exists and defaults to false" begin
-        @test MixedHierarchyGames.TIMING_ENABLED isa Ref{Bool}
+        @test MixedHierarchyGames.TIMING_ENABLED isa Threads.Atomic{Bool}
         @test MixedHierarchyGames.TIMING_ENABLED[] == false
     end
 
@@ -18,12 +18,54 @@ using TimerOutputs: TimerOutput, TimerOutputs, ncalls
         @test MixedHierarchyGames.TIMING_ENABLED[] == false
     end
 
+    @testset "is_timing_enabled returns current state" begin
+        MixedHierarchyGames.disable_timing!()
+        @test MixedHierarchyGames.is_timing_enabled() == false
+
+        MixedHierarchyGames.enable_timing!()
+        @test MixedHierarchyGames.is_timing_enabled() == true
+
+        MixedHierarchyGames.disable_timing!()
+    end
+
+    @testset "with_timing enables timing and restores state" begin
+        MixedHierarchyGames.disable_timing!()
+        @test MixedHierarchyGames.is_timing_enabled() == false
+
+        executed = Ref(false)
+        MixedHierarchyGames.with_timing() do
+            @test MixedHierarchyGames.is_timing_enabled() == true
+            executed[] = true
+        end
+        @test executed[] == true
+        @test MixedHierarchyGames.is_timing_enabled() == false
+    end
+
+    @testset "with_timing restores previous state on exception" begin
+        MixedHierarchyGames.disable_timing!()
+        try
+            MixedHierarchyGames.with_timing() do
+                error("test error")
+            end
+        catch
+        end
+        @test MixedHierarchyGames.is_timing_enabled() == false
+    end
+
+    @testset "with_timing restores enabled state if already enabled" begin
+        MixedHierarchyGames.enable_timing!()
+        MixedHierarchyGames.with_timing() do
+            @test MixedHierarchyGames.is_timing_enabled() == true
+        end
+        @test MixedHierarchyGames.is_timing_enabled() == true
+
+        MixedHierarchyGames.disable_timing!()
+    end
+
     @testset "No timing data collected when disabled" begin
         MixedHierarchyGames.disable_timing!()
         to = TimerOutput()
 
-        # Call a function that uses @timeit_debug internally
-        # We use a simple test: call the macro expansion directly
         MixedHierarchyGames.@timeit_debug to "test section" begin
             x = 1 + 1
         end
