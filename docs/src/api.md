@@ -85,7 +85,10 @@ verify_kkt_solution
 ```@docs
 enable_timing!
 disable_timing!
+is_timing_enabled
+with_timing
 @timeit_debug
+TIMING_ENABLED
 ```
 
 ## Internal Functions
