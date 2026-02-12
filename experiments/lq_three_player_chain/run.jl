@@ -73,7 +73,7 @@ function run_lq_three_player_chain(;
     verbose && @info "Building NonlinearSolver..." N T Δt
     solver = NonlinearSolver(
         G, Js, gs, primal_dims, θs, STATE_DIM, CONTROL_DIM;
-        max_iters = MAX_ITERS, tol = TOLERANCE, verbose = verbose,
+        max_iters = MAX_ITERS, tol = TOLERANCE, verbose = verbose, show_progress = true,
     )
 
     verbose && @info "Solving..."

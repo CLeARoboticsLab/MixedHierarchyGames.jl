@@ -208,15 +208,9 @@ function evaluate_kkt_residuals(
     residual_norm = norm(π_eval)
 
     if verbose
-        println("\n" * "="^20 * " KKT Residuals " * "="^20)
-        for (idx, val) in enumerate(π_eval)
-            if abs(val) >= tol
-                println("  π[$idx] = $val")
-            end
-        end
-        println("All KKT conditions satisfied (< $tol)? ", all(abs.(π_eval) .< tol))
-        println("‖π‖₂ = ", residual_norm)
-        println("="^55)
+        violated = [(idx, val) for (idx, val) in enumerate(π_eval) if abs(val) >= tol]
+        satisfied = all(abs.(π_eval) .< tol)
+        @debug "KKT Residuals" satisfied residual_norm n_violated=length(violated) violated
     end
 
     if should_enforce

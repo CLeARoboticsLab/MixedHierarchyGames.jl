@@ -574,7 +574,7 @@ function solve_qp_linear(
                 verbose && @warn "Linear solve has unexpectedly high residual: $residual"
             end
 
-            verbose && println("Linear solve successful (residual: $residual)")
+            verbose && @debug "Linear solve successful" residual
             return sol, :solved
         catch e
             # Only catch expected linear algebra failures; rethrow programming errors

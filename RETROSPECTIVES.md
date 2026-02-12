@@ -906,3 +906,63 @@ Merged Copilot's PR #107 (copilot/sub-pr-106) into the Strategy A branch. This r
 2. **Copilot PRs need testing before merge.** PR #107 had no CI and no reviews. The merge introduced two classes of breakage: (a) required kwargs without defaults, (b) removed NamedTuple fields referenced by tests.
 3. **`get!()` with empty Dict default is the right pattern for optional pre-allocation.** Making buffers default to `Dict{Int,Matrix{Float64}}()` with lazy `get!()` gives zero-allocation reuse when buffers are passed, and correct-but-allocating behavior when they're not.
 4. **Git worktree is essential for parallel work.** Merging in `/tmp/shg-worktree-106` while overnight script ran on main repo avoided any interference.
+
+---
+
+## PR: dx/clean-solver-output
+
+**Date:** 2026-02-10
+**Commits:** 3
+**Tests:** 925 passing (4 new)
+
+### Summary
+
+Clean up solver output: convert verbose-gated println() calls to @debug logging macros, add show_progress=true to experiment configs, and add static analysis test enforcing no bare println in src/.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Tests written first (RED phase confirmed failing)
+  - Static analysis test catches all bare println calls outside show_progress blocks
+  - Behavioral tests verify solve()/solve_raw() produce zero stdout with defaults
+  - Implementation committed separately after tests
+
+- **Minor gap:**
+  - The verbose=true behavioral test passes even before implementation because the verbose println calls happen on code paths not exercised by the test problem. Static analysis test compensates for this.
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions are focused and unchanged in structure
+- @debug calls use structured keyword arguments (e.g., `@debug "KKT Residuals" satisfied residual_norm`)
+- No unnecessary changes beyond the task scope
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 commits, each self-contained:
+  1. Failing tests (RED)
+  2. Implementation (GREEN) — converts println to @debug
+  3. Experiment config updates (show_progress=true)
+- Each commit leaves codebase in working state
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances appropriate (N/A — no numerical tests added)
+- [x] Full test suite run and passing (925 tests)
+- [x] Retrospective written before PR description
+
+### Key Learnings
+
+1. Julia's @debug/@info/@warn macros go to stderr, not stdout — this means verbose-gated messages using these macros are invisible to stdout-based silence tests.
+2. A static analysis test (scanning source files for patterns) is a robust complement to behavioral tests for enforcing coding standards.
+3. show_progress was already defaulting to false — the main work was converting verbose println to @debug.
+
+### Action Items for Next PR
+
+- [ ] Consider adding a pre-commit hook or CI check for bare println in src/
