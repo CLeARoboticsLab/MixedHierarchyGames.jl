@@ -283,6 +283,70 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 
 ---
 
+## PR: proposal/flexible-callsite-interface (bead mh7)
+
+**Date:** 2026-02-11
+**Commits:** 4
+**Tests:** 955 passing (34 new)
+
+### Summary
+
+API design proposal evaluating flexible call-site interface for different use patterns (scripting, optimization loops, interactive). After thorough analysis of the existing API, implemented two targeted, backward-compatible improvements: Vector-based parameter passing and iteration callbacks.
+
+### TDD Compliance
+**Score: Strong (9/10)**
+- What went well: Wrote failing tests first (commit 1), then implemented (commit 2). Clean red-green progression. All 34 new tests were written before any implementation code.
+- What could improve: Test for "callback residuals decrease" needed a fix after the green phase — the initial test made assumptions about the callback timing that didn't hold for 1-iteration convergence. This was a test design issue, not a TDD violation.
+- Verifiable Solution: Test file created and committed before any `src/` changes. Verified with `git log --oneline`.
+
+### Clean Code Practices
+**Score: Strong (9/10)**
+- What went well:
+  - `_to_parameter_dict` is a minimal 2-method helper with identity dispatch for Dict (zero overhead on existing code paths)
+  - Callback is a simple `Union{Nothing, Function}` kwarg — no new types or abstractions
+  - All changes are additive (union types on signatures, new kwargs) — no existing code modified
+- What could improve: The `Union{Dict, AbstractVector{<:AbstractVector}}` type in 4 function signatures is slightly verbose. Could consider a type alias, but that adds complexity for little gain.
+
+### Clean Architecture Practices
+**Score: Strong (9/10)**
+- What went well:
+  - Changes follow existing patterns exactly (same `something()` override pattern, same kwarg threading)
+  - Callback invocation is a single 3-line block in the iteration loop — minimal intrusion
+  - No new dependencies, no new files in src/
+
+### Commit Hygiene
+**Score: Good (8/10)**
+- What went well:
+  - 4 commits with clear separation: (1) failing tests, (2) implementation + test fix, (3) test tier config, (4) retrospective + PR
+  - Each commit is self-contained
+- What could improve: Implementation commit (2) bundles both features + test fix. Could have been 3 commits: vector params, callback, test fix.
+
+### CLAUDE.md Compliance
+**Score: Strong (9/10)**
+- [x] TDD followed strictly (red-green-refactor)
+- [x] Tolerances at 1e-6 or tighter
+- [x] Full test suite passed (955/955)
+- [x] PR description includes use case analysis
+- [x] Retrospective written before PR
+- [x] Bead status updated
+- [x] Backward compatibility verified
+
+### Beads Created
+None — this is a self-contained proposal.
+
+### Key Learnings
+
+1. **Most "flexible interface" requests don't need new abstractions.** The existing API was already well-designed. The actual friction points were minor convenience gaps (Dict vs Vector, no callback hook), not architectural problems.
+2. **Callbacks are more useful than result-type wrappers.** Considered a `SolverResult` wrapper type but rejected it — callbacks give users full control over what to track without imposing a fixed structure.
+3. **Union types with identity dispatch are the lightest-weight way to add input flexibility.** `_to_parameter_dict(d::Dict) = d` has zero runtime cost.
+4. **Proposal PRs benefit from thorough analysis before coding.** Spending 60% of the time reading existing code and experiments prevented over-engineering.
+
+### Action Items for Next PR
+- [ ] If this proposal is accepted, update README.md examples to show the new Vector syntax
+- [ ] Consider adding callback support to QPSolver (currently only NonlinearSolver, since QPSolver has no iteration loop)
+
+---
+
 *Template for future retrospectives:*
 
 ```markdown

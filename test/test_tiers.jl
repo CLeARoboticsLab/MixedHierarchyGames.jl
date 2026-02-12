@@ -24,6 +24,7 @@ const SLOW_TEST_FILES = [
     "test_nonlinear_solver.jl",
     "test_kkt_verification.jl",
     "test_integration.jl",
+    "test_flexible_callsite.jl",
     "olse/test_nonlinear_solver.jl",
     "test_sparse_solve.jl",
     "test_allocation_optimization.jl",
