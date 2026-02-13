@@ -26,6 +26,7 @@
 
     @testset "slow_test_files contains expected files" begin
         expected_slow = [
+            "test_nonlinear_solver_options.jl",
             "test_nonlinear_solver.jl",
             "test_kkt_verification.jl",
             "test_integration.jl",
@@ -51,6 +52,7 @@
             "test_qp_solver.jl",
             "test_qp_failure_modes.jl",
             "test_linesearch.jl",
+            "test_nonlinear_solver_options.jl",
             "test_nonlinear_solver.jl",
             "test_kkt_verification.jl",
             "test_interface.jl",

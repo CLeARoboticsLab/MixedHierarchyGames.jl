@@ -1,5 +1,5 @@
 using Test
-using MixedHierarchyGames: HierarchyProblem, QPPrecomputed, NonlinearSolver
+using MixedHierarchyGames: HierarchyProblem, QPPrecomputed, NonlinearSolver, NonlinearSolverOptions
 using Graphs: SimpleDiGraph
 
 @testset "Type Parameter Bounds" begin
@@ -42,13 +42,20 @@ using Graphs: SimpleDiGraph
         G = SimpleDiGraph(1)
         prob = HierarchyProblem(G, Dict(1 => identity), [z -> z], [2], Dict(1 => [1.0]), 1, 1)
         # Pass a Dict for precomputed — should be rejected since it needs NamedTuple
-        @test_throws MethodError NonlinearSolver(prob, Dict(:a => 1), (;))
+        @test_throws MethodError NonlinearSolver(prob, Dict(:a => 1), NonlinearSolverOptions())
     end
 
     @testset "NonlinearSolver accepts valid NamedTuple precomputed" begin
         G = SimpleDiGraph(1)
         prob = HierarchyProblem(G, Dict(1 => identity), [z -> z], [2], Dict(1 => [1.0]), 1, 1)
-        solver = NonlinearSolver(prob, (;), (;))
+        solver = NonlinearSolver(prob, (;), NonlinearSolverOptions())
         @test solver isa NonlinearSolver
+    end
+
+    @testset "NonlinearSolver rejects non-NonlinearSolverOptions options" begin
+        G = SimpleDiGraph(1)
+        prob = HierarchyProblem(G, Dict(1 => identity), [z -> z], [2], Dict(1 => [1.0]), 1, 1)
+        # Pass a NamedTuple for options — should be rejected since it needs NonlinearSolverOptions
+        @test_throws MethodError NonlinearSolver(prob, (;), (;))
     end
 end

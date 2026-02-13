@@ -24,6 +24,7 @@ const FAST_TEST_FILES = [
 ]
 
 const SLOW_TEST_FILES = [
+    "test_nonlinear_solver_options.jl",
     "test_nonlinear_solver.jl",
     "test_kkt_verification.jl",
     "test_integration.jl",

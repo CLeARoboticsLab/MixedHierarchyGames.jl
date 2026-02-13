@@ -50,7 +50,7 @@ export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
-export AbstractMixedHierarchyGameSolver, QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
+export AbstractMixedHierarchyGameSolver, QPSolver, NonlinearSolver, NonlinearSolverOptions, HierarchyGame, HierarchyProblem, QPPrecomputed
 
 # KKT construction
 include("qp_kkt.jl")

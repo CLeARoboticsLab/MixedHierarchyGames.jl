@@ -326,6 +326,72 @@ end
 const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant)
 
 """
+    NonlinearSolverOptions
+
+Concrete options struct for NonlinearSolver. Replaces the untyped NamedTuple
+previously used for solver options.
+
+# Fields
+- `max_iters::Int` - Maximum iterations (default: 100)
+- `tol::Float64` - Convergence tolerance (default: 1e-6)
+- `verbose::Bool` - Print iteration info (default: false)
+- `linesearch_method::Symbol` - Line search method: `:armijo`, `:geometric`, or `:constant` (default: `:geometric`)
+- `recompute_policy_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default: true)
+- `use_sparse::Union{Symbol,Bool}` - Strategy for M\\N solve: `:auto`, `:always`, `:never`, or Bool (default: `:auto`)
+- `show_progress::Bool` - Display iteration progress (default: false)
+- `regularization::Float64` - Tikhonov regularization parameter λ (default: 0.0)
+"""
+struct NonlinearSolverOptions
+    max_iters::Int
+    tol::Float64
+    verbose::Bool
+    linesearch_method::Symbol
+    recompute_policy_in_linesearch::Bool
+    use_sparse::Union{Symbol,Bool}
+    show_progress::Bool
+    regularization::Float64
+end
+
+"""
+    NonlinearSolverOptions(; kwargs...)
+
+Construct NonlinearSolverOptions with keyword arguments and sensible defaults.
+"""
+function NonlinearSolverOptions(;
+    max_iters::Int = 100,
+    tol::Float64 = 1e-6,
+    verbose::Bool = false,
+    linesearch_method::Symbol = :geometric,
+    recompute_policy_in_linesearch::Bool = true,
+    use_sparse::Union{Symbol,Bool} = :auto,
+    show_progress::Bool = false,
+    regularization::Float64 = 0.0
+)
+    if linesearch_method ∉ VALID_LINESEARCH_METHODS
+        throw(ArgumentError(
+            "Invalid linesearch_method :$linesearch_method. " *
+            "Must be one of: $(join(VALID_LINESEARCH_METHODS, ", "))."
+        ))
+    end
+    return NonlinearSolverOptions(
+        max_iters, tol, verbose, linesearch_method,
+        recompute_policy_in_linesearch, use_sparse, show_progress, regularization
+    )
+end
+
+"""
+    NonlinearSolverOptions(nt::NamedTuple)
+
+Construct NonlinearSolverOptions from a NamedTuple for backward compatibility.
+"""
+function NonlinearSolverOptions(nt::NamedTuple)
+    return NonlinearSolverOptions(
+        nt.max_iters, nt.tol, nt.verbose, nt.linesearch_method,
+        nt.recompute_policy_in_linesearch, nt.use_sparse, nt.show_progress, nt.regularization
+    )
+end
+
+"""
     NonlinearSolver
 
 Solver for general nonlinear hierarchy games.
@@ -335,13 +401,13 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, regularization)
+- `options::NonlinearSolverOptions` - Solver options
   - `use_sparse` can be `:auto` (sparse for leaders, dense for leaves), `:always`, or `:never`
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple} <: AbstractMixedHierarchyGameSolver
     problem::TP
     precomputed::TC
-    options::NamedTuple
+    options::NonlinearSolverOptions
 end
 
 """
@@ -394,14 +460,6 @@ function NonlinearSolver(
     to::TimerOutput = TimerOutput()
 )
     @timeit_debug to "NonlinearSolver construction" begin
-        # Validate linesearch method
-        if linesearch_method ∉ VALID_LINESEARCH_METHODS
-            throw(ArgumentError(
-                "Invalid linesearch_method :$linesearch_method. " *
-                "Must be one of: $(join(VALID_LINESEARCH_METHODS, ", "))."
-            ))
-        end
-
         # Validate inputs
         _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
@@ -418,8 +476,11 @@ function NonlinearSolver(
             to = to
         )
 
-        # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
+        # Store solver options (validation happens inside NonlinearSolverOptions constructor)
+        options = NonlinearSolverOptions(;
+            max_iters, tol, verbose, linesearch_method,
+            recompute_policy_in_linesearch, use_sparse, show_progress, regularization
+        )
     end
 
     return NonlinearSolver(problem, precomputed, options)

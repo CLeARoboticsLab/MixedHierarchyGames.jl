@@ -1,3 +1,47 @@
+using Graphs: SimpleDiGraph, add_edge!
+using TrajectoryGamesBase: unflatten_trajectory
+
+"""Helper to create a minimal 2-player nonlinear problem for options integration tests."""
+function _make_options_test_problem(; T=3, state_dim=2, control_dim=2)
+    N = 2
+    G = SimpleDiGraph(N)
+    add_edge!(G, 1, 2)
+
+    primal_dim_per_player = state_dim * (T + 1) + control_dim * (T + 1)
+    primal_dims = fill(primal_dim_per_player, N)
+
+    backend = default_backend()
+    θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
+
+    function J1(z1, z2; θ=nothing)
+        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
+        sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+    end
+
+    function J2(z1, z2; θ=nothing)
+        (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
+        sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
+    end
+
+    Js = Dict(1 => J1, 2 => J2)
+
+    function make_dynamics_constraint(player_idx)
+        function dynamics_constraint(z)
+            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
+            constraints = []
+            for t in 1:T
+                push!(constraints, xs[t+1] - xs[t] - us[t])
+            end
+            push!(constraints, xs[1] - θs[player_idx])
+            return vcat(constraints...)
+        end
+        return dynamics_constraint
+    end
+
+    gs = [make_dynamics_constraint(i) for i in 1:N]
+    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
+end
+
 @testset "NonlinearSolverOptions" begin
     @testset "Default construction" begin
         opts = NonlinearSolverOptions()
@@ -76,7 +120,7 @@
     end
 
     @testset "NonlinearSolver stores NonlinearSolverOptions" begin
-        prob = create_two_player_nonlinear_problem()
+        prob = _make_options_test_problem()
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
             prob.state_dim, prob.control_dim
@@ -85,7 +129,7 @@
     end
 
     @testset "NonlinearSolver constructor passes options through" begin
-        prob = create_two_player_nonlinear_problem()
+        prob = _make_options_test_problem()
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
             prob.state_dim, prob.control_dim;
