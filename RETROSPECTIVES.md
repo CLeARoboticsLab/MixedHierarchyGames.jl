@@ -2142,3 +2142,97 @@ Addressed Medium-priority code review items from the 7-expert review of PR #128.
 ### Action Items
 
 - None — all addressable items implemented, skip rationale documented
+
+---
+
+## PR: tranche3/options-and-review-fixes (Combined Retrospective)
+
+**Date:** 2026-02-13
+**Commits:** 11 (across 3 beads)
+**Tests:** 1206 passing (30 new net, after removing duplicated test setup)
+**Beads:** r89 (NonlinearSolverOptions), 9hy (test hygiene), mig (src-level review items)
+
+### Summary
+
+Tranche 3 bundles three code-review-driven beads into a single PR. Bead r89 replaces the untyped `options::NamedTuple` with a concrete `NonlinearSolverOptions` struct. Bead 9hy consolidates duplicated test problem setup across 4 files into shared helpers (-334 lines) and adds missing test coverage (callback errors, root player stubs). Bead mig addresses src-level Medium review items: `_merge_options` helper, `z_est` in callbacks, Printf-based progress table, and allocation-free regularization.
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - All three beads followed Red-Green-Refactor — failing tests committed before implementation in every case
+  - Bead r89: 48 new tests defined the `NonlinearSolverOptions` API before any struct existed
+  - Bead mig: Each of 4 sub-items had its own failing-test → implementation cycle
+  - Test count grew from 1176 → 1206 while removing 334 lines of duplicated setup
+  - No `@test_broken` left on the branch
+
+- **What could improve:**
+  - Bead 9hy (test consolidation) is inherently refactoring, so Red-Green doesn't directly apply — the "green" was keeping all existing tests passing after extraction
+  - One callback error test assumed multi-iteration convergence but the solver converges in 1 iteration; had to adapt
+
+### Clean Code Practices
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - `NonlinearSolverOptions` is a focused, single-responsibility struct with validation in the constructor
+  - `_merge_options` eliminated 8x repeated `something()` patterns across two functions
+  - Shared test helpers (`make_standard_two_player_problem`, `make_simple_qp_two_player`) have clear names, docstrings, and keyword customization
+  - Each test file now has a documented single responsibility
+  - `@sprintf` formatting replaced fragile `lpad` string interpolation
+
+- **What could improve:**
+  - Nothing significant — the review items were well-scoped and clean
+
+### Clean Architecture Practices
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Options struct is pure data, no behavior coupled to it
+  - `solve`/`solve_raw` needed zero changes for the options migration (dot access works identically)
+  - Test helpers live in `testing_utils.jl` where they belong
+  - Production code changes are localized: `types.jl`, `solve.jl`, `nonlinear_kkt.jl`
+  - No new dependencies added
+
+### Commit Hygiene
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - 11 commits with clear logical separation:
+    - r89: 2 commits (RED tests, GREEN implementation)
+    - 9hy: 2 commits (consolidation, new tests) + 1 retrospective
+    - mig: 4 commits (one per review item) + 1 retrospective
+  - Each commit leaves the test suite green (except intentional RED commits)
+  - Commit messages describe *why* not just *what*
+
+- **What could improve:**
+  - The retrospective commits could be squashed into the implementation commits to reduce noise, but they serve as documentation checkpoints
+
+### CLAUDE.md Compliance
+
+**Score: Strong (9/10)**
+
+- [x] TDD mandatory — followed for all new code
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite run (1206/1206 pass)
+- [x] Commits are logically organized
+- [x] Beads tracked and closed
+- [x] Code review offered and items addressed
+- [x] Retrospective written before PR finalization
+- [x] PR description created with comprehensive changes list
+
+### Key Learnings
+
+1. **Bundling review items into a tranche works well.** Three related beads (struct migration, test hygiene, code quality) complement each other and are easier to review together than as 3 separate PRs.
+2. **Test consolidation pays immediate dividends.** Extracting shared helpers removed 334 lines while making each test file's purpose clearer. Future test writers can reuse the helpers.
+3. **`something()` override deduplication was overdue.** The 8x repeated pattern in `solve`/`solve_raw` was a maintenance burden — `_merge_options` is a clean extraction.
+4. **In-place regularization with try-finally is robust.** Adding/subtracting λ on the diagonal avoids allocation while ensuring the matrix is always restored, even on exceptions.
+5. **Investigating and skipping items is valid.** The `Vector{Function}` type stability item was investigated, benchmarked, and skipped with rationale — better than cargo-culting a complex solution for negligible gain.
+
+### Action Items for Next PR
+
+- [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
+- [ ] Update README examples if they reference the old NamedTuple options format
