@@ -2020,3 +2020,65 @@ Replaced untyped `options::NamedTuple` in `NonlinearSolver` with a concrete `Non
 ### Action Items
 
 - None — clean implementation with no follow-up debt
+
+---
+
+## PR: Consolidate test helpers and fix test hygiene (bead 9hy)
+
+**Branch**: `tranche3/options-and-review-fixes`
+**Date**: 2026-02-13
+
+### Summary
+
+Addressed 5 items from the 7-expert code review of PR #128:
+1. Consolidated duplicated test problem setup (~40 lines each) from 4 test files into shared helpers in `testing_utils.jl`
+2. Clarified responsibilities between `test_flexible_callsite.jl` (parameter passing + callbacks) and `test_unified_interface.jl` (type hierarchy + `_to_parameter_dict`)
+3. Verified `@info` logging concern was already addressed (`@debug` was already used)
+4. Added callback error handling tests (error propagation + partial history preservation)
+5. Added root player `M_fns!/N_fns!` stub behavior test
+
+Net result: -334 lines of duplicated test code, +74 lines of new test coverage.
+
+### TDD Compliance
+
+**Score: 7/10**
+
+- The consolidation itself is refactoring of test infrastructure, not new production code — TDD cycle doesn't directly apply
+- New tests (callback error handling, root player stubs) were written to document existing behavior, not drive new implementation
+- First callback error test iteration had a test that assumed multi-iteration convergence but the solver converges in 1 — fixed by making the test adaptive
+- **Improvement**: Even for behavior-documenting tests, should validate assumptions about the system (e.g., "does this solver actually take >1 iteration?") before writing assertions
+
+### Clean Code
+
+**Score: 9/10**
+
+- Shared helpers `make_standard_two_player_problem()` and `make_simple_qp_two_player()` have clear names and docstrings
+- Keyword arguments for goals make customization explicit
+- Removed unused imports from refactored test files
+- File responsibilities are clearly documented with comments at the top of each file
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Test helpers live in the right place (`testing_utils.jl`)
+- Each test file has a single clear responsibility
+- No production code changes needed
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- Two focused commits: (1) consolidation, (2) new tests
+- Each commit leaves tests green
+- Descriptive commit messages
+
+### CLAUDE.md Compliance
+
+- All instructions followed
+- Full test suite run (1166/1166 pass)
+- Retrospective written before closing
+
+### Action Items
+
+- None — all review items addressed cleanly
