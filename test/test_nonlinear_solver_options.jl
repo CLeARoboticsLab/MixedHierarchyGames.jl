@@ -1,46 +1,4 @@
-using Graphs: SimpleDiGraph, add_edge!
-using TrajectoryGamesBase: unflatten_trajectory
-
-"""Helper to create a minimal 2-player nonlinear problem for options integration tests."""
-function _make_options_test_problem(; T=3, state_dim=2, control_dim=2)
-    N = 2
-    G = SimpleDiGraph(N)
-    add_edge!(G, 1, 2)
-
-    primal_dim_per_player = state_dim * (T + 1) + control_dim * (T + 1)
-    primal_dims = fill(primal_dim_per_player, N)
-
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
-
-    function J1(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-        sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    function J2(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-        sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    Js = Dict(1 => J1, 2 => J2)
-
-    function make_dynamics_constraint(player_idx)
-        function dynamics_constraint(z)
-            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-            constraints = []
-            for t in 1:T
-                push!(constraints, xs[t+1] - xs[t] - us[t])
-            end
-            push!(constraints, xs[1] - θs[player_idx])
-            return vcat(constraints...)
-        end
-        return dynamics_constraint
-    end
-
-    gs = [make_dynamics_constraint(i) for i in 1:N]
-    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
-end
+# make_standard_two_player_problem is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "NonlinearSolverOptions" begin
     @testset "Default construction" begin
@@ -102,13 +60,15 @@ end
         @test_throws ArgumentError NonlinearSolverOptions(linesearch_method=:invalid)
     end
 
-    @testset "use_sparse accepts Bool for backward compatibility" begin
+    @testset "use_sparse normalizes Bool to Symbol" begin
+        # Bool values are normalized to Symbol at construction
         opts_true = NonlinearSolverOptions(use_sparse=true)
-        @test opts_true.use_sparse === true
+        @test opts_true.use_sparse === :always
 
         opts_false = NonlinearSolverOptions(use_sparse=false)
-        @test opts_false.use_sparse === false
+        @test opts_false.use_sparse === :never
 
+        # Symbol values stored directly
         opts_auto = NonlinearSolverOptions(use_sparse=:auto)
         @test opts_auto.use_sparse === :auto
 
@@ -119,8 +79,27 @@ end
         @test opts_never.use_sparse === :never
     end
 
+    @testset "use_sparse validates Symbol values" begin
+        @test_throws ArgumentError NonlinearSolverOptions(use_sparse=:bogus)
+        @test_throws ArgumentError NonlinearSolverOptions(use_sparse=:sparse)
+    end
+
+    @testset "Field validation" begin
+        # max_iters must be positive
+        @test_throws ArgumentError NonlinearSolverOptions(max_iters=0)
+        @test_throws ArgumentError NonlinearSolverOptions(max_iters=-1)
+
+        # tol must be positive
+        @test_throws ArgumentError NonlinearSolverOptions(tol=0.0)
+        @test_throws ArgumentError NonlinearSolverOptions(tol=-1e-6)
+
+        # regularization must be non-negative
+        @test_throws ArgumentError NonlinearSolverOptions(regularization=-0.001)
+        @test_nowarn NonlinearSolverOptions(regularization=0.0)  # zero is ok
+    end
+
     @testset "NonlinearSolver stores NonlinearSolverOptions" begin
-        prob = _make_options_test_problem()
+        prob = make_standard_two_player_problem()
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
             prob.state_dim, prob.control_dim
@@ -129,7 +108,7 @@ end
     end
 
     @testset "NonlinearSolver constructor passes options through" begin
-        prob = _make_options_test_problem()
+        prob = make_standard_two_player_problem()
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
             prob.state_dim, prob.control_dim;
@@ -149,17 +128,37 @@ end
     end
 
     @testset "NamedTuple backward compatibility" begin
-        # NonlinearSolverOptions can be constructed from a NamedTuple
+        # NonlinearSolverOptions can be constructed from a NamedTuple (deprecated path)
         nt = (;
             max_iters=100, tol=1e-6, verbose=false,
             linesearch_method=:geometric, recompute_policy_in_linesearch=true,
             use_sparse=:auto, show_progress=false, regularization=0.0
         )
-        opts = NonlinearSolverOptions(nt)
+        opts = @test_deprecated NonlinearSolverOptions(nt)
         @test opts isa NonlinearSolverOptions
         @test opts.max_iters == 100
         @test opts.tol == 1e-6
         @test opts.linesearch_method == :geometric
+    end
+
+    @testset "NamedTuple constructor validates through keyword path" begin
+        # Invalid linesearch should be caught even via NamedTuple constructor
+        bad_nt = (;
+            max_iters=100, tol=1e-6, verbose=false,
+            linesearch_method=:bogus, recompute_policy_in_linesearch=true,
+            use_sparse=:auto, show_progress=false, regularization=0.0
+        )
+        @test_throws ArgumentError @test_deprecated NonlinearSolverOptions(bad_nt)
+    end
+
+    @testset "NamedTuple constructor handles partial NamedTuples with defaults" begin
+        # Only specify a subset of fields — rest use defaults
+        partial_nt = (; max_iters=50, tol=1e-8)
+        opts = @test_deprecated NonlinearSolverOptions(partial_nt)
+        @test opts.max_iters == 50
+        @test opts.tol == 1e-8
+        @test opts.linesearch_method == :geometric  # default
+        @test opts.use_sparse == :auto  # default
     end
 
     @testset "NamedTuple property access still works" begin
@@ -167,6 +166,14 @@ end
         opts = NonlinearSolverOptions(max_iters=50)
         @test opts.max_iters == 50
         @test opts.tol == 1e-6  # default
+    end
+
+    @testset "Base.show produces readable output" begin
+        opts = NonlinearSolverOptions()
+        s = sprint(show, opts)
+        @test contains(s, "NonlinearSolverOptions")
+        @test contains(s, "max_iters=100")
+        @test contains(s, "tol=1e-6") || contains(s, "tol=1.0e-6")
     end
 end
 
@@ -236,5 +243,36 @@ end
         opts = NonlinearSolverOptions()
         merged = MixedHierarchyGames._merge_options(opts; max_iters=10)
         @test merged isa NonlinearSolverOptions
+    end
+
+    @testset "_merge_options validates overrides" begin
+        opts = NonlinearSolverOptions()
+        @test_throws ArgumentError MixedHierarchyGames._merge_options(opts; linesearch_method=:bogus)
+        @test_throws ArgumentError MixedHierarchyGames._merge_options(opts; max_iters=-1)
+        @test_throws ArgumentError MixedHierarchyGames._merge_options(opts; tol=-1.0)
+        @test_throws ArgumentError MixedHierarchyGames._merge_options(opts; regularization=-0.01)
+        @test_throws ArgumentError MixedHierarchyGames._merge_options(opts; use_sparse=:bogus)
+    end
+
+    @testset "_merge_options normalizes Bool use_sparse" begin
+        opts = NonlinearSolverOptions()
+        merged = MixedHierarchyGames._merge_options(opts; use_sparse=true)
+        @test merged.use_sparse === :always
+        merged2 = MixedHierarchyGames._merge_options(opts; use_sparse=false)
+        @test merged2.use_sparse === :never
+    end
+
+    @testset "_merge_options integration: overrides work through solve_raw" begin
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            max_iters=200
+        )
+        params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Override max_iters to 3 — should respect the override
+        result = solve_raw(solver, params; max_iters=3)
+        @test result.iterations <= 3
     end
 end

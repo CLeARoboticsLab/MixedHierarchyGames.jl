@@ -667,7 +667,7 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
+            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -699,7 +699,7 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false, regularization=0.0)
+    _solve_K!(M, N, player_idx; use_sparse=false, regularization=0.0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
@@ -708,12 +708,19 @@ beneficial for large M matrices (>100 rows) with structural sparsity from the KK
 
 When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
 which improves numerical stability for near-singular M at the cost of a small bias
-in the solution.
+in the solution. Regularization is applied in-place on M's diagonal and restored
+via try-finally to avoid allocating `M + λI`. The roundtrip `M[i,i] + λ - λ` may
+differ from the original by up to machine epsilon (~2.2e-16).
+
+!!! note "Mutation"
+    M is temporarily mutated when `regularization > 0` (diagonal entries are
+    modified during the solve and restored in a `finally` block). Callers must
+    not access M concurrently during this call.
 
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
+function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
     # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
     # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
     if regularization > 0
@@ -792,7 +799,10 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
 - `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
   `(; iteration, residual, step_size, z_est)`. Enables iteration history tracking, convergence
-  analysis, and external monitoring. `z_est` is a copy of the current solution vector.
+  analysis, and external monitoring. `z_est` is a copy of the post-update solution vector.
+  Note: `residual` is the pre-step KKT residual (evaluated before the Newton update), while
+  `z_est` is the post-step solution. The residual at `z_est` is not computed until the next
+  iteration's convergence check.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -901,9 +911,9 @@ function run_nonlinear_solver(
     # Progress tracking
     t_start = time()
     if show_progress
-        println("┌────────┬───────────────┬──────────┬───────────┐")
-        println("│  iter  │   residual    │    α     │   time    │")
-        println("├────────┼───────────────┼──────────┼───────────┤")
+        println("┌────────┬────────────────┬──────────┬───────────┐")
+        println("│  iter  │    residual    │    α     │   time    │")
+        println("├────────┼────────────────┼──────────┼───────────┤")
     end
 
     # Main iteration loop
@@ -989,7 +999,7 @@ function run_nonlinear_solver(
         # Progress display after iteration update
         if show_progress
             elapsed = time() - t_start
-            println(@sprintf("│ %6d │ %13.6e │ %8.4f │ %8.2fs │",
+            println(@sprintf("│ %6d │ %14.6e │ %8.4f │ %8.2fs │",
                 num_iterations, residual_norm, α, elapsed))
         end
 
@@ -1009,7 +1019,7 @@ function run_nonlinear_solver(
     # Progress summary
     if show_progress
         elapsed = time() - t_start
-        println("└────────┴───────────────┴──────────┴───────────┘")
+        println("└────────┴────────────────┴──────────┴───────────┘")
         status_str = status in (:solved, :solved_initial_point) ? "Converged" : "Did not converge"
         println(@sprintf("  %s in %d iterations (%.2fs), final residual: %.6e",
             status_str, num_iterations, elapsed, residual_norm))

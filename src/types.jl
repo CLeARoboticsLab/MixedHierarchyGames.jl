@@ -324,6 +324,7 @@ function QPSolver(
 end
 
 const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant)
+const VALID_USE_SPARSE = (:auto, :always, :never)
 
 """
     NonlinearSolverOptions
@@ -337,7 +338,7 @@ previously used for solver options.
 - `verbose::Bool` - Print iteration info (default: false)
 - `linesearch_method::Symbol` - Line search method: `:armijo`, `:geometric`, or `:constant` (default: `:geometric`)
 - `recompute_policy_in_linesearch::Bool` - Recompute K matrices at each line search trial step (default: true)
-- `use_sparse::Union{Symbol,Bool}` - Strategy for M\\N solve: `:auto`, `:always`, `:never`, or Bool (default: `:auto`)
+- `use_sparse::Symbol` - Strategy for M\\N solve: `:auto`, `:always`, or `:never` (default: `:auto`). Bool values (`true`/`false`) are accepted and normalized to `:always`/`:never`.
 - `show_progress::Bool` - Display iteration progress (default: false)
 - `regularization::Float64` - Tikhonov regularization parameter λ (default: 0.0)
 """
@@ -347,7 +348,7 @@ struct NonlinearSolverOptions
     verbose::Bool
     linesearch_method::Symbol
     recompute_policy_in_linesearch::Bool
-    use_sparse::Union{Symbol,Bool}
+    use_sparse::Symbol
     show_progress::Bool
     regularization::Float64
 end
@@ -356,6 +357,9 @@ end
     NonlinearSolverOptions(; kwargs...)
 
 Construct NonlinearSolverOptions with keyword arguments and sensible defaults.
+
+Validates all fields at construction time. Bool values for `use_sparse` are
+normalized to Symbol (true → :always, false → :never).
 """
 function NonlinearSolverOptions(;
     max_iters::Int = 100,
@@ -367,15 +371,26 @@ function NonlinearSolverOptions(;
     show_progress::Bool = false,
     regularization::Float64 = 0.0
 )
+    max_iters > 0 || throw(ArgumentError("max_iters must be positive, got $max_iters"))
+    tol > 0 || throw(ArgumentError("tol must be positive, got $tol"))
+    regularization >= 0 || throw(ArgumentError("regularization must be non-negative, got $regularization"))
     if linesearch_method ∉ VALID_LINESEARCH_METHODS
         throw(ArgumentError(
             "Invalid linesearch_method :$linesearch_method. " *
             "Must be one of: $(join(VALID_LINESEARCH_METHODS, ", "))."
         ))
     end
+    # Normalize Bool → Symbol for use_sparse
+    use_sparse_sym = use_sparse isa Bool ? (use_sparse ? :always : :never) : use_sparse
+    if use_sparse_sym ∉ VALID_USE_SPARSE
+        throw(ArgumentError(
+            "Invalid use_sparse :$use_sparse_sym. " *
+            "Must be one of: $(join(VALID_USE_SPARSE, ", ")) (or Bool)."
+        ))
+    end
     return NonlinearSolverOptions(
         max_iters, tol, verbose, linesearch_method,
-        recompute_policy_in_linesearch, use_sparse, show_progress, regularization
+        recompute_policy_in_linesearch, use_sparse_sym, show_progress, regularization
     )
 end
 
@@ -383,12 +398,33 @@ end
     NonlinearSolverOptions(nt::NamedTuple)
 
 Construct NonlinearSolverOptions from a NamedTuple for backward compatibility.
+
+!!! warning "Deprecated"
+    Constructing from NamedTuple is deprecated. Use keyword arguments instead:
+    `NonlinearSolverOptions(max_iters=100, tol=1e-6, ...)`.
 """
 function NonlinearSolverOptions(nt::NamedTuple)
-    return NonlinearSolverOptions(
-        nt.max_iters, nt.tol, nt.verbose, nt.linesearch_method,
-        nt.recompute_policy_in_linesearch, nt.use_sparse, nt.show_progress, nt.regularization
+    Base.depwarn(
+        "Constructing NonlinearSolverOptions from a NamedTuple is deprecated. " *
+        "Use keyword arguments instead: NonlinearSolverOptions(max_iters=..., tol=..., ...)",
+        :NonlinearSolverOptions
     )
+    return NonlinearSolverOptions(;
+        max_iters = get(nt, :max_iters, 100),
+        tol = get(nt, :tol, 1e-6),
+        verbose = get(nt, :verbose, false),
+        linesearch_method = get(nt, :linesearch_method, :geometric),
+        recompute_policy_in_linesearch = get(nt, :recompute_policy_in_linesearch, true),
+        use_sparse = get(nt, :use_sparse, :auto),
+        show_progress = get(nt, :show_progress, false),
+        regularization = get(nt, :regularization, 0.0),
+    )
+end
+
+function Base.show(io::IO, opts::NonlinearSolverOptions)
+    print(io, "NonlinearSolverOptions(max_iters=$(opts.max_iters), tol=$(opts.tol), " *
+        "linesearch=$(opts.linesearch_method), sparse=$(opts.use_sparse)" *
+        (opts.regularization > 0 ? ", reg=$(opts.regularization)" : "") * ")")
 end
 
 """
@@ -431,7 +467,8 @@ Construct a NonlinearSolver from low-level problem components.
 - `linesearch_method::Symbol=:geometric` - Line search method (:armijo, :geometric, or :constant)
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (skips recomputation, reuses K from current Newton iteration).
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
-  `:auto` (sparse for leaders, dense for leaves), `:always`, `:never`, or Bool
+  `:auto` (sparse for leaders, dense for leaves), `:always`, `:never`, or Bool.
+  Bool values are normalized to Symbol (true → :always, false → :never).
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias. Default 0.0 (disabled).
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.

@@ -2,7 +2,7 @@ using Test
 using LinearAlgebra: norm, I, cond, Diagonal, qr
 
 using MixedHierarchyGames:
-    _solve_K,
+    _solve_K!,
     compute_K_evals,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
@@ -14,18 +14,18 @@ using MixedHierarchyGames:
 @testset "Numerical Regularization (Tikhonov)" begin
 
     #==========================================================================
-        Unit tests for _solve_K with regularization parameter
+        Unit tests for _solve_K! with regularization parameter
     ==========================================================================#
 
-    @testset "_solve_K regularization parameter" begin
+    @testset "_solve_K! regularization parameter" begin
 
         @testset "default regularization=0.0 matches original behavior" begin
             # Well-conditioned system
             M = [2.0 1.0; 1.0 3.0]
             N = [1.0 0.0; 0.0 1.0]
 
-            K_default = _solve_K(M, N, 1)
-            K_explicit_zero = _solve_K(M, N, 1; regularization=0.0)
+            K_default = _solve_K!(M, N, 1)
+            K_explicit_zero = _solve_K!(M, N, 1; regularization=0.0)
 
             @test norm(K_default - K_explicit_zero) < 1e-14
         end
@@ -35,11 +35,11 @@ using MixedHierarchyGames:
             M = [1.0 2.0; 2.0 4.0]  # rank 1 (row 2 = 2 * row 1)
             N = [1.0; 2.0][:, :]     # Make it a matrix
 
-            K_no_reg = _solve_K(M, N, 1)
+            K_no_reg = _solve_K!(M, N, 1)
             @test any(isnan, K_no_reg)  # Should produce NaN fallback
 
             # With regularization, should get a finite result
-            K_reg = _solve_K(M, N, 1; regularization=1e-6)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-6)
             @test all(isfinite, K_reg)
         end
 
@@ -52,10 +52,10 @@ using MixedHierarchyGames:
             N = randn(n, 3)
 
             # Without regularization — result may have huge values
-            K_no_reg = _solve_K(M, N, 1)
+            K_no_reg = _solve_K!(M, N, 1)
 
             # With regularization — should be better conditioned
-            K_reg = _solve_K(M, N, 1; regularization=1e-6)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-6)
             @test all(isfinite, K_reg)
 
             # Regularized K should have bounded norm
@@ -68,7 +68,7 @@ using MixedHierarchyGames:
             N = [5.0 2.0; 3.0 7.0]
 
             K_exact = M \ N
-            K_reg = _solve_K(M, N, 1; regularization=1e-10)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-10)
 
             # With tiny regularization, error should be negligible
             relative_error = norm(K_reg - K_exact) / norm(K_exact)
@@ -80,7 +80,7 @@ using MixedHierarchyGames:
             N = [1.0 0.0; 0.0 1.0]
             M_copy = copy(M)
 
-            _solve_K(M, N, 1; regularization=1e-4)
+            _solve_K!(M, N, 1; regularization=1e-4)
 
             # M should be restored after the call (within floating-point roundtrip tolerance)
             @test M ≈ M_copy atol=1e-14
@@ -91,9 +91,33 @@ using MixedHierarchyGames:
             N = [1.0; 2.0][:, :]
             M_copy = copy(M)
 
-            _solve_K(M, N, 1; regularization=1e-6)
+            _solve_K!(M, N, 1; regularization=1e-6)
 
             # M should be restored after the call (within floating-point roundtrip tolerance)
+            @test M ≈ M_copy atol=1e-14
+        end
+
+        @testset "non-Singular exceptions are rethrown (not swallowed)" begin
+            # DimensionMismatch is not SingularException or LAPACKException,
+            # so it should be rethrown, not caught by the NaN fallback
+            M = [1.0 0.0; 0.0 1.0]
+            N_bad = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]  # 3×3, incompatible with 2×2 M
+
+            @test_throws DimensionMismatch _solve_K!(M, N_bad, 1; regularization=1e-6)
+        end
+
+        @testset "M is restored even when exception is thrown" begin
+            M = [1.0 0.0; 0.0 1.0]
+            N_bad = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]  # triggers DimensionMismatch
+            M_copy = copy(M)
+
+            try
+                _solve_K!(M, N_bad, 1; regularization=0.5)
+            catch
+                # expected
+            end
+
+            # M should be restored by the finally block
             @test M ≈ M_copy atol=1e-14
         end
 
@@ -101,8 +125,8 @@ using MixedHierarchyGames:
             M = [1.0 2.0; 2.0 4.0]  # singular
             N = [1.0; 2.0][:, :]
 
-            K_dense = _solve_K(M, N, 1; regularization=1e-6)
-            K_sparse = _solve_K(M, N, 1; regularization=1e-6, use_sparse=true)
+            K_dense = _solve_K!(M, N, 1; regularization=1e-6)
+            K_sparse = _solve_K!(M, N, 1; regularization=1e-6, use_sparse=true)
 
             @test all(isfinite, K_dense)
             @test all(isfinite, K_sparse)
@@ -126,7 +150,7 @@ using MixedHierarchyGames:
             errors = Float64[]
 
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 push!(errors, norm(K_reg - K_exact) / norm(K_exact))
             end
 
@@ -160,13 +184,13 @@ using MixedHierarchyGames:
             # Compare different regularization values
             lambdas = [1e-10, 1e-8, 1e-6, 1e-4]
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 @test all(isfinite, K_reg)
             end
 
             @debug "Moderately ill-conditioned (cond(M)=$(round(cond(M), sigdigits=3))):"
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 err = norm(K_reg - K_exact) / norm(K_exact)
                 @debug "  λ=$λ → relative error=$err"
             end

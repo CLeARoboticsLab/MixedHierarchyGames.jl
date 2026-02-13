@@ -234,15 +234,15 @@ function _merge_options(
     show_progress::Union{Nothing, Bool} = nothing,
     regularization::Union{Nothing, Float64} = nothing
 )
-    return NonlinearSolverOptions(
-        something(max_iters, base.max_iters),
-        something(tol, base.tol),
-        something(verbose, base.verbose),
-        something(linesearch_method, base.linesearch_method),
-        something(recompute_policy_in_linesearch, base.recompute_policy_in_linesearch),
-        something(use_sparse, base.use_sparse),
-        something(show_progress, base.show_progress),
-        something(regularization, base.regularization)
+    return NonlinearSolverOptions(;
+        max_iters = something(max_iters, base.max_iters),
+        tol = something(tol, base.tol),
+        verbose = something(verbose, base.verbose),
+        linesearch_method = something(linesearch_method, base.linesearch_method),
+        recompute_policy_in_linesearch = something(recompute_policy_in_linesearch, base.recompute_policy_in_linesearch),
+        use_sparse = something(use_sparse, base.use_sparse),
+        show_progress = something(show_progress, base.show_progress),
+        regularization = something(regularization, base.regularization),
     )
 end
 
