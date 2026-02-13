@@ -9,6 +9,7 @@ MixedHierarchyGames
 ## Types
 
 ```@docs
+AbstractMixedHierarchyGameSolver
 QPSolver
 NonlinearSolver
 HierarchyGame
@@ -88,7 +89,6 @@ disable_timing!
 is_timing_enabled
 with_timing
 @timeit_debug
-TIMING_ENABLED
 ```
 
 ## Internal Functions
