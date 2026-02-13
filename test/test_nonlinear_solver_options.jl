@@ -169,3 +169,72 @@ end
         @test opts.tol == 1e-6  # default
     end
 end
+
+@testset "_merge_options" begin
+    @testset "no overrides returns original options" begin
+        opts = NonlinearSolverOptions(max_iters=42, tol=1e-8)
+        merged = MixedHierarchyGames._merge_options(opts)
+        @test merged.max_iters == 42
+        @test merged.tol == 1e-8
+        @test merged.verbose == false
+        @test merged.linesearch_method == :geometric
+    end
+
+    @testset "single override replaces that field" begin
+        opts = NonlinearSolverOptions()
+        merged = MixedHierarchyGames._merge_options(opts; max_iters=200)
+        @test merged.max_iters == 200
+        # Remaining fields unchanged
+        @test merged.tol == 1e-6
+        @test merged.verbose == false
+        @test merged.linesearch_method == :geometric
+    end
+
+    @testset "multiple overrides replace those fields" begin
+        opts = NonlinearSolverOptions()
+        merged = MixedHierarchyGames._merge_options(opts;
+            max_iters=50, tol=1e-10, verbose=true, linesearch_method=:armijo)
+        @test merged.max_iters == 50
+        @test merged.tol == 1e-10
+        @test merged.verbose == true
+        @test merged.linesearch_method == :armijo
+        # Unchanged
+        @test merged.recompute_policy_in_linesearch == true
+        @test merged.use_sparse == :auto
+        @test merged.show_progress == false
+        @test merged.regularization == 0.0
+    end
+
+    @testset "nothing overrides are ignored (use base option)" begin
+        opts = NonlinearSolverOptions(max_iters=42, verbose=true)
+        merged = MixedHierarchyGames._merge_options(opts;
+            max_iters=nothing, verbose=nothing, tol=1e-10)
+        @test merged.max_iters == 42       # nothing → kept from opts
+        @test merged.verbose == true       # nothing → kept from opts
+        @test merged.tol == 1e-10          # overridden
+    end
+
+    @testset "all fields can be overridden" begin
+        opts = NonlinearSolverOptions()
+        merged = MixedHierarchyGames._merge_options(opts;
+            max_iters=200, tol=1e-12, verbose=true,
+            linesearch_method=:constant,
+            recompute_policy_in_linesearch=false,
+            use_sparse=:always, show_progress=true,
+            regularization=0.01)
+        @test merged.max_iters == 200
+        @test merged.tol == 1e-12
+        @test merged.verbose == true
+        @test merged.linesearch_method == :constant
+        @test merged.recompute_policy_in_linesearch == false
+        @test merged.use_sparse == :always
+        @test merged.show_progress == true
+        @test merged.regularization == 0.01
+    end
+
+    @testset "returns NonlinearSolverOptions type" begin
+        opts = NonlinearSolverOptions()
+        merged = MixedHierarchyGames._merge_options(opts; max_iters=10)
+        @test merged isa NonlinearSolverOptions
+    end
+end
