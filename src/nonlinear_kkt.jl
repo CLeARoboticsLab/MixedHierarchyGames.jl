@@ -784,7 +784,8 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
 - `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
-  `(; iteration, residual, step_size)`. Enables iteration history tracking and external monitoring.
+  `(; iteration, residual, step_size, z_est)`. Enables iteration history tracking, convergence
+  analysis, and external monitoring. `z_est` is a copy of the current solution vector.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -988,9 +989,9 @@ function run_nonlinear_solver(
             println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
         end
 
-        # Invoke callback with iteration info
+        # Invoke callback with iteration info (copy z_est since it's mutated in-place)
         if callback !== nothing
-            callback((; iteration=num_iterations, residual=residual_norm, step_size=α))
+            callback((; iteration=num_iterations, residual=residual_norm, step_size=α, z_est=copy(z_est)))
         end
 
         # Guard against NaN/Inf in solution

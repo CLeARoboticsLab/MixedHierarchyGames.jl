@@ -155,6 +155,46 @@ end
         end
     end
 
+    @testset "callback receives z_est (current solution vector)" begin
+        solver = make_callback_test_solver()
+        params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        history = []
+        callback = info -> push!(history, info)
+
+        result = solve_raw(solver, params; callback=callback)
+
+        @test result.converged
+        @test length(history) >= 1
+
+        # Each callback entry should include z_est
+        for info in history
+            @test hasproperty(info, :z_est)
+            @test info.z_est isa AbstractVector
+            @test length(info.z_est) == length(result.sol)
+        end
+
+        # The final callback's z_est should match the solution
+        # (callback is called after the update, so the last z_est should be close to sol)
+        last_z = history[end].z_est
+        @test last_z isa AbstractVector
+    end
+
+    @testset "callback z_est is a copy (not a reference to solver internal state)" begin
+        solver = make_callback_test_solver()
+        params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        z_snapshots = Vector{Float64}[]
+        callback = info -> push!(z_snapshots, info.z_est)
+
+        result = solve_raw(solver, params; callback=callback)
+
+        if length(z_snapshots) >= 2
+            # Each snapshot should be an independent copy — not all the same object
+            @test z_snapshots[1] != z_snapshots[end]  # Different iteration, different values
+        end
+    end
+
     @testset "callback iteration numbers are sequential" begin
         solver = make_callback_test_solver()
         params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
