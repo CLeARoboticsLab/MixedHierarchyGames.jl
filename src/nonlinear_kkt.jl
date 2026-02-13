@@ -555,7 +555,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, M_buffers, N_buffers, buffers=nothing)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -578,6 +578,9 @@ See Phase 6 for planned thread-safety improvements.
   - `:always` - Always use sparse LU factorization
   - `:never` - Always use dense solve
   - `true`/`false` - Backward-compatible aliases for `:always`/`:never`
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ. When > 0,
+  solves `K = (M + λI) \\ N` instead of `K = M \\ N`. Improves numerical stability
+  for near-singular M at the cost of a small bias.
 - `M_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated M matrix buffers.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
@@ -598,6 +601,7 @@ function compute_K_evals(
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
     use_sparse::Union{Symbol,Bool}=:auto,
+    regularization::Float64=0.0,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     buffers::Union{Nothing, NamedTuple}=nothing
@@ -663,7 +667,7 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -695,22 +699,33 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, regularization=0.0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
+which improves numerical stability for near-singular M at the cost of a small bias
+in the solution.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
     try
-        K = if use_sparse
-            sparse(M) \ N
+        # Apply Tikhonov regularization if requested
+        M_solve = if regularization > 0
+            M + regularization * I
         else
-            M \ N
+            M
+        end
+
+        K = if use_sparse
+            sparse(M_solve) \ N
+        else
+            M_solve \ N
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
@@ -767,6 +782,7 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve (see `compute_K_evals`)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -790,6 +806,7 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
+    regularization::Float64 = 0.0,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -865,7 +882,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, M_buffers, N_buffers, buffers=k_eval_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end

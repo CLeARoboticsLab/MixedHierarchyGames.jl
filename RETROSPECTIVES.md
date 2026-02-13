@@ -1318,3 +1318,71 @@ Investigation of whether pre-allocated Jacobian buffers need zeroing before reus
 ### Action Items for Next PR
 
 - [ ] Consider whether the Python test files should be migrated to use the package API instead of including legacy scripts directly
+
+---
+
+## PR: proposal/numerical-regularization
+
+**Date:** 2026-02-11
+**Commits:** 3
+**Tests:** 950 passing (29 new)
+
+### Summary
+
+Proposal PR to evaluate Tikhonov regularization for ill-conditioned M matrices in `_solve_K`. Added `regularization::Float64=0.0` parameter threaded through the full solver API: `_solve_K` -> `compute_K_evals` -> `run_nonlinear_solver` -> `NonlinearSolver` constructor -> `solve`/`solve_raw`. Includes accuracy analysis quantifying distortion vs regularization strength.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Wrote failing tests first for `_solve_K` regularization parameter (RED confirmed)
+  - Wrote integration tests for higher-level API before implementing threading (RED confirmed)
+  - All tests passed after each implementation step (GREEN confirmed)
+  - Clean progression: unit tests -> implementation -> integration tests -> API threading
+
+- **What could improve:**
+  - Minor: `qr` import bug caught by test run, not by pre-check
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions remained focused and single-purpose
+- Regularization added as a simple parameter with clear default (0.0 = disabled)
+- No behavior change for existing users
+- Docstrings updated for all modified functions
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Regularization threaded cleanly through existing option pattern (`something(override, options.default)`)
+- Followed the same pattern as `use_sparse` for consistency
+- No new abstractions needed — parameter flows naturally through existing layers
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 focused commits: (1) core implementation + tests, (2) API threading + integration tests, (3) test tier fix
+- Each commit leaves codebase in working state
+- Commit messages describe both what and why
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite run and passing (950 tests)
+- [x] Retrospective written before final PR update
+
+### Key Learnings
+
+1. When importing from `LinearAlgebra` in a test file that gets `include`d, explicit imports like `using LinearAlgebra: qr` are needed because `include` runs in `Main` scope.
+2. The test tier system (`test_test_tiers.jl`) has self-validation that catches when new test files aren't registered — useful for preventing omissions.
+3. Tikhonov regularization error scales approximately linearly with lambda for well-conditioned systems: relative error ~ lambda / min_singular_value.
+
+### Action Items for Next PR
+
+- [ ] Consider adaptive regularization (auto-detect ill-conditioning and apply minimal lambda)
+- [ ] Investigate regularization impact on solver convergence for full nonlinear problems

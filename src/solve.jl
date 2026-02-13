@@ -202,6 +202,7 @@ function solve(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    regularization::Union{Nothing, Float64} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -218,6 +219,7 @@ function solve(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_regularization = something(regularization, options.regularization)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -233,6 +235,7 @@ function solve(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            regularization = actual_regularization,
             to = to
         )
     end
@@ -279,6 +282,7 @@ function solve_raw(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    regularization::Union{Nothing, Float64} = nothing,
     to::TimerOutput = TimerOutput()
 )
     (; problem, precomputed, options) = solver
@@ -292,6 +296,7 @@ function solve_raw(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_regularization = something(regularization, options.regularization)
 
     # Run the nonlinear solver
     @timeit to "NonlinearSolver solve" begin
@@ -307,6 +312,7 @@ function solve_raw(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            regularization = actual_regularization,
             to = to
         )
     end

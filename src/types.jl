@@ -324,7 +324,7 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, regularization)
   - `use_sparse` can be `:auto` (sparse for leaders, dense for leaves), `:always`, or `:never`
 """
 struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
@@ -356,6 +356,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
   `:auto` (sparse for leaders, dense for leaves), `:always`, `:never`, or Bool
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias. Default 0.0 (disabled).
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
   symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
@@ -377,6 +378,7 @@ function NonlinearSolver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
+    regularization::Float64 = 0.0,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -406,7 +408,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
     end
 
     return NonlinearSolver(problem, precomputed, options)
