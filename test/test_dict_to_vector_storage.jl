@@ -152,4 +152,31 @@ using MixedHierarchyGames:
         )
         @test result3.converged
     end
+
+    @testset "Root player M_fns!/N_fns! stubs throw on accidental invocation" begin
+        # Root players (no leader) have placeholder stubs that should error
+        # if invoked — this documents the defensive guard behavior.
+        problem_vars = setup_problem_variables(G, primal_dims, gs; backend)
+        θs = setup_problem_parameter_variables([2, 2]; backend)
+        Js = Dict(
+            1 => (z1, z2; θ=nothing) -> sum(z1.^2) + sum(z2.^2),
+            2 => (z1, z2; θ=nothing) -> sum(z2.^2)
+        )
+
+        _, setup_info = setup_approximate_kkt_solver(
+            G, Js, problem_vars.zs, problem_vars.λs, problem_vars.μs,
+            gs, problem_vars.ws, problem_vars.ys, θs,
+            problem_vars.all_variables, backend
+        )
+
+        # Player 1 is root — calling M_fns![1] or N_fns![1] is a bug and should throw
+        dummy_buf = zeros(1, 1)
+        dummy_input = zeros(length(problem_vars.all_variables))
+        @test_throws ErrorException setup_info.var"M_fns!"[1](dummy_buf, dummy_input)
+        @test_throws ErrorException setup_info.var"N_fns!"[1](dummy_buf, dummy_input)
+
+        # Player 2 is a follower — its M_fns!/N_fns! should be callable (not stubs)
+        @test setup_info.var"M_fns!"[2] isa Function
+        @test setup_info.var"N_fns!"[2] isa Function
+    end
 end

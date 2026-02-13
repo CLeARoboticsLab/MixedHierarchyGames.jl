@@ -667,7 +667,7 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
+            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -699,7 +699,7 @@ function compute_K_evals(
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false, regularization=0.0)
+    _solve_K!(M, N, player_idx; use_sparse=false, regularization=0.0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
@@ -708,24 +708,31 @@ beneficial for large M matrices (>100 rows) with structural sparsity from the KK
 
 When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
 which improves numerical stability for near-singular M at the cost of a small bias
-in the solution.
+in the solution. Regularization is applied in-place on M's diagonal and restored
+via try-finally to avoid allocating `M + λI`. The roundtrip `M[i,i] + λ - λ` may
+differ from the original by up to machine epsilon (~2.2e-16).
+
+!!! note "Mutation"
+    M is temporarily mutated when `regularization > 0` (diagonal entries are
+    modified during the solve and restored in a `finally` block). Callers must
+    not access M concurrently during this call.
 
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
-    try
-        # Apply Tikhonov regularization if requested
-        M_solve = if regularization > 0
-            M + regularization * I
-        else
-            M
+function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
+    # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
+    # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
+    if regularization > 0
+        @inbounds for i in 1:size(M, 1)
+            M[i, i] += regularization
         end
-
+    end
+    try
         K = if use_sparse
-            sparse(M_solve) \ N
+            sparse(M) \ N
         else
-            M_solve \ N
+            M \ N
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
@@ -743,6 +750,13 @@ function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_s
             return fill(NaN, n_rows, n_cols)
         end
         rethrow()
+    finally
+        # Undo in-place regularization to preserve caller's M
+        if regularization > 0
+            @inbounds for i in 1:size(M, 1)
+                M[i, i] -= regularization
+            end
+        end
     end
 end
 
@@ -784,7 +798,11 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
 - `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
-  `(; iteration, residual, step_size)`. Enables iteration history tracking and external monitoring.
+  `(; iteration, residual, step_size, z_est)`. Enables iteration history tracking, convergence
+  analysis, and external monitoring. `z_est` is a copy of the post-update solution vector.
+  Note: `residual` is the pre-step KKT residual (evaluated before the Newton update), while
+  `z_est` is the post-step solution. The residual at `z_est` is not computed until the next
+  iteration's convergence check.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -893,9 +911,9 @@ function run_nonlinear_solver(
     # Progress tracking
     t_start = time()
     if show_progress
-        println("┌──────────────────────────────────────────────────────────────┐")
-        println("│  iter      residual          α         time                  │")
-        println("├──────────────────────────────────────────────────────────────┤")
+        println("┌────────┬────────────────┬──────────┬───────────┐")
+        println("│  iter  │    residual    │    α     │   time    │")
+        println("├────────┼────────────────┼──────────┼───────────┤")
     end
 
     # Main iteration loop
@@ -981,16 +999,13 @@ function run_nonlinear_solver(
         # Progress display after iteration update
         if show_progress
             elapsed = time() - t_start
-            iter_str = lpad(num_iterations, 4)
-            res_str = lpad(string(residual_norm), 14)
-            α_str = lpad(string(round(α; digits=4)), 8)
-            t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
-            println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+            println(@sprintf("│ %6d │ %14.6e │ %8.4f │ %8.2fs │",
+                num_iterations, residual_norm, α, elapsed))
         end
 
-        # Invoke callback with iteration info
+        # Invoke callback with iteration info (copy z_est since it's mutated in-place)
         if callback !== nothing
-            callback((; iteration=num_iterations, residual=residual_norm, step_size=α))
+            callback((; iteration=num_iterations, residual=residual_norm, step_size=α, z_est=copy(z_est)))
         end
 
         # Guard against NaN/Inf in solution
@@ -1004,9 +1019,10 @@ function run_nonlinear_solver(
     # Progress summary
     if show_progress
         elapsed = time() - t_start
-        println("└──────────────────────────────────────────────────────────────┘")
+        println("└────────┴────────────────┴──────────┴───────────┘")
         status_str = status in (:solved, :solved_initial_point) ? "Converged" : "Did not converge"
-        println("  $status_str in $num_iterations iterations ($(round(elapsed; digits=2))s), final residual: $residual_norm")
+        println(@sprintf("  %s in %d iterations (%.2fs), final residual: %.6e",
+            status_str, num_iterations, elapsed, residual_norm))
     end
 
     return (;

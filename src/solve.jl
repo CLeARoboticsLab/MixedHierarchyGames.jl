@@ -216,6 +216,37 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 end
 
 """
+    _merge_options(base::NonlinearSolverOptions; kwargs...) -> NonlinearSolverOptions
+
+Merge keyword overrides into a base NonlinearSolverOptions. `nothing` values
+are treated as "no override" and the base option is kept.
+
+This deduplicates the `something()` override pattern in `solve()` and `solve_raw()`.
+"""
+function _merge_options(
+    base::NonlinearSolverOptions;
+    max_iters::Union{Nothing, Int} = nothing,
+    tol::Union{Nothing, Float64} = nothing,
+    verbose::Union{Nothing, Bool} = nothing,
+    linesearch_method::Union{Nothing, Symbol} = nothing,
+    recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
+    use_sparse::Union{Nothing, Symbol, Bool} = nothing,
+    show_progress::Union{Nothing, Bool} = nothing,
+    regularization::Union{Nothing, Float64} = nothing
+)
+    return NonlinearSolverOptions(;
+        max_iters = something(max_iters, base.max_iters),
+        tol = something(tol, base.tol),
+        verbose = something(verbose, base.verbose),
+        linesearch_method = something(linesearch_method, base.linesearch_method),
+        recompute_policy_in_linesearch = something(recompute_policy_in_linesearch, base.recompute_policy_in_linesearch),
+        use_sparse = something(use_sparse, base.use_sparse),
+        show_progress = something(show_progress, base.show_progress),
+        regularization = something(regularization, base.regularization),
+    )
+end
+
+"""
     solve(solver::NonlinearSolver, initial_state; kwargs...)
 
 Solve the nonlinear hierarchy game with given initial state (parameter values).
@@ -258,15 +289,10 @@ function solve(
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
 
-    # Use options from solver unless overridden
-    actual_max_iters = something(max_iters, options.max_iters)
-    actual_tol = something(tol, options.tol)
-    actual_verbose = something(verbose, options.verbose)
-    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
-    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
-    actual_use_sparse = something(use_sparse, options.use_sparse)
-    actual_show_progress = something(show_progress, options.show_progress)
-    actual_regularization = something(regularization, options.regularization)
+    # Merge caller overrides with solver defaults
+    merged = _merge_options(options;
+        max_iters, tol, verbose, linesearch_method,
+        recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
 
     # Run the nonlinear solver
     @timeit_debug to "NonlinearSolver solve" begin
@@ -275,14 +301,14 @@ function solve(
             parameter_values,
             hierarchy_graph;
             initial_guess = initial_guess,
-            max_iters = actual_max_iters,
-            tol = actual_tol,
-            verbose = actual_verbose,
-            linesearch_method = actual_linesearch_method,
-            recompute_policy_in_linesearch = actual_recompute_K,
-            use_sparse = actual_use_sparse,
-            show_progress = actual_show_progress,
-            regularization = actual_regularization,
+            max_iters = merged.max_iters,
+            tol = merged.tol,
+            verbose = merged.verbose,
+            linesearch_method = merged.linesearch_method,
+            recompute_policy_in_linesearch = merged.recompute_policy_in_linesearch,
+            use_sparse = merged.use_sparse,
+            show_progress = merged.show_progress,
+            regularization = merged.regularization,
             callback = callback,
             to = to
         )
@@ -342,15 +368,10 @@ function solve_raw(
     (; problem, precomputed, options) = solver
     (; hierarchy_graph) = problem
 
-    # Use options from solver unless overridden
-    actual_max_iters = something(max_iters, options.max_iters)
-    actual_tol = something(tol, options.tol)
-    actual_verbose = something(verbose, options.verbose)
-    actual_linesearch_method = something(linesearch_method, options.linesearch_method)
-    actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
-    actual_use_sparse = something(use_sparse, options.use_sparse)
-    actual_show_progress = something(show_progress, options.show_progress)
-    actual_regularization = something(regularization, options.regularization)
+    # Merge caller overrides with solver defaults
+    merged = _merge_options(options;
+        max_iters, tol, verbose, linesearch_method,
+        recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
 
     # Run the nonlinear solver
     @timeit_debug to "NonlinearSolver solve" begin
@@ -359,14 +380,14 @@ function solve_raw(
             parameter_values,
             hierarchy_graph;
             initial_guess = initial_guess,
-            max_iters = actual_max_iters,
-            tol = actual_tol,
-            verbose = actual_verbose,
-            linesearch_method = actual_linesearch_method,
-            recompute_policy_in_linesearch = actual_recompute_K,
-            use_sparse = actual_use_sparse,
-            show_progress = actual_show_progress,
-            regularization = actual_regularization,
+            max_iters = merged.max_iters,
+            tol = merged.tol,
+            verbose = merged.verbose,
+            linesearch_method = merged.linesearch_method,
+            recompute_policy_in_linesearch = merged.recompute_policy_in_linesearch,
+            use_sparse = merged.use_sparse,
+            show_progress = merged.show_progress,
+            regularization = merged.regularization,
             callback = callback,
             to = to
         )

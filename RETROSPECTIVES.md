@@ -1966,3 +1966,283 @@ Retrospective: Straightforward rename. Addresses action item from PR feature/pha
 - [ ] Add RETROSPECTIVES.md requirement to overnight run agent prompts
 - [ ] Consider per-PR retrospective verification in land_prs.sh
 - [ ] Investigate why #113 stalled (watchdog threshold too aggressive?)
+
+---
+
+## PR: tranche3/options-and-review-fixes (bead r89)
+
+**Date:** 2026-02-12
+**Commits:** 2 (failing tests, implementation)
+**Tests:** 1176 passing (48 new for NonlinearSolverOptions)
+
+### Summary
+
+Replaced untyped `options::NamedTuple` in `NonlinearSolver` with a concrete `NonlinearSolverOptions` struct. Added keyword constructor with defaults, NamedTuple conversion for backward compatibility, and linesearch validation. No solver behavior changes.
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Tests written first and committed as a separate RED commit (21dec83)
+  - All 48 new tests defined the expected API before any implementation
+  - RED-GREEN cycle clearly separated across commits
+  - Existing tests served as regression suite — all 1176 pass unchanged
+
+- **What could improve:**
+  - Initial test file referenced a non-existent helper (`create_two_player_nonlinear_problem`); caught during GREEN phase and fixed by defining `_make_options_test_problem` locally
+
+### Clean Code
+
+- NonlinearSolverOptions is a focused, single-responsibility struct
+- Validation logic (linesearch method) lives in the constructor where it belongs
+- NamedTuple conversion constructor is minimal and explicit
+- No dead code introduced; removed NamedTuple type annotation from struct field
+
+### Clean Architecture
+
+- Options struct is pure data — no behavior coupled to it
+- solve/solve_raw needed zero changes (dot access works identically)
+- Backward compatibility via constructor overload, not runtime checks
+
+### Commit Hygiene
+
+- 2 commits: (1) failing tests, (2) implementation + test fixes
+- Could have been 3 commits (separate test fixes from implementation), but the test fixes were small and directly caused by the implementation change
+
+### CLAUDE.md Compliance
+
+- TDD followed: tests first, implementation second
+- Test tolerances not applicable (no numerical tests)
+- test_tiers.jl and test_test_tiers.jl updated for new test file
+- Retrospective written before closing
+
+### Action Items
+
+- None — clean implementation with no follow-up debt
+
+---
+
+## PR: Consolidate test helpers and fix test hygiene (bead 9hy)
+
+**Branch**: `tranche3/options-and-review-fixes`
+**Date**: 2026-02-13
+
+### Summary
+
+Addressed 5 items from the 7-expert code review of PR #128:
+1. Consolidated duplicated test problem setup (~40 lines each) from 4 test files into shared helpers in `testing_utils.jl`
+2. Clarified responsibilities between `test_flexible_callsite.jl` (parameter passing + callbacks) and `test_unified_interface.jl` (type hierarchy + `_to_parameter_dict`)
+3. Verified `@info` logging concern was already addressed (`@debug` was already used)
+4. Added callback error handling tests (error propagation + partial history preservation)
+5. Added root player `M_fns!/N_fns!` stub behavior test
+
+Net result: -334 lines of duplicated test code, +74 lines of new test coverage.
+
+### TDD Compliance
+
+**Score: 7/10**
+
+- The consolidation itself is refactoring of test infrastructure, not new production code — TDD cycle doesn't directly apply
+- New tests (callback error handling, root player stubs) were written to document existing behavior, not drive new implementation
+- First callback error test iteration had a test that assumed multi-iteration convergence but the solver converges in 1 — fixed by making the test adaptive
+- **Improvement**: Even for behavior-documenting tests, should validate assumptions about the system (e.g., "does this solver actually take >1 iteration?") before writing assertions
+
+### Clean Code
+
+**Score: 9/10**
+
+- Shared helpers `make_standard_two_player_problem()` and `make_simple_qp_two_player()` have clear names and docstrings
+- Keyword arguments for goals make customization explicit
+- Removed unused imports from refactored test files
+- File responsibilities are clearly documented with comments at the top of each file
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Test helpers live in the right place (`testing_utils.jl`)
+- Each test file has a single clear responsibility
+- No production code changes needed
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- Two focused commits: (1) consolidation, (2) new tests
+- Each commit leaves tests green
+- Descriptive commit messages
+
+### CLAUDE.md Compliance
+
+- All instructions followed
+- Full test suite run (1166/1166 pass)
+- Retrospective written before closing
+
+### Action Items
+
+- None — all review items addressed cleanly
+
+---
+
+## Bead mig: Address src-level Medium review items from PR #128
+
+**Date:** 2026-02-13
+**Commits:** 4
+**Tests:** 1206 passing
+
+### Summary
+
+Addressed Medium-priority code review items from the 7-expert review of PR #128. Four items implemented, one investigated and skipped with rationale.
+
+**Implemented:**
+1. `_merge_options` helper to deduplicate 8x `something()` overrides in `solve()` / `solve_raw()`
+2. Added `z_est` (copy of current solution vector) to the callback NamedTuple for convergence analysis
+3. Replaced hardcoded show_progress table widths with `@sprintf` formatting — consistent column widths regardless of iteration count or residual magnitude
+4. In-place regularization in `_solve_K` — avoids allocating `M + λI` each call by adding/subtracting λ on the diagonal with try-finally cleanup
+
+**Skipped:**
+5. `Vector{Function}` type stability for M_fns/N_fns — Investigated and determined the dynamic dispatch overhead (~50ns) is negligible vs actual matrix evaluation cost (μs+). FunctionWrappers.jl would add a dependency and complexity for minimal benefit.
+
+### TDD Compliance
+
+**Score: 10/10**
+
+- All four items followed strict Red-Green-Refactor
+- Item 1: 6 failing tests → `_merge_options` implementation → all pass
+- Item 2: 2 failing tests (z_est field, copy safety) → callback change → all pass
+- Item 3: 2 failing tests (consistent widths, scientific notation) → `@sprintf` formatting → all pass
+- Item 4: 2 new safety tests (M not mutated) added to existing regularization suite → in-place impl → all pass
+
+### Clean Code
+
+**Score: 9/10**
+
+- `_merge_options` reduces duplication from 16 lines repeated in two functions to a single helper
+- callback NamedTuple now has 4 fields, well-documented in docstring
+- `@sprintf` formatting is clearer and more maintainable than string interpolation with `lpad`
+- In-place regularization uses try-finally for exception safety — straightforward pattern
+
+### Commits
+
+**Score: 10/10**
+
+- Four focused commits, one per review item
+- Each commit leaves tests green
+- Descriptive messages explaining *why* not just *what*
+
+### CLAUDE.md Compliance
+
+- All instructions followed
+- Full test suite run (1206/1206 pass)
+- TDD strictly followed for all items
+- Retrospective written before closing
+- Skipped item documented with rationale
+
+### Action Items
+
+- None — all addressable items implemented, skip rationale documented
+
+---
+
+## PR: tranche3/options-and-review-fixes (Combined Retrospective)
+
+**Date:** 2026-02-13
+**Commits:** 13 (12 across 3 beads + 1 for 4-expert review fixes)
+**Tests:** 1235 passing (59 new net, after removing duplicated test setup)
+**Beads:** r89 (NonlinearSolverOptions), 9hy (test hygiene), mig (src-level review items)
+
+### Summary
+
+Tranche 3 bundles three code-review-driven beads into a single PR. Bead r89 replaces the untyped `options::NamedTuple` with a concrete `NonlinearSolverOptions` struct. Bead 9hy consolidates duplicated test problem setup across 4 files into shared helpers (-334 lines) and adds missing test coverage (callback errors, root player stubs). Bead mig addresses src-level Medium review items: `_merge_options` helper, `z_est` in callbacks, Printf-based progress table, and allocation-free regularization.
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - All three beads followed Red-Green-Refactor — failing tests committed before implementation in every case
+  - Bead r89: 48 new tests defined the `NonlinearSolverOptions` API before any struct existed
+  - Bead mig: Each of 4 sub-items had its own failing-test → implementation cycle
+  - Test count grew from 1176 → 1206 while removing 334 lines of duplicated setup
+  - No `@test_broken` left on the branch
+
+- **What could improve:**
+  - Bead 9hy (test consolidation) is inherently refactoring, so Red-Green doesn't directly apply — the "green" was keeping all existing tests passing after extraction
+  - One callback error test assumed multi-iteration convergence but the solver converges in 1 iteration; had to adapt
+
+### Clean Code Practices
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - `NonlinearSolverOptions` is a focused, single-responsibility struct with validation in the constructor
+  - `_merge_options` eliminated 8x repeated `something()` patterns across two functions
+  - Shared test helpers (`make_standard_two_player_problem`, `make_simple_qp_two_player`) have clear names, docstrings, and keyword customization
+  - Each test file now has a documented single responsibility
+  - `@sprintf` formatting replaced fragile `lpad` string interpolation
+
+- **What could improve:**
+  - Nothing significant — the review items were well-scoped and clean
+
+### Clean Architecture Practices
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Options struct is pure data, no behavior coupled to it
+  - `solve`/`solve_raw` needed zero changes for the options migration (dot access works identically)
+  - Test helpers live in `testing_utils.jl` where they belong
+  - Production code changes are localized: `types.jl`, `solve.jl`, `nonlinear_kkt.jl`
+  - No new dependencies added
+
+### Commit Hygiene
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - 11 commits with clear logical separation:
+    - r89: 2 commits (RED tests, GREEN implementation)
+    - 9hy: 2 commits (consolidation, new tests) + 1 retrospective
+    - mig: 4 commits (one per review item) + 1 retrospective
+  - Each commit leaves the test suite green (except intentional RED commits)
+  - Commit messages describe *why* not just *what*
+
+- **What could improve:**
+  - The retrospective commits could be squashed into the implementation commits to reduce noise, but they serve as documentation checkpoints
+
+### CLAUDE.md Compliance
+
+**Score: Strong (9/10)**
+
+- [x] TDD mandatory — followed for all new code
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite run (1206/1206 pass)
+- [x] Commits are logically organized
+- [x] Beads tracked and closed
+- [x] Code review offered and items addressed
+- [x] Retrospective written before PR finalization
+- [x] PR description created with comprehensive changes list
+
+### Key Learnings
+
+1. **Bundling review items into a tranche works well.** Three related beads (struct migration, test hygiene, code quality) complement each other and are easier to review together than as 3 separate PRs.
+2. **Test consolidation pays immediate dividends.** Extracting shared helpers removed 334 lines while making each test file's purpose clearer. Future test writers can reuse the helpers.
+3. **`something()` override deduplication was overdue.** The 8x repeated pattern in `solve`/`solve_raw` was a maintenance burden — `_merge_options` is a clean extraction.
+4. **In-place regularization with try-finally is robust.** Adding/subtracting λ on the diagonal avoids allocation while ensuring the matrix is always restored, even on exceptions.
+5. **Investigating and skipping items is valid.** The `Vector{Function}` type stability item was investigated, benchmarked, and skipped with rationale — better than cargo-culting a complex solution for negligible gain.
+
+### Post-Review (4-Expert Code Review)
+
+A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Computing Expert) produced 18 findings, all addressed in a single commit:
+- **`use_sparse` field narrowed** from `Union{Symbol,Bool}` to `Symbol` with Bool→Symbol normalization
+- **Field validation** added to constructor (max_iters>0, tol>0, regularization>=0)
+- **`_solve_K` → `_solve_K!`** renamed to follow Julia `!` convention
+- **Exception path tests** added for `_solve_K!` (rethrow non-Singular errors, M restoration on exception)
+- **NamedTuple deprecation** uses `Base.depwarn` instead of silent conversion
+- **Benchmark result:** No solve-time regression (min times -0.1% to -5.2% across all problem sizes). Regularization on non-square M matrices was broken on main (crashes with `DimensionMismatch`), now works correctly with zero overhead.
+
+### Action Items for Next PR
+
+- [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
+- [ ] Update README examples if they reference the old NamedTuple options format

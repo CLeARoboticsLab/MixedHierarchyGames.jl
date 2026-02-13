@@ -1,5 +1,4 @@
 using Test
-using Graphs: SimpleDiGraph, add_edge!
 using LinearAlgebra: norm
 using SparseArrays: nonzeros
 using MixedHierarchyGames:
@@ -7,98 +6,14 @@ using MixedHierarchyGames:
     NonlinearSolver,
     solve_raw,
     preoptimize_nonlinear_solver,
-    run_nonlinear_solver,
-    setup_problem_parameter_variables,
-    default_backend
+    run_nonlinear_solver
 
-using TrajectoryGamesBase: unflatten_trajectory
+# make_standard_two_player_problem is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "Jacobian Buffer Safety" begin
 
-    # Shared problem constructors (same as test_allocation_optimization.jl)
-    function make_qp_problem()
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = [primal_dim, primal_dim]
-
-        θs = setup_problem_parameter_variables([state_dim, state_dim])
-
-        Js = Dict(
-            1 => (z1, z2; θ=nothing) -> begin
-                (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-                sum((xs[end] .- [1.0, 0.0]).^2) + 0.1 * sum(sum(u.^2) for u in us)
-            end,
-            2 => (z1, z2; θ=nothing) -> begin
-                (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-                sum((xs[end] .- [0.0, 1.0]).^2) + 0.1 * sum(sum(u.^2) for u in us)
-            end,
-        )
-
-        function make_dynamics(player_idx)
-            function dynamics_constraint(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics_constraint
-        end
-
-        gs = [make_dynamics(i) for i in 1:2]
-        return (; G, Js, gs, primal_dims, θs, state_dim, control_dim)
-    end
-
-    function make_nonlinear_problem()
-        N = 2
-        G = SimpleDiGraph(N)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = fill(primal_dim, N)
-
-        θs = setup_problem_parameter_variables(fill(state_dim, N))
-
-        Js = Dict(
-            1 => (z1, z2; θ=nothing) -> begin
-                (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-                sum((xs[end] .- [1.0, 1.0]).^2) + 0.1 * sum(sum(u.^2) for u in us)
-            end,
-            2 => (z1, z2; θ=nothing) -> begin
-                (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-                sum((xs[end] .- [2.0, 2.0]).^2) + 0.1 * sum(sum(u.^2) for u in us)
-            end,
-        )
-
-        function make_dynamics(player_idx)
-            function dynamics_constraint(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics_constraint
-        end
-
-        gs = [make_dynamics(i) for i in 1:N]
-        return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
-    end
-
     @testset "QPSolver: corrupted J_buffer is fully overwritten" begin
-        prob = make_qp_problem()
+        prob = make_standard_two_player_problem(goal1=[1.0, 0.0], goal2=[0.0, 1.0])
         solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
                          prob.state_dim, prob.control_dim)
 
@@ -124,7 +39,7 @@ using TrajectoryGamesBase: unflatten_trajectory
     end
 
     @testset "QPSolver: corrupted buffers with varying parameters" begin
-        prob = make_qp_problem()
+        prob = make_standard_two_player_problem(goal1=[1.0, 0.0], goal2=[0.0, 1.0])
         solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
                          prob.state_dim, prob.control_dim)
 
@@ -156,7 +71,7 @@ using TrajectoryGamesBase: unflatten_trajectory
     end
 
     @testset "NonlinearSolver: corrupted ∇F buffer is fully overwritten" begin
-        prob = make_nonlinear_problem()
+        prob = make_standard_two_player_problem()
 
         precomputed = preoptimize_nonlinear_solver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -190,7 +105,7 @@ using TrajectoryGamesBase: unflatten_trajectory
 
     @testset "jacobian_z! fully overwrites sparse buffer nonzeros" begin
         # Directly verify that jacobian_z! writes every nzval position
-        prob = make_qp_problem()
+        prob = make_standard_two_player_problem(goal1=[1.0, 0.0], goal2=[0.0, 1.0])
         solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
                          prob.state_dim, prob.control_dim)
 

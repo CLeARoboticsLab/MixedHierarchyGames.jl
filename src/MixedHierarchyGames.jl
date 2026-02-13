@@ -32,6 +32,7 @@ using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
 using TimerOutputs: TimerOutputs, TimerOutput, @timeit
+using Printf: @sprintf
 
 # Debug timing macro (must come before files that use @timeit_debug)
 include("timeit_debug.jl")
@@ -50,7 +51,7 @@ export default_backend, PLAYER_SYMBOLS, PAIR_SYMBOLS
 
 # Types
 include("types.jl")
-export AbstractMixedHierarchyGameSolver, QPSolver, NonlinearSolver, HierarchyGame, HierarchyProblem, QPPrecomputed
+export AbstractMixedHierarchyGameSolver, QPSolver, NonlinearSolver, NonlinearSolverOptions, HierarchyGame, HierarchyProblem, QPPrecomputed
 
 # KKT construction
 include("qp_kkt.jl")

@@ -2,82 +2,30 @@ using Test
 using LinearAlgebra: norm, I, cond, Diagonal, qr
 
 using MixedHierarchyGames:
-    _solve_K,
+    _solve_K!,
     compute_K_evals,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
-    setup_problem_parameter_variables,
     NonlinearSolver,
     solve_raw
 
-using Graphs: SimpleDiGraph, add_edge!
-using TrajectoryGamesBase: unflatten_trajectory
-
-#=
-    Test helpers
-=#
-
-"""
-    make_two_player_chain_for_regularization(; T=3, state_dim=2, control_dim=2)
-
-Simple 2-player Stackelberg chain (P1 -> P2) for testing regularization.
-"""
-function make_two_player_chain_for_regularization(; T=3, state_dim=2, control_dim=2)
-    N = 2
-    G = SimpleDiGraph(N)
-    add_edge!(G, 1, 2)
-
-    primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
-    primal_dims = fill(primal_dim_per_player, N)
-
-    θs = setup_problem_parameter_variables(fill(state_dim, N))
-
-    function J1(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-        goal = [1.0, 1.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    function J2(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-        goal = [2.0, 2.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    Js = Dict(1 => J1, 2 => J2)
-
-    function make_dynamics_constraint(player_idx)
-        function dynamics_constraint(z)
-            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-            constraints = []
-            for t in 1:T
-                push!(constraints, xs[t+1] - xs[t] - us[t])
-            end
-            push!(constraints, xs[1] - θs[player_idx])
-            return vcat(constraints...)
-        end
-        return dynamics_constraint
-    end
-
-    gs = [make_dynamics_constraint(i) for i in 1:N]
-    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
-end
+# make_standard_two_player_problem is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "Numerical Regularization (Tikhonov)" begin
 
     #==========================================================================
-        Unit tests for _solve_K with regularization parameter
+        Unit tests for _solve_K! with regularization parameter
     ==========================================================================#
 
-    @testset "_solve_K regularization parameter" begin
+    @testset "_solve_K! regularization parameter" begin
 
         @testset "default regularization=0.0 matches original behavior" begin
             # Well-conditioned system
             M = [2.0 1.0; 1.0 3.0]
             N = [1.0 0.0; 0.0 1.0]
 
-            K_default = _solve_K(M, N, 1)
-            K_explicit_zero = _solve_K(M, N, 1; regularization=0.0)
+            K_default = _solve_K!(M, N, 1)
+            K_explicit_zero = _solve_K!(M, N, 1; regularization=0.0)
 
             @test norm(K_default - K_explicit_zero) < 1e-14
         end
@@ -87,11 +35,11 @@ end
             M = [1.0 2.0; 2.0 4.0]  # rank 1 (row 2 = 2 * row 1)
             N = [1.0; 2.0][:, :]     # Make it a matrix
 
-            K_no_reg = _solve_K(M, N, 1)
+            K_no_reg = _solve_K!(M, N, 1)
             @test any(isnan, K_no_reg)  # Should produce NaN fallback
 
             # With regularization, should get a finite result
-            K_reg = _solve_K(M, N, 1; regularization=1e-6)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-6)
             @test all(isfinite, K_reg)
         end
 
@@ -104,10 +52,10 @@ end
             N = randn(n, 3)
 
             # Without regularization — result may have huge values
-            K_no_reg = _solve_K(M, N, 1)
+            K_no_reg = _solve_K!(M, N, 1)
 
             # With regularization — should be better conditioned
-            K_reg = _solve_K(M, N, 1; regularization=1e-6)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-6)
             @test all(isfinite, K_reg)
 
             # Regularized K should have bounded norm
@@ -120,19 +68,65 @@ end
             N = [5.0 2.0; 3.0 7.0]
 
             K_exact = M \ N
-            K_reg = _solve_K(M, N, 1; regularization=1e-10)
+            K_reg = _solve_K!(M, N, 1; regularization=1e-10)
 
             # With tiny regularization, error should be negligible
             relative_error = norm(K_reg - K_exact) / norm(K_exact)
             @test relative_error < 1e-8
         end
 
+        @testset "regularization does not mutate input M matrix" begin
+            M = [2.0 1.0; 1.0 3.0]
+            N = [1.0 0.0; 0.0 1.0]
+            M_copy = copy(M)
+
+            _solve_K!(M, N, 1; regularization=1e-4)
+
+            # M should be restored after the call (within floating-point roundtrip tolerance)
+            @test M ≈ M_copy atol=1e-14
+        end
+
+        @testset "regularization does not mutate M even on singular matrix" begin
+            M = [1.0 2.0; 2.0 4.0]  # singular
+            N = [1.0; 2.0][:, :]
+            M_copy = copy(M)
+
+            _solve_K!(M, N, 1; regularization=1e-6)
+
+            # M should be restored after the call (within floating-point roundtrip tolerance)
+            @test M ≈ M_copy atol=1e-14
+        end
+
+        @testset "non-Singular exceptions are rethrown (not swallowed)" begin
+            # DimensionMismatch is not SingularException or LAPACKException,
+            # so it should be rethrown, not caught by the NaN fallback
+            M = [1.0 0.0; 0.0 1.0]
+            N_bad = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]  # 3×3, incompatible with 2×2 M
+
+            @test_throws DimensionMismatch _solve_K!(M, N_bad, 1; regularization=1e-6)
+        end
+
+        @testset "M is restored even when exception is thrown" begin
+            M = [1.0 0.0; 0.0 1.0]
+            N_bad = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]  # triggers DimensionMismatch
+            M_copy = copy(M)
+
+            try
+                _solve_K!(M, N_bad, 1; regularization=0.5)
+            catch
+                # expected
+            end
+
+            # M should be restored by the finally block
+            @test M ≈ M_copy atol=1e-14
+        end
+
         @testset "regularization works with use_sparse=true" begin
             M = [1.0 2.0; 2.0 4.0]  # singular
             N = [1.0; 2.0][:, :]
 
-            K_dense = _solve_K(M, N, 1; regularization=1e-6)
-            K_sparse = _solve_K(M, N, 1; regularization=1e-6, use_sparse=true)
+            K_dense = _solve_K!(M, N, 1; regularization=1e-6)
+            K_sparse = _solve_K!(M, N, 1; regularization=1e-6, use_sparse=true)
 
             @test all(isfinite, K_dense)
             @test all(isfinite, K_sparse)
@@ -156,7 +150,7 @@ end
             errors = Float64[]
 
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 push!(errors, norm(K_reg - K_exact) / norm(K_exact))
             end
 
@@ -190,13 +184,13 @@ end
             # Compare different regularization values
             lambdas = [1e-10, 1e-8, 1e-6, 1e-4]
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 @test all(isfinite, K_reg)
             end
 
             @debug "Moderately ill-conditioned (cond(M)=$(round(cond(M), sigdigits=3))):"
             for λ in lambdas
-                K_reg = _solve_K(M, N, 1; regularization=λ)
+                K_reg = _solve_K!(M, N, 1; regularization=λ)
                 err = norm(K_reg - K_exact) / norm(K_exact)
                 @debug "  λ=$λ → relative error=$err"
             end
@@ -210,7 +204,7 @@ end
     @testset "compute_K_evals with regularization parameter" begin
 
         @testset "regularization=0.0 matches default behavior" begin
-            prob = make_two_player_chain_for_regularization()
+            prob = make_standard_two_player_problem()
 
             precomputed = preoptimize_nonlinear_solver(
                 prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -234,7 +228,7 @@ end
         end
 
         @testset "small regularization does not distort K significantly" begin
-            prob = make_two_player_chain_for_regularization()
+            prob = make_standard_two_player_problem()
 
             precomputed = preoptimize_nonlinear_solver(
                 prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -266,7 +260,7 @@ end
     ==========================================================================#
 
     @testset "run_nonlinear_solver accepts regularization parameter" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         precomputed = preoptimize_nonlinear_solver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -304,7 +298,7 @@ end
     ==========================================================================#
 
     @testset "NonlinearSolver constructor accepts regularization" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         # Default (no regularization)
         solver_default = NonlinearSolver(
@@ -324,7 +318,7 @@ end
     end
 
     @testset "solve_raw passes regularization through" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,

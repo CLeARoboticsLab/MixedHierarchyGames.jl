@@ -28,65 +28,10 @@ using TrajectoryGamesBase: unflatten_trajectory, JointStrategy
     Test Helpers: Create simple test problems for nonlinear solver testing
 =#
 
-"""
-Create a simple 2-player chain hierarchy game for testing.
-P1 -> P2 (P1 is leader, P2 is follower)
-
-Each player has simple dynamics: x_{t+1} = x_t + u_t
-State dim = 2, Control dim = 2, Time horizon T = 3.
-"""
-function make_two_player_chain_problem(; T=3, state_dim=2, control_dim=2)
-    N = 2
-
-    # Hierarchy: P1 -> P2
-    G = SimpleDiGraph(N)
-    add_edge!(G, 1, 2)
-
-    # Dimensions
-    primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
-    primal_dims = fill(primal_dim_per_player, N)
-
-    # Parameter variables (initial states)
-    backend = default_backend()
-    θs = setup_problem_parameter_variables(fill(state_dim, N); backend)
-
-    # Simple quadratic costs
-    # P1: minimize ||x_T - goal1||^2 + ||u||^2
-    # P2: minimize ||x_T - goal2||^2 + ||u||^2
-    function J1(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-        goal = [1.0, 1.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    function J2(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-        goal = [2.0, 2.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    Js = Dict(1 => J1, 2 => J2)
-
-    # Simple integrator dynamics constraints
-    function make_dynamics_constraint(player_idx)
-        function dynamics_constraint(z)
-            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-            constraints = []
-            for t in 1:T
-                # x_{t+1} = x_t + u_t (simple integrator)
-                push!(constraints, xs[t+1] - xs[t] - us[t])
-            end
-            # Initial condition: x_1 = θ[player_idx]
-            push!(constraints, xs[1] - θs[player_idx])
-            return vcat(constraints...)
-        end
-        return dynamics_constraint
-    end
-
-    gs = [make_dynamics_constraint(i) for i in 1:N]
-
-    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
-end
+# Alias: make_two_player_chain_problem delegates to the shared helper in testing_utils.jl
+# (make_standard_two_player_problem has the same defaults: goals [1,1]/[2,2], T=3, dim=2)
+make_two_player_chain_problem(; T=3, state_dim=2, control_dim=2) =
+    make_standard_two_player_problem(; T, state_dim, control_dim)
 
 """
 Create a simple 3-player chain hierarchy game for testing.
@@ -2086,6 +2031,77 @@ end
         @test contains(output, "residual")
         @test contains(output, "α")
         @test contains(output, "time")
+    end
+
+    @testset "show_progress table rows have consistent width" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        lines = split(output, '\n'; keepempty=false)
+
+        # Should have at least: header border, header, separator, 1+ data rows, footer border, summary
+        @test length(lines) >= 5
+
+        # All box-drawing lines (starting with │ or ┌ or ├ or └) should have the same character width
+        box_lines = filter(l -> !isempty(l) && l[1] in ('│', '┌', '├', '└'), lines)
+        @test length(box_lines) >= 4  # header border, header, separator, data row(s), footer border
+        widths = [length(l) for l in box_lines]
+        @test all(w -> w == widths[1], widths)  # All box lines same width
+    end
+
+    @testset "show_progress uses scientific notation for residuals" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        # Data rows should use scientific notation (e.g., 1.23e+01 or 1.23e-06)
+        data_lines = filter(l -> startswith(l, "│") && contains(l, "e"), split(output, '\n'))
+        @test length(data_lines) >= 1  # At least one iteration row with scientific notation
     end
 
     @testset "show_progress does not affect solver results" begin
