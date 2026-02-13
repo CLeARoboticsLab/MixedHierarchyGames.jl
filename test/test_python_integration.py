@@ -34,7 +34,7 @@ def main():
     )
 
     # Include your Julia file (from the project after activation)
-    Main.eval(f"include(raw\"{project_root}/examples/test_automatic_solver.jl\")")
+    Main.eval(f"include(raw\"{project_root}/legacy/test_automatic_solver.jl\")")
     
     print("Precompiling solver with initial run...")
     # Precompile the solver once (optional but recommended for performance)
