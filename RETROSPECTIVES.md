@@ -1154,6 +1154,89 @@ Added a documentation badge to README.md linking to the Documenter.jl-generated 
 
 Pre-allocate parameter buffers in the nonlinear solver hot loop. F_trial buffer reused across linesearch iterations, Dict caches and all_K_vec buffer reused across compute_K_evals calls, and theta parameter vector built without vcat+comprehension allocation.
 
+---
+
+## Overnight Run PRs (2026-02-10 — 2026-02-11)
+
+The following PRs were created by autonomous Claude agents during the overnight run (`scripts/overnight_run_2.sh`). Retrospectives were not written by the agents and are recorded here retroactively based on PR descriptions and code diffs.
+
+---
+
+## PR #101: dx/clean-solver-output (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Converts verbose-gated `println()` calls in `src/` to `@debug` logging macros so the library is silent by default. Adds `show_progress=true` to experiment configs and a static analysis test to enforce no bare `println()` in `src/`.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Static analysis test enforces the no-println rule going forward
+- Cannot fully assess red-green cycle since agent didn't record commit-level TDD progression
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Replaces ad-hoc println with Julia's standard `@debug` macro — idiomatic
+- Experiments get explicit `show_progress=true` to preserve their output
+
+### Commit Hygiene
+
+**Score: Unknown** — Agent didn't write retrospective; single-session overnight work
+
+### CLAUDE.md Compliance
+
+- [x] Functional change with tests
+- [ ] Retrospective not written by agent
+
+### Key Learnings
+
+1. Libraries should be silent by default — `@debug` lets users opt in via `ENV["JULIA_DEBUG"]`
+
+---
+
+## PR #102: dx/update-test-readme-checklist (bead)
+
+**Date:** 2026-02-10
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds a verification checklist item to CLAUDE.md requiring test/README.md updates when new test files are added. Brings test/README.md up to date by documenting 8 missing test files.
+
+Retrospective: Small documentation/process change. No process issues identified.
+
+---
+
+## PR #103: docs/readme-docs-link (bead)
+
+**Date:** 2026-02-10
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds a shields.io documentation badge to README.md linking to the Documenter.jl docs site.
+
+Retrospective: Trivial change (2 files, 49 additions). No process issues identified.
+
+---
+
+## PR #104: cleanup/repo-public-release (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing (53 new project health assertions)
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Prepares the repo for public release: removes unused root dependencies (InvertedIndices, PATHSolver), deletes stale Docker files and INFRA_VERIFY.md, removes redundant experiment script, adds missing compat entries, and introduces `test_project_health.jl` (53 assertions) to enforce dependency hygiene.
+
 ### TDD Compliance
 
 **Score: Good (8/10)**
@@ -1166,6 +1249,45 @@ Pre-allocate parameter buffers in the nonlinear solver hot loop. F_trial buffer 
 
 - **What could improve:**
   - Initial allocation threshold (100KB) was too aggressive given unavoidable allocations from M_fns/N_fns (51KB per call). Adjusted to a relative comparison test instead of absolute threshold.
+
+---
+
+### TDD Compliance (PR #104: cleanup/repo-public-release)
+
+**Score: Good (8/10)**
+
+- 53 new health assertions enforce the cleanup rules going forward
+- Large deletion count (881 lines) is appropriate for dead code removal
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Removes dead code and unused dependencies (exactly what CLAUDE.md prescribes)
+- Health tests prevent regression
+
+### Key Learnings
+
+1. Automated health tests for project structure prevent dependency bloat from creeping back
+
+---
+
+## PR #114: proposal/numerical-regularization (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Proposal PR: opt-in Tikhonov regularization (`K = (M + λI) \ N`) for ill-conditioned M matrices. Default `regularization=0.0` means zero behavior change. Includes distortion analysis tables, threads parameter through full API stack.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify regularization parameter acceptance, numerical effects, and backward compatibility
+- Distortion analysis provides empirical evidence for parameter selection
 
 ### Clean Code Practices
 
@@ -1476,6 +1598,37 @@ API design proposal evaluating whether to consolidate the low-level solver API a
 - **What could improve:**
   - Could have written the `_to_parameter_dict` unit tests as a separate first commit for even finer granularity
 
+---
+
+### Clean Code Practices (PR #114: proposal/numerical-regularization)
+
+**Score: Good (8/10)**
+
+- Default 0.0 preserves backward compatibility — zero behavior change unless opted in
+- Parameter threaded through existing kwargs pattern (same as use_sparse, use_armijo)
+
+### Key Learnings
+
+1. Proposal PRs that default to no-op behavior are safe to land — they add capability without risk
+
+---
+
+## PR #115: proposal/unified-solver-interface (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+API design proposal: introduces `AbstractHierarchySolver` abstract type (supertype for QPSolver and NonlinearSolver) and adds flexible input support (Dict and Vector formats for solve/solve_raw). Correctly identifies that `solve()` is already the unified interface.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify both input format acceptance and type hierarchy
+
 ### Clean Code Practices
 
 **Score: Good (8/10)**
@@ -1592,3 +1745,224 @@ Added `@timeit_debug` macro that compiles to a no-op branch check when `TIMING_E
 
 - [ ] Consider `@generated` approach if runtime overhead ever matters for inner-loop timing
 - [ ] Add a note in CLAUDE.md about updating test tier files when adding new test files
+
+---
+
+### Clean Code Practices (PR #115: proposal/unified-solver-interface)
+
+**Score: Good (8/10)**
+
+- Leverages Julia's type system (abstract type) for extensibility
+- Pragmatic finding that major redesign isn't needed — existing API is already unified
+
+### Key Learnings
+
+1. Investigation PRs that confirm "the architecture is already right" are valuable — they prevent unnecessary refactoring
+
+---
+
+## PR #116: proposal/flexible-callsite-interface (bead mh7)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+*Note: This PR already has a retrospective on its branch (written by the agent). Recorded here for completeness.*
+
+### Summary
+
+Adds flexible callsite interface: `solve()` and `solve_raw()` accept both `Dict{Int, Vector}` and `Vector{Vector}` parameter formats with automatic conversion.
+
+Retrospective: Written by agent on branch — see PR #116 branch for full details.
+
+---
+
+## PR #117: proposal/convergence-stall-detection (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds `stall_window` parameter and `detect_stall()` function to the nonlinear solver. Terminates early with `:stalled` status when residual plateaus. Disabled by default (`stall_window=0`). Demonstrated ~97% iteration savings in stalling scenarios.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify stall detection triggers correctly and doesn't fire on converging problems
+- 97% iteration savings demonstrates clear value
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Disabled by default — zero behavior change unless opted in
+- Clean separation: `detect_stall()` is a pure function, solver just calls it
+- `:stalled` status integrates with existing convergence status enum
+
+### Key Learnings
+
+1. Early termination for stalled solvers prevents wasted computation — especially valuable for parameter sweeps where some configurations may not converge
+
+---
+
+## PR #120: perf/timeit-debug-macros (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Introduces `@timeit_debug` macro that conditionally instruments code with TimerOutputs timing. Default disabled — overhead is ~6ns per call from a single branch check. Replaces all 21 `@timeit` calls, making timing opt-in via `enable_timing!()`/`disable_timing!()`.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify zero-overhead claim and correct TimerOutputs integration
+- Replaces existing instrumentation — tests verify no behavioral change
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Eliminates always-on overhead from production code paths
+- Clean API: two functions to toggle, one macro to instrument
+- All 21 callsites updated consistently
+
+### Key Learnings
+
+1. Compile-time branch elimination makes conditional instrumentation nearly free — the branch check costs ~6ns vs microseconds for TimerOutputs
+
+---
+
+## PR #121: perf/preallocate-params-buffers (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Pre-allocates three buffer categories in the nonlinear solver hot loop: (1) F_trial for linesearch, (2) Dict caches and all_K_vec in compute_K_evals, (3) theta_vals_vec via copyto! replacing vcat. Eliminated 1.8MB allocation. All backward compatible.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify numerical equivalence with pre-allocated buffers
+- Backward compatible — no changes needed to existing callers
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Buffers are optional kwargs with sensible defaults
+- `copyto!` replacing `vcat` is a textbook Julia optimization
+- 3 source files touched — minimal blast radius
+
+### Key Learnings
+
+1. `vcat` is an allocation hotspot in tight loops — `copyto!` into a pre-allocated buffer is always better
+
+---
+
+## PR #122: perf/type-stable-dict-storage (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Replaces `Dict{Int, ...}` with `Vector` indexed by player ID for all hot-path per-player data (M_evals, N_evals, K_evals, M_fns, N_fns, pi_sizes, caches). Eliminates Dict hashing overhead since players are always 1:N contiguous.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify numerical equivalence after storage representation change
+- No behavioral change — purely a performance optimization
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Dict→Vector is the right choice when keys are contiguous integers
+- Eliminates hash collision overhead and improves cache locality
+- 8 files touched but change is mechanical (Dict→Vector at each site)
+
+### Key Learnings
+
+1. `Dict{Int, T}` with contiguous integer keys is a code smell — `Vector{T}` is always faster and simpler
+
+---
+
+## PR #123: perf/zero-jacobian-buffers (bead chp)
+
+**Date:** 2026-02-11
+**Tests:** All passing (18 new)
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Investigation PR: examined whether pre-allocated Jacobian buffers need zeroing before reuse. **Finding: no zeroing needed** — `jacobian_z!` fully overwrites all structural nonzero entries every call. No source code changes; adds 18 defensive regression tests with sentinel/garbage corruption between solves.
+
+### TDD Compliance
+
+**Score: Excellent (9/10)**
+
+- 18 tests written that corrupt buffers with sentinel values and verify results are identical
+- Pure investigation PR — tests ARE the deliverable
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- No unnecessary zeroing added (the correct finding is "don't add code")
+- Defensive tests protect against future changes to jacobian_z! internals
+
+### Key Learnings
+
+1. Investigation PRs that add only tests (no source changes) are the best outcome — they confirm correctness and add safety nets
+2. `SparseFunction` from SymbolicTracingUtils writes ALL `.nzval` entries every call — no stale data possible
+
+---
+
+## PR #124: cleanup/rename-examples-legacy (bead gyg)
+
+**Date:** 2026-02-11
+**Tests:** 921 passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Renames `examples/` folder to `legacy/` to clarify these are historical reference scripts. Updates test file references and adds `legacy/README.md`. Historical references in RETROSPECTIVES.md left unchanged.
+
+Retrospective: Straightforward rename. Addresses action item from PR feature/phase-1-nonlinear-kkt (Bead 2). No process issues identified.
+
+---
+
+## Overnight Run Meta-Retrospective
+
+### What Went Well
+
+1. **Autonomous agents produced 13 landable PRs overnight** — significant throughput
+2. **Each PR has tests and passes CI** — agents followed TDD to varying degrees
+3. **Proposal PRs default to no-op** — safe to land without risk
+4. **Investigation PR (#123) correctly found "no change needed"** — honest assessment
+
+### What Could Be Improved
+
+1. **Retrospectives missing from 12/13 PRs** — agents didn't write to RETROSPECTIVES.md (only #116 did)
+2. **Cannot verify commit-level TDD progression** — agents committed work but didn't record red-green phases
+3. **PR #113 (relative tol) killed by watchdog** — stall detection should be more lenient for PRs that run tests
+
+### Action Items
+
+- [ ] Add RETROSPECTIVES.md requirement to overnight run agent prompts
+- [ ] Consider per-PR retrospective verification in land_prs.sh
+- [ ] Investigate why #113 stalled (watchdog threshold too aggressive?)
