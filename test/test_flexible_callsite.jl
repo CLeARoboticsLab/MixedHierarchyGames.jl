@@ -8,7 +8,8 @@ using MixedHierarchyGames:
     split_solution_vector
 using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
 
-# make_θ helper is provided by testing_utils.jl (included in runtests.jl)
+# make_θ, make_standard_two_player_problem, make_simple_qp_two_player
+# are provided by testing_utils.jl (included in runtests.jl)
 
 #=
     Tests for Vector-based parameter passing
@@ -18,28 +19,9 @@ using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
 
 @testset "Vector-based parameter passing" begin
     @testset "QPSolver solve() accepts Vector of Vectors" begin
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        primal_dims = [4, 4]
-        state_dim = 1
-        control_dim = 1
-
-        θ1_vec = make_θ(1, 1)
-        θ2_vec = make_θ(2, 1)
-        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
-
-        gs = [
-            z -> [z[1] - θ1_vec[1]],
-            z -> [z[1] - θ2_vec[1]],
-        ]
-
-        Js = Dict(
-            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
-            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
-        )
-
-        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        prob = make_simple_qp_two_player()
+        solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                         prob.state_dim, prob.control_dim)
 
         # New: pass as Vector of Vectors instead of Dict
         strategy = solve(solver, [[1.0], [3.0]])
@@ -70,42 +52,9 @@ using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
     end
 
     @testset "NonlinearSolver solve() accepts Vector of Vectors" begin
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = [primal_dim, primal_dim]
-
-        θs = setup_problem_parameter_variables([state_dim, state_dim])
-
-        function J1(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        function J2(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-            sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        Js = Dict(1 => J1, 2 => J2)
-
-        function make_dynamics(player_idx)
-            function dynamics(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics
-        end
-        gs = [make_dynamics(i) for i in 1:2]
-
-        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                 prob.state_dim, prob.control_dim)
 
         # New: pass as Vector of Vectors
         strategy = solve(solver, [[0.0, 0.0], [0.5, 0.5]])
@@ -115,42 +64,9 @@ using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
     end
 
     @testset "NonlinearSolver solve_raw() accepts Vector of Vectors" begin
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = [primal_dim, primal_dim]
-
-        θs = setup_problem_parameter_variables([state_dim, state_dim])
-
-        function J1(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        function J2(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-            sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        Js = Dict(1 => J1, 2 => J2)
-
-        function make_dynamics(player_idx)
-            function dynamics(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics
-        end
-        gs = [make_dynamics(i) for i in 1:2]
-
-        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                 prob.state_dim, prob.control_dim)
 
         # New: pass as Vector of Vectors
         result = solve_raw(solver, [[0.0, 0.0], [0.5, 0.5]])
@@ -160,27 +76,9 @@ using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
     end
 
     @testset "Vector and Dict produce same results (QPSolver)" begin
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        primal_dims = [4, 4]
-        state_dim = 1
-        control_dim = 1
-
-        θ1_vec = make_θ(1, 1)
-        θ2_vec = make_θ(2, 1)
-        θs = Dict(1 => θ1_vec, 2 => θ2_vec)
-
-        gs = [
-            z -> [z[1] - θ1_vec[1]],
-            z -> [z[1] - θ2_vec[1]],
-        ]
-        Js = Dict(
-            1 => (z1, z2; θ=nothing) -> sum(z1.^2),
-            2 => (z1, z2; θ=nothing) -> sum(z2.^2),
-        )
-
-        solver = QPSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        prob = make_simple_qp_two_player()
+        solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                         prob.state_dim, prob.control_dim)
 
         # Dict-based (existing)
         strategy_dict = solve(solver, Dict(1 => [2.0], 2 => [4.0]))
@@ -195,42 +93,9 @@ using TrajectoryGamesBase: JointStrategy, OpenLoopStrategy, unflatten_trajectory
     end
 
     @testset "Vector and Dict produce same results (NonlinearSolver)" begin
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = [primal_dim, primal_dim]
-
-        θs = setup_problem_parameter_variables([state_dim, state_dim])
-
-        function J1(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        function J2(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-            sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        Js = Dict(1 => J1, 2 => J2)
-
-        function make_dynamics(player_idx)
-            function dynamics(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics
-        end
-        gs = [make_dynamics(i) for i in 1:2]
-
-        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim)
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                 prob.state_dim, prob.control_dim)
 
         params_dict = Dict(1 => [0.1, 0.2], 2 => [0.3, 0.4])
         params_vec = [[0.1, 0.2], [0.3, 0.4]]
@@ -253,43 +118,10 @@ end
 @testset "Iteration callback" begin
     # Helper: build a simple 2-player NonlinearSolver for callback tests
     function make_callback_test_solver()
-        G = SimpleDiGraph(2)
-        add_edge!(G, 1, 2)
-
-        state_dim = 2
-        control_dim = 2
-        T = 3
-        primal_dim = (state_dim + control_dim) * (T + 1)
-        primal_dims = [primal_dim, primal_dim]
-
-        θs = setup_problem_parameter_variables([state_dim, state_dim])
-
-        function J1(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-            sum((xs[end] .- [1.0, 1.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        function J2(z1, z2; θ=nothing)
-            (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-            sum((xs[end] .- [2.0, 2.0]) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-        end
-        Js = Dict(1 => J1, 2 => J2)
-
-        function make_dynamics(player_idx)
-            function dynamics(z)
-                (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-                constraints = []
-                for t in 1:T
-                    push!(constraints, xs[t+1] - xs[t] - us[t])
-                end
-                push!(constraints, xs[1] - θs[player_idx])
-                return vcat(constraints...)
-            end
-            return dynamics
-        end
-        gs = [make_dynamics(i) for i in 1:2]
-
-        solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim;
-                                  max_iters=100, tol=1e-6)
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                 prob.state_dim, prob.control_dim;
+                                 max_iters=100, tol=1e-6)
         return solver
     end
 

@@ -6,62 +6,10 @@ using MixedHierarchyGames:
     compute_K_evals,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
-    setup_problem_parameter_variables,
     NonlinearSolver,
     solve_raw
 
-using Graphs: SimpleDiGraph, add_edge!
-using TrajectoryGamesBase: unflatten_trajectory
-
-#=
-    Test helpers
-=#
-
-"""
-    make_two_player_chain_for_regularization(; T=3, state_dim=2, control_dim=2)
-
-Simple 2-player Stackelberg chain (P1 -> P2) for testing regularization.
-"""
-function make_two_player_chain_for_regularization(; T=3, state_dim=2, control_dim=2)
-    N = 2
-    G = SimpleDiGraph(N)
-    add_edge!(G, 1, 2)
-
-    primal_dim_per_player = (state_dim * (T + 1) + control_dim * (T + 1))
-    primal_dims = fill(primal_dim_per_player, N)
-
-    θs = setup_problem_parameter_variables(fill(state_dim, N))
-
-    function J1(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z1, state_dim, control_dim)
-        goal = [1.0, 1.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    function J2(z1, z2; θ=nothing)
-        (; xs, us) = unflatten_trajectory(z2, state_dim, control_dim)
-        goal = [2.0, 2.0]
-        sum((xs[end] .- goal) .^ 2) + 0.1 * sum(sum(u .^ 2) for u in us)
-    end
-
-    Js = Dict(1 => J1, 2 => J2)
-
-    function make_dynamics_constraint(player_idx)
-        function dynamics_constraint(z)
-            (; xs, us) = unflatten_trajectory(z, state_dim, control_dim)
-            constraints = []
-            for t in 1:T
-                push!(constraints, xs[t+1] - xs[t] - us[t])
-            end
-            push!(constraints, xs[1] - θs[player_idx])
-            return vcat(constraints...)
-        end
-        return dynamics_constraint
-    end
-
-    gs = [make_dynamics_constraint(i) for i in 1:N]
-    return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
-end
+# make_standard_two_player_problem is provided by testing_utils.jl (included in runtests.jl)
 
 @testset "Numerical Regularization (Tikhonov)" begin
 
@@ -210,7 +158,7 @@ end
     @testset "compute_K_evals with regularization parameter" begin
 
         @testset "regularization=0.0 matches default behavior" begin
-            prob = make_two_player_chain_for_regularization()
+            prob = make_standard_two_player_problem()
 
             precomputed = preoptimize_nonlinear_solver(
                 prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -234,7 +182,7 @@ end
         end
 
         @testset "small regularization does not distort K significantly" begin
-            prob = make_two_player_chain_for_regularization()
+            prob = make_standard_two_player_problem()
 
             precomputed = preoptimize_nonlinear_solver(
                 prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -266,7 +214,7 @@ end
     ==========================================================================#
 
     @testset "run_nonlinear_solver accepts regularization parameter" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         precomputed = preoptimize_nonlinear_solver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
@@ -304,7 +252,7 @@ end
     ==========================================================================#
 
     @testset "NonlinearSolver constructor accepts regularization" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         # Default (no regularization)
         solver_default = NonlinearSolver(
@@ -324,7 +272,7 @@ end
     end
 
     @testset "solve_raw passes regularization through" begin
-        prob = make_two_player_chain_for_regularization()
+        prob = make_standard_two_player_problem()
 
         solver = NonlinearSolver(
             prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
