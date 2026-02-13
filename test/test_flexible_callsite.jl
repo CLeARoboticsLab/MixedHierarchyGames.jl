@@ -245,4 +245,51 @@ end
         @test result.converged
         @test length(history) >= 1
     end
+
+    @testset "callback error propagates cleanly" begin
+        solver = make_callback_test_solver()
+        params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Callback that throws on first iteration
+        throwing_callback = info -> error("test callback error")
+
+        # Error should propagate — solver does not swallow callback exceptions
+        @test_throws ErrorException solve_raw(solver, params; callback=throwing_callback)
+    end
+
+    @testset "callback error on later iteration preserves partial history" begin
+        # First, verify the solver takes multiple iterations with these settings.
+        # Use max_iters high enough and a callback that counts to confirm.
+        prob = make_standard_two_player_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                 prob.state_dim, prob.control_dim;
+                                 max_iters=200, tol=1e-6)
+        params = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Count total iterations first
+        count_history = Int[]
+        result = solve_raw(solver, params; callback=info -> push!(count_history, info.iteration))
+        total_iters = length(count_history)
+
+        if total_iters >= 3
+            # Solver does multiple iterations — test that throwing partway preserves history
+            history = []
+            function failing_callback(info)
+                push!(history, info)
+                if info.iteration >= 3
+                    error("intentional failure after iteration 3")
+                end
+            end
+
+            @test_throws ErrorException solve_raw(solver, params; callback=failing_callback)
+            @test length(history) == 3
+            @test history[1].iteration == 1
+            @test history[3].iteration == 3
+        else
+            # Solver converges too quickly for multi-iteration test.
+            # Just verify that throwing on first iteration propagates.
+            @test_throws ErrorException solve_raw(solver, params;
+                callback=info -> error("fail on iter $(info.iteration)"))
+        end
+    end
 end
