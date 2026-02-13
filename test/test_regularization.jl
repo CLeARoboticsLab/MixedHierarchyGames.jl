@@ -75,6 +75,28 @@ using MixedHierarchyGames:
             @test relative_error < 1e-8
         end
 
+        @testset "regularization does not mutate input M matrix" begin
+            M = [2.0 1.0; 1.0 3.0]
+            N = [1.0 0.0; 0.0 1.0]
+            M_copy = copy(M)
+
+            _solve_K(M, N, 1; regularization=1e-4)
+
+            # M should be restored after the call (within floating-point roundtrip tolerance)
+            @test M ≈ M_copy atol=1e-14
+        end
+
+        @testset "regularization does not mutate M even on singular matrix" begin
+            M = [1.0 2.0; 2.0 4.0]  # singular
+            N = [1.0; 2.0][:, :]
+            M_copy = copy(M)
+
+            _solve_K(M, N, 1; regularization=1e-6)
+
+            # M should be restored after the call (within floating-point roundtrip tolerance)
+            @test M ≈ M_copy atol=1e-14
+        end
+
         @testset "regularization works with use_sparse=true" begin
             M = [1.0 2.0; 2.0 4.0]  # singular
             N = [1.0; 2.0][:, :]

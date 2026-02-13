@@ -714,18 +714,18 @@ Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
 function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
-    try
-        # Apply Tikhonov regularization if requested
-        M_solve = if regularization > 0
-            M + regularization * I
-        else
-            M
+    # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
+    # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
+    if regularization > 0
+        @inbounds for i in 1:size(M, 1)
+            M[i, i] += regularization
         end
-
+    end
+    try
         K = if use_sparse
-            sparse(M_solve) \ N
+            sparse(M) \ N
         else
-            M_solve \ N
+            M \ N
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
@@ -743,6 +743,13 @@ function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_s
             return fill(NaN, n_rows, n_cols)
         end
         rethrow()
+    finally
+        # Undo in-place regularization to preserve caller's M
+        if regularization > 0
+            @inbounds for i in 1:size(M, 1)
+                M[i, i] -= regularization
+            end
+        end
     end
 end
 
