@@ -6,7 +6,7 @@
 #  29 stacked PRs, each building on the previous branch.
 #  Each PR follows CLAUDE.md: TDD, retrospective, commit hygiene, review.
 #
-#  Benchmark: debug/benchmark_perf_audit.jl (comprehensive audit)
+#  Benchmark: scripts/benchmark_perf_audit.jl (comprehensive audit)
 #  Run before PR #1 and after each merge to track incremental progress.
 #
 #  Usage:
@@ -35,7 +35,7 @@ run_baseline() {
     local prefix="logs/${branch}_${ts}"
 
     echo "--- Comprehensive performance audit ---"
-    julia --project=. debug/benchmark_perf_audit.jl | tee "${prefix}_perf_audit.txt"
+    julia --project=. scripts/benchmark_perf_audit.jl | tee "${prefix}_perf_audit.txt"
 
     echo ""
     echo "Results saved to: ${prefix}_perf_audit.txt"
@@ -44,7 +44,7 @@ run_baseline() {
 
 run_bench() {
     echo "=== Running Performance Audit Benchmark ==="
-    julia --project=. debug/benchmark_perf_audit.jl
+    julia --project=. scripts/benchmark_perf_audit.jl
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ cat <<'EOF'
 ===========================================================================
   PERFORMANCE OPTIMIZATION: 29 STACKED PRs
   Each PR builds on the previous branch.
-  Benchmark: debug/benchmark_perf_audit.jl
+  Benchmark: scripts/benchmark_perf_audit.jl
 ===========================================================================
 
 CLAUDE.md COMPLIANCE (every PR must):
@@ -313,7 +313,7 @@ BENCHMARK PROTOCOL:
   - `path/to/file.jl`: [what changed and why]
 
   ## Benchmark Results
-  Run: `julia --project=. debug/benchmark_perf_audit.jl`
+  Run: `julia --project=. scripts/benchmark_perf_audit.jl`
 
   | Metric          | Before    | After     | Change |
   |-----------------|-----------|-----------|--------|
