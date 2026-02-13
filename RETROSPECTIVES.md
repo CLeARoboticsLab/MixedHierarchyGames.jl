@@ -1966,3 +1966,57 @@ Retrospective: Straightforward rename. Addresses action item from PR feature/pha
 - [ ] Add RETROSPECTIVES.md requirement to overnight run agent prompts
 - [ ] Consider per-PR retrospective verification in land_prs.sh
 - [ ] Investigate why #113 stalled (watchdog threshold too aggressive?)
+
+---
+
+## PR: tranche3/options-and-review-fixes (bead r89)
+
+**Date:** 2026-02-12
+**Commits:** 2 (failing tests, implementation)
+**Tests:** 1176 passing (48 new for NonlinearSolverOptions)
+
+### Summary
+
+Replaced untyped `options::NamedTuple` in `NonlinearSolver` with a concrete `NonlinearSolverOptions` struct. Added keyword constructor with defaults, NamedTuple conversion for backward compatibility, and linesearch validation. No solver behavior changes.
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Tests written first and committed as a separate RED commit (21dec83)
+  - All 48 new tests defined the expected API before any implementation
+  - RED-GREEN cycle clearly separated across commits
+  - Existing tests served as regression suite — all 1176 pass unchanged
+
+- **What could improve:**
+  - Initial test file referenced a non-existent helper (`create_two_player_nonlinear_problem`); caught during GREEN phase and fixed by defining `_make_options_test_problem` locally
+
+### Clean Code
+
+- NonlinearSolverOptions is a focused, single-responsibility struct
+- Validation logic (linesearch method) lives in the constructor where it belongs
+- NamedTuple conversion constructor is minimal and explicit
+- No dead code introduced; removed NamedTuple type annotation from struct field
+
+### Clean Architecture
+
+- Options struct is pure data — no behavior coupled to it
+- solve/solve_raw needed zero changes (dot access works identically)
+- Backward compatibility via constructor overload, not runtime checks
+
+### Commit Hygiene
+
+- 2 commits: (1) failing tests, (2) implementation + test fixes
+- Could have been 3 commits (separate test fixes from implementation), but the test fixes were small and directly caused by the implementation change
+
+### CLAUDE.md Compliance
+
+- TDD followed: tests first, implementation second
+- Test tolerances not applicable (no numerical tests)
+- test_tiers.jl and test_test_tiers.jl updated for new test file
+- Retrospective written before closing
+
+### Action Items
+
+- None — clean implementation with no follow-up debt
