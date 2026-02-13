@@ -241,11 +241,11 @@ function setup_approximate_kkt_solver(
     π_sizes = Vector{Int}(undef, N)
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
-    _identity_fn(_) = nothing  # placeholder for unused slots
+    _root_player_stub(_...) = error("M_fn!/N_fn! called for root player (no leader) — this is a bug")
     M_fns_inplace = Vector{Function}(undef, N)
     N_fns_inplace = Vector{Function}(undef, N)
-    fill!(M_fns_inplace, _identity_fn)
-    fill!(N_fns_inplace, _identity_fn)
+    fill!(M_fns_inplace, _root_player_stub)
+    fill!(N_fns_inplace, _root_player_stub)
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -951,6 +951,7 @@ function run_nonlinear_solver(
         @timeit_debug to "line search" begin
             # Residual function closure that optionally recomputes K at each trial point.
             # Reuses pre-allocated F_trial buffer to avoid per-call allocation.
+            # NOT thread-safe: captures mutable buffers (F_trial, param_vec) from outer scope.
             function residual_at_trial(z)
                 param_trial = if recompute_policy_in_linesearch
                     first(params_for_z!(z))

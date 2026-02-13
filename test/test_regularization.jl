@@ -170,9 +170,9 @@ end
             @test errors[2] < 1e-8   # λ=1e-10
 
             # Report results
-            @info "Distortion analysis (well-conditioned, cond(M)=$(round(cond(M), digits=1))):"
+            @debug "Distortion analysis (well-conditioned, cond(M)=$(round(cond(M), digits=1))):"
             for (λ, err) in zip(lambdas, errors)
-                @info "  λ=$λ → relative error=$err"
+                @debug "  λ=$λ → relative error=$err"
             end
         end
 
@@ -194,11 +194,11 @@ end
                 @test all(isfinite, K_reg)
             end
 
-            @info "Moderately ill-conditioned (cond(M)=$(round(cond(M), sigdigits=3))):"
+            @debug "Moderately ill-conditioned (cond(M)=$(round(cond(M), sigdigits=3))):"
             for λ in lambdas
                 K_reg = _solve_K(M, N, 1; regularization=λ)
                 err = norm(K_reg - K_exact) / norm(K_exact)
-                @info "  λ=$λ → relative error=$err"
+                @debug "  λ=$λ → relative error=$err"
             end
         end
     end

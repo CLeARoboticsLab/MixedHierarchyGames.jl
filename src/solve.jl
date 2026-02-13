@@ -17,20 +17,23 @@ function _to_parameter_dict(initial_state::Dict)
     return initial_state
 end
 
+function _to_parameter_dict(initial_state::AbstractVector{<:AbstractVector})
+    return Dict(i => initial_state[i] for i in 1:length(initial_state))
+end
+
 function _to_parameter_dict(initial_state::AbstractVector)
-    if !isempty(initial_state) && eltype(initial_state) <: AbstractVector
-        return Dict(i => initial_state[i] for i in 1:length(initial_state))
-    end
     throw(ArgumentError(
         "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
-        "got Vector{$(eltype(initial_state))}"
+        "got Vector{$(eltype(initial_state))}. " *
+        "Wrap each player's parameters in its own vector, e.g. [[1.0, 2.0], [3.0, 4.0]]."
     ))
 end
 
 function _to_parameter_dict(initial_state)
     throw(ArgumentError(
         "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
-        "got $(typeof(initial_state))"
+        "got $(typeof(initial_state)). " *
+        "Use Dict(1 => [x0...], 2 => [x0...]) or [[x0...], [x0...]]."
     ))
 end
 

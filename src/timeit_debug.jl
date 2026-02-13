@@ -48,9 +48,15 @@ is_timing_enabled() = TIMING_ENABLED[]
 
 Execute `f()` with timing enabled, restoring the previous state afterward.
 
+!!! note "Thread safety"
+    The read-then-write of `TIMING_ENABLED` is not atomic. Concurrent calls to
+    `with_timing` from multiple threads may incorrectly restore the flag. This is
+    acceptable for a profiling tool — avoid enabling/disabling timing from multiple
+    threads simultaneously.
+
 # Example
 ```julia
-using TimerOutputs
+using TimerOutputs  # Required: MixedHierarchyGames does not re-export TimerOutput
 to = TimerOutput()
 with_timing() do
     solve(solver, parameter_values; to)
