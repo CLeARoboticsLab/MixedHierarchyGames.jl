@@ -783,6 +783,8 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve (see `compute_K_evals`)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
+- `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
+  `(; iteration, residual, step_size)`. Enables iteration history tracking and external monitoring.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -807,6 +809,7 @@ function run_nonlinear_solver(
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
     regularization::Float64 = 0.0,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -982,6 +985,11 @@ function run_nonlinear_solver(
             α_str = lpad(string(round(α; digits=4)), 8)
             t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
             println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+        end
+
+        # Invoke callback with iteration info
+        if callback !== nothing
+            callback((; iteration=num_iterations, residual=residual_norm, step_size=α))
         end
 
         # Guard against NaN/Inf in solution

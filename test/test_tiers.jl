@@ -18,6 +18,7 @@ const FAST_TEST_FILES = [
     "test_timer.jl",
     "test_type_bounds.jl",
     "test_block_arrays.jl",
+    "test_unified_interface.jl",
     "olse/test_qp_solver.jl",
 ]
 
@@ -25,6 +26,7 @@ const SLOW_TEST_FILES = [
     "test_nonlinear_solver.jl",
     "test_kkt_verification.jl",
     "test_integration.jl",
+    "test_flexible_callsite.jl",
     "olse/test_nonlinear_solver.jl",
     "test_sparse_solve.jl",
     "test_allocation_optimization.jl",

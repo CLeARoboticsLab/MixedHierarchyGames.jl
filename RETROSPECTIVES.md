@@ -283,6 +283,70 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 
 ---
 
+## PR: proposal/flexible-callsite-interface (bead mh7)
+
+**Date:** 2026-02-11
+**Commits:** 4
+**Tests:** 955 passing (34 new)
+
+### Summary
+
+API design proposal evaluating flexible call-site interface for different use patterns (scripting, optimization loops, interactive). After thorough analysis of the existing API, implemented two targeted, backward-compatible improvements: Vector-based parameter passing and iteration callbacks.
+
+### TDD Compliance
+**Score: Strong (9/10)**
+- What went well: Wrote failing tests first (commit 1), then implemented (commit 2). Clean red-green progression. All 34 new tests were written before any implementation code.
+- What could improve: Test for "callback residuals decrease" needed a fix after the green phase — the initial test made assumptions about the callback timing that didn't hold for 1-iteration convergence. This was a test design issue, not a TDD violation.
+- Verifiable Solution: Test file created and committed before any `src/` changes. Verified with `git log --oneline`.
+
+### Clean Code Practices
+**Score: Strong (9/10)**
+- What went well:
+  - `_to_parameter_dict` is a minimal 2-method helper with identity dispatch for Dict (zero overhead on existing code paths)
+  - Callback is a simple `Union{Nothing, Function}` kwarg — no new types or abstractions
+  - All changes are additive (union types on signatures, new kwargs) — no existing code modified
+- What could improve: The `Union{Dict, AbstractVector{<:AbstractVector}}` type in 4 function signatures is slightly verbose. Could consider a type alias, but that adds complexity for little gain.
+
+### Clean Architecture Practices
+**Score: Strong (9/10)**
+- What went well:
+  - Changes follow existing patterns exactly (same `something()` override pattern, same kwarg threading)
+  - Callback invocation is a single 3-line block in the iteration loop — minimal intrusion
+  - No new dependencies, no new files in src/
+
+### Commit Hygiene
+**Score: Good (8/10)**
+- What went well:
+  - 4 commits with clear separation: (1) failing tests, (2) implementation + test fix, (3) test tier config, (4) retrospective + PR
+  - Each commit is self-contained
+- What could improve: Implementation commit (2) bundles both features + test fix. Could have been 3 commits: vector params, callback, test fix.
+
+### CLAUDE.md Compliance
+**Score: Strong (9/10)**
+- [x] TDD followed strictly (red-green-refactor)
+- [x] Tolerances at 1e-6 or tighter
+- [x] Full test suite passed (955/955)
+- [x] PR description includes use case analysis
+- [x] Retrospective written before PR
+- [x] Bead status updated
+- [x] Backward compatibility verified
+
+### Beads Created
+None — this is a self-contained proposal.
+
+### Key Learnings
+
+1. **Most "flexible interface" requests don't need new abstractions.** The existing API was already well-designed. The actual friction points were minor convenience gaps (Dict vs Vector, no callback hook), not architectural problems.
+2. **Callbacks are more useful than result-type wrappers.** Considered a `SolverResult` wrapper type but rejected it — callbacks give users full control over what to track without imposing a fixed structure.
+3. **Union types with identity dispatch are the lightest-weight way to add input flexibility.** `_to_parameter_dict(d::Dict) = d` has zero runtime cost.
+4. **Proposal PRs benefit from thorough analysis before coding.** Spending 60% of the time reading existing code and experiments prevented over-engineering.
+
+### Action Items for Next PR
+- [ ] If this proposal is accepted, update README.md examples to show the new Vector syntax
+- [ ] Consider adding callback support to QPSolver (currently only NonlinearSolver, since QPSolver has no iteration loop)
+
+---
+
 *Template for future retrospectives:*
 
 ```markdown
@@ -1386,3 +1450,81 @@ Proposal PR to evaluate Tikhonov regularization for ill-conditioned M matrices i
 
 - [ ] Consider adaptive regularization (auto-detect ill-conditioning and apply minimal lambda)
 - [ ] Investigate regularization impact on solver convergence for full nonlinear problems
+
+---
+
+## PR: proposal/unified-solver-interface (bead yc2)
+
+**Date:** 2026-02-11
+**Commits:** 2
+**Tests:** 945 passing (24 new)
+
+### Summary
+
+API design proposal evaluating whether to consolidate the low-level solver API and TrajectoryGamesBase interface. Found that `solve()` already serves as a unified entry point. Implemented two incremental improvements: `AbstractMixedHierarchyGameSolver` abstract type and flexible input format (Vector-of-Vectors alongside Dict).
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Tests written first and confirmed failing (9 errors) before any implementation
+  - Clean 2-commit structure: RED (tests) then GREEN (implementation)
+  - All 24 new tests verify behavior, not implementation details
+  - Existing 921 tests continue passing (+ 24 new = 945 total)
+
+- **What could improve:**
+  - Could have written the `_to_parameter_dict` unit tests as a separate first commit for even finer granularity
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - `_to_parameter_dict` is a small, single-purpose function with clear error messages
+  - Used multiple dispatch (3 methods) instead of if-else chains for type conversion
+  - Abstract type is minimal — just documents the contract, no unnecessary methods
+  - Docstrings updated to reflect new parameter names and accepted formats
+
+- **What could improve:**
+  - Parameter rename from `parameter_values` to `initial_state` in function signatures is a minor API change; kept Dict passthrough for zero-cost backward compatibility
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Conversion function lives in solve.jl (close to usage, not in a separate utils file)
+  - Abstract type in types.jl alongside concrete types
+  - No new dependencies or module changes needed
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Exactly 2 commits: tests then implementation
+  - Each commit is focused and self-contained
+  - Messages describe what and why, not just what
+
+### CLAUDE.md Compliance
+
+**Score: Strong (9/10)**
+
+- [x] TDD followed (red-green-refactor)
+- [x] Tolerances tight (1e-10)
+- [x] Full test suite verified
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Retrospective written before PR finalized
+
+### Key Learnings
+
+1. **Analysis before implementation saves effort.** Thorough API surface audit revealed that unification already existed — the real issues were small ergonomic gaps, not architectural flaws.
+2. **Proposals can be small.** The temptation was to redesign the whole solver API. The right answer was two targeted improvements totaling ~60 lines of implementation.
+3. **`solve_trajectory_game!` is dead infrastructure.** The TGB adapter is never called outside tests. Future work could deprecate it if TGB compatibility isn't needed.
+
+### Action Items for Next PR
+
+- [ ] Consider deprecating `solve_trajectory_game!` if TGB compatibility is confirmed unnecessary
+- [ ] Consider whether `solve_raw` return types should be unified (currently different NamedTuples per solver)
