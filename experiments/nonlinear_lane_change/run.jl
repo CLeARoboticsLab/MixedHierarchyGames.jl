@@ -81,7 +81,7 @@ function run_nonlinear_lane_change(;
     verbose && @info "Building NonlinearSolver..." N T Δt R
     solver = NonlinearSolver(
         G, Js, gs, primal_dims, θs, STATE_DIM, CONTROL_DIM;
-        max_iters = max_iters, tol = TOLERANCE, verbose = verbose,
+        max_iters = max_iters, tol = TOLERANCE, verbose = verbose, show_progress = true,
     )
 
     verbose && @info "Solving..."

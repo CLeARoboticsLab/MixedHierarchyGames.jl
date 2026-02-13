@@ -207,6 +207,7 @@ Before marking work complete, verify the following:
 - [ ] All code examples in docstrings are tested and runnable
 - [ ] New public functions have docstrings
 - [ ] CHANGELOG.md updated for user-facing changes
+- [ ] test/README.md updated if new test files were added
 
 ### Git
 - [ ] Commits are logically organized

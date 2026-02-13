@@ -114,11 +114,11 @@ and only depend on the player's own decision variables (decoupled constraints).
 Called during problem setup to catch errors early with clear messages.
 
 # Arguments
-- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `gs::Vector` - Constraint functions per player: `gs[i](z)` → Vector
 - `zs::Dict` - Decision variables per player (used to test function signatures)
 
 # Throws
-- `ArgumentError` if gs[i] has wrong signature, doesn't return AbstractVector,
+- `ArgumentError` if `gs[i]` has wrong signature, doesn't return AbstractVector,
   or contains variables from other players (coupled constraint)
 """
 function _validate_constraint_functions(gs::Vector, zs::Dict)
@@ -171,7 +171,7 @@ Construct all symbolic variables needed for the KKT system.
 # Arguments
 - `graph::SimpleDiGraph` - DAG of leader-follower relationships
 - `primal_dims::Vector{Int}` - Decision variable dimension for each player
-- `gs::Vector` - Constraint functions for each player (gs[i](z) returns constraints)
+- `gs::Vector` - Constraint functions for each player (`gs[i](z)` returns constraints)
 - `backend` - SymbolicTracingUtils backend (default: SymbolicsBackend)
 
 # Returns
@@ -181,7 +181,7 @@ Named tuple containing:
 - `μs::Dict` - Policy constraint multipliers (leader, follower) pairs
 - `ys::Dict` - Information vectors (leader decisions visible to each player)
 - `ws::Dict` - Remaining variables for policy constraints
-- `ws_z_indices::Dict` - Index mapping: ws_z_indices[i][j] gives range where zs[j] appears in ws[i]
+- `ws_z_indices::Dict` - Index mapping: `ws_z_indices[i][j]` gives range where `zs[j]` appears in `ws[i]`
 - `all_variables::Vector` - Flattened vector of all variables
 """
 function setup_problem_variables(

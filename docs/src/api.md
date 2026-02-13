@@ -9,6 +9,7 @@ MixedHierarchyGames
 ## Types
 
 ```@docs
+AbstractMixedHierarchyGameSolver
 QPSolver
 NonlinearSolver
 HierarchyGame
@@ -78,6 +79,16 @@ get_all_leaders
 get_all_followers
 evaluate_kkt_residuals
 verify_kkt_solution
+```
+
+## Performance Profiling
+
+```@docs
+enable_timing!
+disable_timing!
+is_timing_enabled
+with_timing
+@timeit_debug
 ```
 
 ## Internal Functions

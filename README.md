@@ -1,5 +1,7 @@
 # MixedHierarchyGames.jl
 
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://CLeARoboticsLab.github.io/MixedHierarchyGames.jl/dev/)
+
 A Julia package for solving mixed hierarchy games. This implementation uses the `TrajectoryGamesBase.jl` interface, though the solver is more general and can be used for general equality-constrained games.
 
 Based on: H. Khan, D. H. Lee, J. Li, T. Qiu, C. Ellis, J. Milzman, W. Suttle, and D. Fridovich-Keil, "[Efficiently Solving Mixed-Hierarchy Games with Quasi-Policy Approximations](https://arxiv.org/abs/2602.01568)," 2026.
@@ -150,6 +152,67 @@ strategy = solve(solver, parameter_values; initial_guess=z0)
 result = solve_raw(solver, parameter_values)
 # result.sol, result.converged, result.iterations, result.residual, result.status
 ```
+
+## Performance Profiling
+
+MixedHierarchyGames.jl includes a conditional timing system built on [TimerOutputs.jl](https://github.com/KristofferC/TimerOutputs.jl). Standard `@timeit` incurs overhead on every call even when profiling is not needed; `@timeit_debug` replaces it with a near-zero-overhead alternative that can be toggled at runtime.
+
+By default, timing is **disabled**. When disabled, the only cost is one atomic boolean check per instrumentation point (~6ns) — no `try/finally` frame, no TimerOutputs bookkeeping.
+
+### Usage
+
+Pass a `TimerOutput` via the `to` keyword argument to capture timing data:
+
+```julia
+using MixedHierarchyGames
+using TimerOutputs
+
+to = TimerOutput()
+
+# Enable timing and build/solve with the same TimerOutput
+enable_timing!()
+solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; to)
+result = solve(solver, parameter_values; to)
+disable_timing!()
+
+# View timing breakdown
+show(to)
+```
+
+Or use the scoped `with_timing` form to avoid forgetting `disable_timing!()`:
+
+```julia
+to = TimerOutput()
+with_timing() do
+    solver = NonlinearSolver(G, Js, gs, primal_dims, θs, state_dim, control_dim; to)
+    solve(solver, parameter_values; to)
+end
+show(to)
+```
+
+### Instrumented Sections
+
+The solver instruments 21 points across construction and solving:
+
+| Phase | Sections |
+|-------|----------|
+| **QPSolver construction** | `KKT conditions`, `ParametricMCP build`, `linearity check` |
+| **QPSolver solve** | `residual evaluation`, `Jacobian evaluation`, `linear solve` |
+| **NonlinearSolver construction** | `variable setup`, `approximate KKT setup`, `ParametricMCP build`, `linear solver init` |
+| **NonlinearSolver solve** (per iteration) | `compute K evals`, `residual evaluation`, `Jacobian evaluation`, `Newton step`, `line search` |
+
+### Performance Characteristics
+
+Overhead depends on whether timing is enabled (benchmarked on Apple M1):
+
+- **Disabled (default)**: ~6ns per instrumentation point (atomic boolean check only)
+- **Enabled**: ~33ns per point (full TimerOutputs instrumentation)
+
+For a typical `QPSolver.solve()` call with 5-10 timing points, disabled overhead is <0.2%. For `NonlinearSolver` with many iterations, each iteration adds ~30-60ns of overhead when disabled.
+
+### Thread Safety
+
+`TIMING_ENABLED` uses `Threads.Atomic{Bool}` for safe concurrent access. However, `TimerOutput` objects are not thread-safe — use separate `TimerOutput` instances when solving concurrently from multiple threads.
 
 ## Equilibrium Concept
 

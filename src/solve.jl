@@ -3,6 +3,41 @@
 =#
 
 """
+    _to_parameter_dict(initial_state)
+
+Convert initial state to Dict{Int, Vector} parameter format.
+
+Accepted formats:
+- `Dict{Int, Vector}`: Returned as-is (no copy)
+- `AbstractVector` of `AbstractVector`s: Converted to Dict with 1-based integer keys
+
+Throws `ArgumentError` for unrecognized types.
+"""
+function _to_parameter_dict(initial_state::Dict)
+    return initial_state
+end
+
+function _to_parameter_dict(initial_state::AbstractVector{<:AbstractVector})
+    return Dict(i => initial_state[i] for i in 1:length(initial_state))
+end
+
+function _to_parameter_dict(initial_state::AbstractVector)
+    throw(ArgumentError(
+        "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
+        "got Vector{$(eltype(initial_state))}. " *
+        "Wrap each player's parameters in its own vector, e.g. [[1.0, 2.0], [3.0, 4.0]]."
+    ))
+end
+
+function _to_parameter_dict(initial_state)
+    throw(ArgumentError(
+        "initial_state must be Dict{Int, Vector} or Vector of Vectors, " *
+        "got $(typeof(initial_state)). " *
+        "Use Dict(1 => [x0...], 2 => [x0...]) or [[x0...], [x0...]]."
+    ))
+end
+
+"""
     _extract_joint_strategy(sol, primal_dims, state_dim, control_dim)
 
 Extract per-player trajectories from solution vector and build JointStrategy.
@@ -21,15 +56,17 @@ function _extract_joint_strategy(sol::AbstractVector, primal_dims::Vector{Int}, 
 end
 
 """
-    solve(solver::QPSolver, parameter_values::Dict; kwargs...)
+    solve(solver::QPSolver, initial_state; kwargs...)
 
-Solve the QP hierarchy game with given parameter values (typically initial states).
+Solve the QP hierarchy game with given initial state (parameter values).
 
 Uses precomputed symbolic KKT conditions for efficiency.
 
 # Arguments
 - `solver::QPSolver` - The QP solver with precomputed components
-- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+- `initial_state` - Per-player parameter values. Accepts:
+  - `Dict{Int, Vector}`: Player index → parameter vector
+  - `Vector{Vector}`: Converted to Dict with 1-based keys
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
@@ -43,7 +80,7 @@ Uses precomputed symbolic KKT conditions for efficiency.
 """
 function solve(
     solver::QPSolver,
-    parameter_values::Dict;
+    initial_state;
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -51,6 +88,7 @@ function solve(
     use_start::Bool = true,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs, primal_dims, state_dim, control_dim) = problem
@@ -58,7 +96,7 @@ function solve(
     # Validate parameter_values
     _validate_parameter_values(parameter_values, θs)
 
-    @timeit to "QPSolver solve" begin
+    @timeit_debug to "QPSolver solve" begin
         if solver_type == :linear
             sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
                                           verbose, to, J_buffer, F_buffer, z0_buffer)
@@ -81,9 +119,13 @@ function solve(
 end
 
 """
-    solve_raw(solver::QPSolver, parameter_values::Dict; kwargs...)
+    solve_raw(solver::QPSolver, initial_state; kwargs...)
 
 Solve and return raw solution vector (for debugging/analysis).
+
+# Arguments
+- `solver::QPSolver` - The QP solver
+- `initial_state` - Per-player parameter values (Dict or Vector of Vectors)
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print debug info
@@ -101,7 +143,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::QPSolver,
-    parameter_values::Dict;
+    initial_state;
     verbose::Bool = false,
     iteration_limit::Int = 100000,
     proximal_perturbation::Float64 = 1e-2,
@@ -109,11 +151,12 @@ function solve_raw(
     use_start::Bool = true,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, solver_type, precomputed) = solver
     (; vars, πs_solve, parametric_mcp, J_buffer, F_buffer, z0_buffer) = precomputed
     (; θs) = problem
 
-    @timeit to "QPSolver solve" begin
+    @timeit_debug to "QPSolver solve" begin
         if solver_type == :linear
             sol, status = solve_qp_linear(parametric_mcp, θs, parameter_values;
                                           verbose, to, J_buffer, F_buffer, z0_buffer)
@@ -173,15 +216,17 @@ function TrajectoryGamesBase.solve_trajectory_game!(
 end
 
 """
-    solve(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+    solve(solver::NonlinearSolver, initial_state; kwargs...)
 
-Solve the nonlinear hierarchy game with given parameter values (typically initial states).
+Solve the nonlinear hierarchy game with given initial state (parameter values).
 
 Uses precomputed symbolic components for efficiency.
 
 # Arguments
 - `solver::NonlinearSolver` - The nonlinear solver with precomputed components
-- `parameter_values::Dict` - Numerical values for parameters (e.g., initial states per player)
+- `initial_state` - Per-player parameter values. Accepts:
+  - `Dict{Int, Vector}`: Player index → parameter vector
+  - `Vector{Vector}`: Converted to Dict with 1-based keys
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
@@ -193,7 +238,7 @@ Uses precomputed symbolic components for efficiency.
 """
 function solve(
     solver::NonlinearSolver,
-    parameter_values::Dict;
+    initial_state;
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -202,8 +247,11 @@ function solve(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    regularization::Union{Nothing, Float64} = nothing,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, precomputed, options) = solver
     (; θs, primal_dims, state_dim, control_dim, hierarchy_graph) = problem
 
@@ -218,9 +266,10 @@ function solve(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_regularization = something(regularization, options.regularization)
 
     # Run the nonlinear solver
-    @timeit to "NonlinearSolver solve" begin
+    @timeit_debug to "NonlinearSolver solve" begin
         result = run_nonlinear_solver(
             precomputed,
             parameter_values,
@@ -233,6 +282,8 @@ function solve(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            regularization = actual_regularization,
+            callback = callback,
             to = to
         )
     end
@@ -241,9 +292,13 @@ function solve(
 end
 
 """
-    solve_raw(solver::NonlinearSolver, parameter_values::Dict; kwargs...)
+    solve_raw(solver::NonlinearSolver, initial_state; kwargs...)
 
 Solve and return raw solution with convergence info (for debugging/analysis).
+
+# Arguments
+- `solver::NonlinearSolver` - The nonlinear solver
+- `initial_state` - Per-player parameter values (Dict or Vector of Vectors)
 
 # Keyword Arguments
 - `initial_guess::Union{Nothing, Vector}=nothing` - Warm start for the solver
@@ -270,7 +325,7 @@ Named tuple with fields:
 """
 function solve_raw(
     solver::NonlinearSolver,
-    parameter_values::Dict;
+    initial_state;
     initial_guess::Union{Nothing, Vector} = nothing,
     max_iters::Union{Nothing, Int} = nothing,
     tol::Union{Nothing, Float64} = nothing,
@@ -279,8 +334,11 @@ function solve_raw(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
+    regularization::Union{Nothing, Float64} = nothing,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
+    parameter_values = _to_parameter_dict(initial_state)
     (; problem, precomputed, options) = solver
     (; hierarchy_graph) = problem
 
@@ -292,9 +350,10 @@ function solve_raw(
     actual_recompute_K = something(recompute_policy_in_linesearch, options.recompute_policy_in_linesearch)
     actual_use_sparse = something(use_sparse, options.use_sparse)
     actual_show_progress = something(show_progress, options.show_progress)
+    actual_regularization = something(regularization, options.regularization)
 
     # Run the nonlinear solver
-    @timeit to "NonlinearSolver solve" begin
+    @timeit_debug to "NonlinearSolver solve" begin
         result = run_nonlinear_solver(
             precomputed,
             parameter_values,
@@ -307,6 +366,8 @@ function solve_raw(
             recompute_policy_in_linesearch = actual_recompute_K,
             use_sparse = actual_use_sparse,
             show_progress = actual_show_progress,
+            regularization = actual_regularization,
+            callback = callback,
             to = to
         )
     end
@@ -548,17 +609,17 @@ function solve_qp_linear(
     fill!(z0, 0.0)
 
     # Evaluate at zero (for LQ, any point works since system is linear)
-    @timeit to "residual evaluation" begin
+    @timeit_debug to "residual evaluation" begin
         parametric_mcp.f!(F, z0, all_param_vals_vec)
     end
-    @timeit to "Jacobian evaluation" begin
+    @timeit_debug to "Jacobian evaluation" begin
         parametric_mcp.jacobian_z!(J, z0, all_param_vals_vec)
     end
 
     # Solve Jz = -F using sparse backslash (dispatches to appropriate factorization).
     # Note: No regularization is applied. For ill-conditioned systems, this may fail
     # or produce inaccurate results. See Phase 5 bead for planned Tikhonov regularization.
-    @timeit to "linear solve" begin
+    @timeit_debug to "linear solve" begin
         try
             sol = J \ (-F)
 
@@ -574,7 +635,7 @@ function solve_qp_linear(
                 verbose && @warn "Linear solve has unexpectedly high residual: $residual"
             end
 
-            verbose && println("Linear solve successful (residual: $residual)")
+            verbose && @debug "Linear solve successful" residual
             return sol, :solved
         catch e
             # Only catch expected linear algebra failures; rethrow programming errors

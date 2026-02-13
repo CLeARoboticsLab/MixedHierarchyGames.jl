@@ -23,7 +23,7 @@ using ParametricMCPs: ParametricMCPs
 using TimerOutputs
 
 # ============================================================================
-# OLD SOLVER COMPONENTS (from examples/)
+# OLD SOLVER COMPONENTS (from legacy/)
 # These are the reference implementations we're validating against
 # ============================================================================
 

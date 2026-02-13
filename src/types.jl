@@ -3,6 +3,17 @@
 =#
 
 """
+    AbstractMixedHierarchyGameSolver
+
+Abstract supertype for all hierarchy game solvers.
+
+Subtypes must implement:
+- `solve(solver, parameter_values; kwargs...) → JointStrategy`
+- `solve_raw(solver, parameter_values; kwargs...) → NamedTuple`
+"""
+abstract type AbstractMixedHierarchyGameSolver end
+
+"""
     HierarchyGame
 
 A trajectory game with hierarchical (Stackelberg) structure.
@@ -26,8 +37,8 @@ Used by both QPSolver and NonlinearSolver.
 
 # Fields
 - `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict` - Cost functions per player: Js[i](zs...; θ) → scalar
-- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `Js::Dict` - Cost functions per player: `Js[i](zs...; θ)` → scalar
+- `gs::Vector` - Constraint functions per player: `gs[i](z)` → Vector
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
@@ -84,7 +95,7 @@ Solver for quadratic programming hierarchy games (linear dynamics, quadratic cos
 - `solver_type::Symbol` - Solver backend (:linear or :path)
 - `precomputed::QPPrecomputed` - Precomputed symbolic components (variables, KKT conditions)
 """
-struct QPSolver{TP<:HierarchyProblem, TC<:QPPrecomputed}
+struct QPSolver{TP<:HierarchyProblem, TC<:QPPrecomputed} <: AbstractMixedHierarchyGameSolver
     problem::TP
     solver_type::Symbol
     precomputed::TC
@@ -249,7 +260,7 @@ function QPSolver(
     solver::Symbol = :linear,
     to::TimerOutput = TimerOutput()
 )
-    @timeit to "QPSolver construction" begin
+    @timeit_debug to "QPSolver construction" begin
         # Validate inputs
         _validate_solver_inputs(hierarchy_graph, Js, gs, primal_dims, θs)
 
@@ -259,7 +270,7 @@ function QPSolver(
         # Note: setup_problem_variables validates constraint function signatures internally
         vars = setup_problem_variables(hierarchy_graph, primal_dims, gs)
 
-        @timeit to "KKT conditions" begin
+        @timeit_debug to "KKT conditions" begin
             θ_all = reduce(vcat, (θs[k] for k in ordered_player_indices(θs)))
             kkt_result = get_qp_kkt_conditions(
                 hierarchy_graph, Js, vars.zs, vars.λs, vars.μs, gs, vars.ws, vars.ys, vars.ws_z_indices;
@@ -269,12 +280,12 @@ function QPSolver(
         end
 
         # Build and cache ParametricMCP for solving
-        @timeit to "ParametricMCP build" begin
+        @timeit_debug to "ParametricMCP build" begin
             parametric_mcp = _build_parametric_mcp(πs_solve, vars.all_variables, θs)
         end
 
         # Verify the system is linear (QP assumption) during construction
-        @timeit to "linearity check" begin
+        @timeit_debug to "linearity check" begin
             _verify_linear_system(parametric_mcp, length(vars.all_variables), θs)
         end
 
@@ -324,10 +335,10 @@ Uses iterative quasi-linear policy approximation with configurable line search.
 # Fields
 - `problem::HierarchyProblem` - The problem specification
 - `precomputed::NamedTuple` - Precomputed symbolic components from preoptimize_nonlinear_solver
-- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse)
+- `options::NamedTuple` - Solver options (max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, regularization)
   - `use_sparse` can be `:auto` (sparse for leaders, dense for leaves), `:always`, or `:never`
 """
-struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple}
+struct NonlinearSolver{TP<:HierarchyProblem, TC<:NamedTuple} <: AbstractMixedHierarchyGameSolver
     problem::TP
     precomputed::TC
     options::NamedTuple
@@ -340,8 +351,8 @@ Construct a NonlinearSolver from low-level problem components.
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict` - Cost functions per player: Js[i](z1, z2, ..., zN; θ) → scalar
-- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `Js::Dict` - Cost functions per player: `Js[i](z1, z2, ..., zN; θ)` → scalar
+- `gs::Vector` - Constraint functions per player: `gs[i](z)` → Vector
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
 - `state_dim::Int` - State dimension per player
@@ -356,6 +367,7 @@ Construct a NonlinearSolver from low-level problem components.
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
   `:auto` (sparse for leaders, dense for leaves), `:always`, `:never`, or Bool
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias. Default 0.0 (disabled).
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
   symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
@@ -377,10 +389,11 @@ function NonlinearSolver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
+    regularization::Float64 = 0.0,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
-    @timeit to "NonlinearSolver construction" begin
+    @timeit_debug to "NonlinearSolver construction" begin
         # Validate linesearch method
         if linesearch_method ∉ VALID_LINESEARCH_METHODS
             throw(ArgumentError(
@@ -406,7 +419,7 @@ function NonlinearSolver(
         )
 
         # Store solver options
-        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress)
+        options = (; max_iters, tol, verbose, linesearch_method, recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
     end
 
     return NonlinearSolver(problem, precomputed, options)

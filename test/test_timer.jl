@@ -12,7 +12,9 @@ using MixedHierarchyGames:
     setup_problem_parameter_variables,
     get_qp_kkt_conditions,
     strip_policy_constraints,
-    default_backend
+    default_backend,
+    enable_timing!,
+    disable_timing!
 using TrajectoryGamesBase: TrajectoryGamesBase, JointStrategy, unflatten_trajectory
 
 #=
@@ -67,6 +69,9 @@ end
 @testset "TimerOutputs Integration" begin
     prob = make_timer_test_problem()
     param_values = Dict(1 => [0.0, 0.0], 2 => [1.0, 1.0])
+
+    # Enable timing for tests that verify timing sections are recorded
+    enable_timing!()
 
     @testset "QPSolver construction records timing sections" begin
         to = TimerOutput()
@@ -136,6 +141,9 @@ end
         @test haskey(inner, "line search")
     end
 
+    # Disable timing for backward compatibility test
+    disable_timing!()
+
     @testset "Default to (no timer passed) works without error" begin
         # QPSolver should work without to kwarg (backward compatible)
         solver_qp = QPSolver(
@@ -154,6 +162,9 @@ end
         @test result_nl isa JointStrategy
     end
 
+    # Re-enable for accumulation test
+    enable_timing!()
+
     @testset "Single TimerOutput accumulates across construction and solve" begin
         to = TimerOutput()
         solver = NonlinearSolver(
@@ -167,4 +178,7 @@ end
         @test haskey(to, "NonlinearSolver construction")
         @test haskey(to, "NonlinearSolver solve")
     end
+
+    # Restore default state
+    disable_timing!()
 end

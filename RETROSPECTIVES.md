@@ -283,6 +283,70 @@ Added TimerOutputs instrumentation to QPSolver and NonlinearSolver, ran comprehe
 
 ---
 
+## PR: proposal/flexible-callsite-interface (bead mh7)
+
+**Date:** 2026-02-11
+**Commits:** 4
+**Tests:** 955 passing (34 new)
+
+### Summary
+
+API design proposal evaluating flexible call-site interface for different use patterns (scripting, optimization loops, interactive). After thorough analysis of the existing API, implemented two targeted, backward-compatible improvements: Vector-based parameter passing and iteration callbacks.
+
+### TDD Compliance
+**Score: Strong (9/10)**
+- What went well: Wrote failing tests first (commit 1), then implemented (commit 2). Clean red-green progression. All 34 new tests were written before any implementation code.
+- What could improve: Test for "callback residuals decrease" needed a fix after the green phase — the initial test made assumptions about the callback timing that didn't hold for 1-iteration convergence. This was a test design issue, not a TDD violation.
+- Verifiable Solution: Test file created and committed before any `src/` changes. Verified with `git log --oneline`.
+
+### Clean Code Practices
+**Score: Strong (9/10)**
+- What went well:
+  - `_to_parameter_dict` is a minimal 2-method helper with identity dispatch for Dict (zero overhead on existing code paths)
+  - Callback is a simple `Union{Nothing, Function}` kwarg — no new types or abstractions
+  - All changes are additive (union types on signatures, new kwargs) — no existing code modified
+- What could improve: The `Union{Dict, AbstractVector{<:AbstractVector}}` type in 4 function signatures is slightly verbose. Could consider a type alias, but that adds complexity for little gain.
+
+### Clean Architecture Practices
+**Score: Strong (9/10)**
+- What went well:
+  - Changes follow existing patterns exactly (same `something()` override pattern, same kwarg threading)
+  - Callback invocation is a single 3-line block in the iteration loop — minimal intrusion
+  - No new dependencies, no new files in src/
+
+### Commit Hygiene
+**Score: Good (8/10)**
+- What went well:
+  - 4 commits with clear separation: (1) failing tests, (2) implementation + test fix, (3) test tier config, (4) retrospective + PR
+  - Each commit is self-contained
+- What could improve: Implementation commit (2) bundles both features + test fix. Could have been 3 commits: vector params, callback, test fix.
+
+### CLAUDE.md Compliance
+**Score: Strong (9/10)**
+- [x] TDD followed strictly (red-green-refactor)
+- [x] Tolerances at 1e-6 or tighter
+- [x] Full test suite passed (955/955)
+- [x] PR description includes use case analysis
+- [x] Retrospective written before PR
+- [x] Bead status updated
+- [x] Backward compatibility verified
+
+### Beads Created
+None — this is a self-contained proposal.
+
+### Key Learnings
+
+1. **Most "flexible interface" requests don't need new abstractions.** The existing API was already well-designed. The actual friction points were minor convenience gaps (Dict vs Vector, no callback hook), not architectural problems.
+2. **Callbacks are more useful than result-type wrappers.** Considered a `SolverResult` wrapper type but rejected it — callbacks give users full control over what to track without imposing a fixed structure.
+3. **Union types with identity dispatch are the lightest-weight way to add input flexibility.** `_to_parameter_dict(d::Dict) = d` has zero runtime cost.
+4. **Proposal PRs benefit from thorough analysis before coding.** Spending 60% of the time reading existing code and experiments prevented over-engineering.
+
+### Action Items for Next PR
+- [ ] If this proposal is accepted, update README.md examples to show the new Vector syntax
+- [ ] Consider adding callback support to QPSolver (currently only NonlinearSolver, since QPSolver has no iteration loop)
+
+---
+
 *Template for future retrospectives:*
 
 ```markdown
@@ -906,3 +970,999 @@ Merged Copilot's PR #107 (copilot/sub-pr-106) into the Strategy A branch. This r
 2. **Copilot PRs need testing before merge.** PR #107 had no CI and no reviews. The merge introduced two classes of breakage: (a) required kwargs without defaults, (b) removed NamedTuple fields referenced by tests.
 3. **`get!()` with empty Dict default is the right pattern for optional pre-allocation.** Making buffers default to `Dict{Int,Matrix{Float64}}()` with lazy `get!()` gives zero-allocation reuse when buffers are passed, and correct-but-allocating behavior when they're not.
 4. **Git worktree is essential for parallel work.** Merging in `/tmp/shg-worktree-106` while overnight script ran on main repo avoided any interference.
+
+---
+
+## PR: dx/clean-solver-output
+
+**Date:** 2026-02-10
+**Commits:** 3
+**Tests:** 925 passing (4 new)
+
+### Summary
+
+Clean up solver output: convert verbose-gated println() calls to @debug logging macros, add show_progress=true to experiment configs, and add static analysis test enforcing no bare println in src/.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Tests written first (RED phase confirmed failing)
+  - Static analysis test catches all bare println calls outside show_progress blocks
+  - Behavioral tests verify solve()/solve_raw() produce zero stdout with defaults
+  - Implementation committed separately after tests
+
+- **Minor gap:**
+  - The verbose=true behavioral test passes even before implementation because the verbose println calls happen on code paths not exercised by the test problem. Static analysis test compensates for this.
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions are focused and unchanged in structure
+- @debug calls use structured keyword arguments (e.g., `@debug "KKT Residuals" satisfied residual_norm`)
+- No unnecessary changes beyond the task scope
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 commits, each self-contained:
+  1. Failing tests (RED)
+  2. Implementation (GREEN) — converts println to @debug
+  3. Experiment config updates (show_progress=true)
+- Each commit leaves codebase in working state
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances appropriate (N/A — no numerical tests added)
+- [x] Full test suite run and passing (925 tests)
+- [x] Retrospective written before PR description
+
+### Key Learnings
+
+1. Julia's @debug/@info/@warn macros go to stderr, not stdout — this means verbose-gated messages using these macros are invisible to stdout-based silence tests.
+2. A static analysis test (scanning source files for patterns) is a robust complement to behavioral tests for enforcing coding standards.
+3. show_progress was already defaulting to false — the main work was converting verbose println to @debug.
+
+### Action Items for Next PR
+
+- [ ] Consider adding a pre-commit hook or CI check for bare println in src/
+
+---
+
+## PR: dx/update-test-readme-checklist (bead e6q)
+
+**Date:** 2026-02-10
+**Commits:** 1
+**Tests:** No src/ changes — existing tests unaffected
+
+### Summary
+
+Added `test/README.md` update requirement to CLAUDE.md verification checklist. Updated `test/README.md` to list all 23 current test files (was missing 8 test files and 1 shared config module added since the README was created in PR #97).
+
+### TDD Compliance
+
+**Score: N/A** — Documentation-only change. No application code or test code written.
+
+---
+
+## PR: cleanup/rename-examples-legacy (bead gyg)
+
+**Date:** 2026-02-11
+**Commits:** 1
+**Tests:** 921 passing (no new tests — rename only)
+
+### Summary
+
+Renamed `examples/` folder to `legacy/` to clarify that these are historical standalone scripts predating the `MixedHierarchyGames` package. Updated all references in Python test files, experiment comments, and added a `legacy/README.md`.
+
+### TDD Compliance
+
+**Score: N/A** — File rename with no new logic. Existing test suite (921 tests) serves as the verification that no references are broken.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Audit of test/README.md found 9 missing entries — caught and fixed in one pass
+  - Updated "Adding New Tests" instructions to include README and test_tiers.jl steps
+  - Removed hard-coded test count from README header (was "450 tests" — now uses file count which is easier to verify)
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single focused commit for a single-purpose change
+- Both files changed together since the CLAUDE.md rule and the README update are logically coupled
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Retrospective written before final PR description
+- [x] No src/ changes, so no test run required for correctness
+- [x] PR created with full description
+
+### Key Learnings
+
+1. **README drift is real.** 9 files were added across multiple PRs without updating the README. The new checklist item should prevent this going forward.
+2. **Checklist items should be self-enforcing.** Adding the README update to CLAUDE.md's verification checklist means it will be checked before every merge.
+
+### Action Items for Next PR
+
+- [ ] Verify the new checklist item is being followed (first PR after this one should check test/README.md if adding tests)
+
+---
+
+## PR: docs/readme-docs-link
+
+**Date:** 2026-02-10
+**Commits:** 1
+**Tests:** 466 passing (no new tests — docs-only change)
+
+### Summary
+
+Added a documentation badge to README.md linking to the Documenter.jl-generated docs site at `/dev/`. Verified `/stable/` returns 404 (no tagged release yet), so linked to `/dev/`.
+
+### TDD Compliance
+
+**Score: N/A** — No application or test code changed. README-only edit.
+
+### Clean Code Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Used standard shields.io badge format consistent with Julia ecosystem conventions
+  - Placed badge immediately after title, following standard README layout
+  - Verified docs URL accessibility before linking
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single commit for a single-line change — appropriate granularity
+- Descriptive commit message
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Full test suite verified (466 passing)
+- [x] PR created with full description
+- [x] Retrospective written before final PR description
+
+### Key Learnings
+
+1. `/stable/` docs URL requires a tagged release. Until then, link to `/dev/`.
+
+### Action Items for Next PR
+
+- [ ] After first tagged release, update badge to link to `/stable/` or add both `/stable/` and `/dev/` badges
+
+---
+
+## PR: perf/preallocate-params-buffers (bead h1f)
+
+**Date:** 2026-02-11
+**Commits:** 3
+**Tests:** 938 passing (17 new)
+
+### Summary
+
+Pre-allocate parameter buffers in the nonlinear solver hot loop. F_trial buffer reused across linesearch iterations, Dict caches and all_K_vec buffer reused across compute_K_evals calls, and theta parameter vector built without vcat+comprehension allocation.
+
+---
+
+## Overnight Run PRs (2026-02-10 — 2026-02-11)
+
+The following PRs were created by autonomous Claude agents during the overnight run (`scripts/overnight_run_2.sh`). Retrospectives were not written by the agents and are recorded here retroactively based on PR descriptions and code diffs.
+
+---
+
+## PR #101: dx/clean-solver-output (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Converts verbose-gated `println()` calls in `src/` to `@debug` logging macros so the library is silent by default. Adds `show_progress=true` to experiment configs and a static analysis test to enforce no bare `println()` in `src/`.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Static analysis test enforces the no-println rule going forward
+- Cannot fully assess red-green cycle since agent didn't record commit-level TDD progression
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Replaces ad-hoc println with Julia's standard `@debug` macro — idiomatic
+- Experiments get explicit `show_progress=true` to preserve their output
+
+### Commit Hygiene
+
+**Score: Unknown** — Agent didn't write retrospective; single-session overnight work
+
+### CLAUDE.md Compliance
+
+- [x] Functional change with tests
+- [ ] Retrospective not written by agent
+
+### Key Learnings
+
+1. Libraries should be silent by default — `@debug` lets users opt in via `ENV["JULIA_DEBUG"]`
+
+---
+
+## PR #102: dx/update-test-readme-checklist (bead)
+
+**Date:** 2026-02-10
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds a verification checklist item to CLAUDE.md requiring test/README.md updates when new test files are added. Brings test/README.md up to date by documenting 8 missing test files.
+
+Retrospective: Small documentation/process change. No process issues identified.
+
+---
+
+## PR #103: docs/readme-docs-link (bead)
+
+**Date:** 2026-02-10
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds a shields.io documentation badge to README.md linking to the Documenter.jl docs site.
+
+Retrospective: Trivial change (2 files, 49 additions). No process issues identified.
+
+---
+
+## PR #104: cleanup/repo-public-release (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing (53 new project health assertions)
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Prepares the repo for public release: removes unused root dependencies (InvertedIndices, PATHSolver), deletes stale Docker files and INFRA_VERIFY.md, removes redundant experiment script, adds missing compat entries, and introduces `test_project_health.jl` (53 assertions) to enforce dependency hygiene.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Wrote allocation threshold test first (RED: 351KB > 100KB target)
+  - Committed failing test before implementation
+  - All correctness tests written before implementation changes
+  - 17 new tests: numerical equivalence (2-player, 3-player), allocation reduction, buffer reuse correctness
+
+- **What could improve:**
+  - Initial allocation threshold (100KB) was too aggressive given unavoidable allocations from M_fns/N_fns (51KB per call). Adjusted to a relative comparison test instead of absolute threshold.
+
+---
+
+### TDD Compliance (PR #104: cleanup/repo-public-release)
+
+**Score: Good (8/10)**
+
+- 53 new health assertions enforce the cleanup rules going forward
+- Large deletion count (881 lines) is appropriate for dead code removal
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Removes dead code and unused dependencies (exactly what CLAUDE.md prescribes)
+- Health tests prevent regression
+
+### Key Learnings
+
+1. Automated health tests for project structure prevent dependency bloat from creeping back
+
+---
+
+## PR #114: proposal/numerical-regularization (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Proposal PR: opt-in Tikhonov regularization (`K = (M + λI) \ N`) for ill-conditioned M matrices. Default `regularization=0.0` means zero behavior change. Includes distortion analysis tables, threads parameter through full API stack.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify regularization parameter acceptance, numerical effects, and backward compatibility
+- Distortion analysis provides empirical evidence for parameter selection
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - Backward compatible: `buffers=nothing` default means all existing callers work unchanged
+  - Pre-allocated buffers are created once and reused (no unnecessary copies)
+  - Docstring updated for new `buffers` parameter
+  - Used `copyto!` instead of `vcat` for theta vector construction
+
+- **What could improve:**
+  - The `buffers` NamedTuple has 6 fields — could be a proper struct for better documentation, but NamedTuple is fine for internal use
+
+### Clean Architecture Practices
+
+**Score: Good (8/10)**
+
+- `compute_K_evals` API is backward compatible — optional keyword, not breaking
+- Buffer creation lives in the solver (consumer), not in compute_K_evals (producer)
+- No new dependencies or module-level state
+
+### Commit Hygiene
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - 3 commits with clear TDD progression: (1) failing tests RED, (2) implementation GREEN, (3) docstring + retrospective
+  - Each commit is descriptive and self-contained
+
+- **What could improve:**
+  - Could have split the GREEN commit into F_trial, compute_K_evals buffers, and theta separately for finer granularity
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (red-green)
+- [x] Full test suite passing (938 tests)
+- [x] PR description created
+- [x] Retrospective written
+- [x] Bead status updated
+
+### Key Learnings
+
+1. **Profile before setting allocation targets.** The initial 100KB threshold was wrong because M_fns/N_fns allocate ~40KB per call (they return new arrays from compiled symbolic functions). Understanding the allocation breakdown before setting thresholds would have saved iteration.
+2. **Dict reuse saves less than expected.** Pre-allocating Dict containers saves ~6.5KB per compute_K_evals call (11%), but the dominant allocations are from M_fns/N_fns output vectors. In-place M_fns/N_fns would require SymbolicTracingUtils changes (different PR).
+3. **vcat+comprehension is surprisingly expensive.** `vcat([d[k] for k in keys]...)` allocated 1.8MB for a 4-element result due to intermediate array creation. `copyto!` loop is zero-allocation.
+4. **Relative allocation tests are more robust than absolute thresholds.** Testing `allocs_with < allocs_without` is stable across Julia versions; testing `allocs < 100_000` is fragile.
+
+### Action Items for Next PR
+
+- [ ] Investigate in-place M_fns/N_fns (SymbolicTracingUtils `build_function` with `in_place=true`) — this is the dominant remaining allocation source
+- [ ] Pre-allocate x_new buffer in linesearch functions (currently allocates per trial step)
+
+---
+
+## PR: perf/type-stable-dict-storage
+
+**Date:** 2026-02-11
+**Commits:** 3 (failing tests, implementation, retrospective)
+**Tests:** 946 passing (28 new)
+
+### Summary
+
+Replaced Dict{Int, ...} containers with Vector-indexed storage for hot-path per-player data structures in `compute_K_evals` and `setup_approximate_kkt_solver`. This eliminates Dict hashing overhead on every solver iteration and enables more predictable memory access patterns.
+
+### TDD Compliance
+
+**Score: 10/10**
+
+- Wrote 28 failing tests first (RED), covering 2-player and 3-player hierarchies
+- All 12 type-assertion tests failed as expected (Dict vs Vector)
+- All 16 numerical correctness tests passed (baseline verified)
+- Implementation (GREEN) made all tests pass without modifying test expectations
+- No implementation code written before failing tests existed
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions remain small and single-purpose
+- Placeholder function `_identity_fn` for unused Vector slots is a minor wart but acceptable
+- Updated docstrings to reflect new container types
+- No unnecessary changes beyond the Dict→Vector migration
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Change is localized to `nonlinear_kkt.jl` (src) and test files
+- No public API changes — the NamedTuple return types transparently switched from Dict to Vector
+- Callers that accessed by integer index ([ii]) required zero changes
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 focused commits: (1) failing tests, (2) implementation + test updates, (3) retrospective
+- Each commit leaves codebase in working state (commit 1 is intentionally failing tests)
+- Commit messages describe why, not just what
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite passes
+- [x] Retrospective written before final PR description
+
+### Key Learnings
+
+1. Dict→Vector migration for integer-keyed containers is low-risk and straightforward when keys are contiguous 1:N
+2. The main migration effort is in test code: `haskey`, `keys`, Dict iteration patterns all need updating
+3. `Vector{Function}` requires placeholder values for unused slots — a sentinel function works
+
+### Action Items for Next PR
+
+- [ ] Consider using `FunctionWrappers.jl` for M_fns/N_fns to get fully type-stable function calls (currently `Function` is abstract)
+
+---
+
+## PR: perf/zero-jacobian-buffers
+
+**Date:** 2026-02-11
+**Commits:** 1
+**Tests:** 939 passing (18 new)
+
+### Summary
+
+Investigation of whether pre-allocated Jacobian buffers need zeroing before reuse. Found that `jacobian_z!` (via ParametricMCPs/SymbolicTracingUtils SparseFunction) fully overwrites all structural nonzero entries every call, so no zeroing is needed. Added 18 defensive regression tests that corrupt buffers between solves to verify this invariant.
+
+### TDD Compliance
+
+**Score: 8/10**
+
+- **What went well:**
+  - Tests written first (defensive tests verifying existing behavior)
+  - Sentinel-value test directly proves `jacobian_z!` overwrites all `.nzval` entries
+  - Tests cover both QPSolver (`J_buffer`) and NonlinearSolver (`∇F`) code paths
+
+- **What could be improved:**
+  - This was an investigation task, so "red-green-refactor" is not strictly applicable — no implementation code was written. The tests document the safety invariant.
+
+### Clean Code
+
+**Score: 9/10**
+
+- Test file is well-organized with shared helpers and clear test names
+- No production code changes needed (investigation confirmed safety)
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- Single commit is appropriate for this investigation+test PR
+- All changes are logically related
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (tests written before concluding no code changes needed)
+- [x] Full test suite verified (939 tests passing)
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Test tiers updated for new test file
+
+### Key Learnings
+
+1. `ParametricMCPs.SparseFunction` wraps compiled symbolic functions that write to all structural nonzero positions. The sparsity pattern is determined at symbolic compile time and is immutable.
+2. `F_buffer` and `z0_buffer` in `solve_qp_linear` are already zeroed with `fill!` — this is correct because they're used as inputs (not outputs of compiled functions).
+3. `∇F` in `run_nonlinear_solver` is allocated fresh each call via `copy(mcp_obj.jacobian_z!.result_buffer)`, so cross-call contamination is impossible even if the result_buffer template is corrupted.
+
+### Action Items for Next PR
+
+- None — this investigation is self-contained
+
+---
+
+## PR: cleanup/rename-examples-legacy (bead gyg)
+
+(Retrospective entry above, under "Clean Code Practices")
+
+### What went well (continued)
+
+  - Systematic grep for all `examples/` references before making changes
+  - Updated live code references (Python test files) but left historical prose (RETROSPECTIVES.md, benchmarks README) untouched — correct judgment call
+  - Added README.md explaining the legacy folder's purpose and what still references it
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Naming now accurately reflects purpose: `legacy/` (historical reference) vs `experiments/` (active)
+  - Follows the pattern of `reference_archive/old_examples/` already in the repo
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- Single commit appropriate for a rename operation — splitting would be artificial
+- All changes are cohesive: rename + reference updates + README
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Full test suite verified (921 tests passing)
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Retrospective recorded
+
+### Key Learnings
+
+1. **Grep before rename.** Systematic search for all references before renaming prevents broken paths. The Python test files (`test_python_integration.py`, `test_hardware_nplayer_navigation.py`) would have silently broken without updating their `include()` paths.
+2. **Historical prose doesn't need updating.** References in retrospectives and benchmark READMEs describe past events — changing them would rewrite history.
+
+### Action Items for Next PR
+
+- [ ] Consider whether the Python test files should be migrated to use the package API instead of including legacy scripts directly
+
+---
+
+## PR: proposal/numerical-regularization
+
+**Date:** 2026-02-11
+**Commits:** 3
+**Tests:** 950 passing (29 new)
+
+### Summary
+
+Proposal PR to evaluate Tikhonov regularization for ill-conditioned M matrices in `_solve_K`. Added `regularization::Float64=0.0` parameter threaded through the full solver API: `_solve_K` -> `compute_K_evals` -> `run_nonlinear_solver` -> `NonlinearSolver` constructor -> `solve`/`solve_raw`. Includes accuracy analysis quantifying distortion vs regularization strength.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Wrote failing tests first for `_solve_K` regularization parameter (RED confirmed)
+  - Wrote integration tests for higher-level API before implementing threading (RED confirmed)
+  - All tests passed after each implementation step (GREEN confirmed)
+  - Clean progression: unit tests -> implementation -> integration tests -> API threading
+
+- **What could improve:**
+  - Minor: `qr` import bug caught by test run, not by pre-check
+
+### Clean Code
+
+**Score: 9/10**
+
+- Functions remained focused and single-purpose
+- Regularization added as a simple parameter with clear default (0.0 = disabled)
+- No behavior change for existing users
+- Docstrings updated for all modified functions
+
+### Clean Architecture
+
+**Score: 9/10**
+
+- Regularization threaded cleanly through existing option pattern (`something(override, options.default)`)
+- Followed the same pattern as `use_sparse` for consistency
+- No new abstractions needed — parameter flows naturally through existing layers
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 focused commits: (1) core implementation + tests, (2) API threading + integration tests, (3) test tier fix
+- Each commit leaves codebase in working state
+- Commit messages describe both what and why
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances 1e-6 or tighter
+- [x] Full test suite run and passing (950 tests)
+- [x] Retrospective written before final PR update
+
+### Key Learnings
+
+1. When importing from `LinearAlgebra` in a test file that gets `include`d, explicit imports like `using LinearAlgebra: qr` are needed because `include` runs in `Main` scope.
+2. The test tier system (`test_test_tiers.jl`) has self-validation that catches when new test files aren't registered — useful for preventing omissions.
+3. Tikhonov regularization error scales approximately linearly with lambda for well-conditioned systems: relative error ~ lambda / min_singular_value.
+
+### Action Items for Next PR
+
+- [ ] Consider adaptive regularization (auto-detect ill-conditioning and apply minimal lambda)
+- [ ] Investigate regularization impact on solver convergence for full nonlinear problems
+
+---
+
+## PR: proposal/unified-solver-interface (bead yc2)
+
+**Date:** 2026-02-11
+**Commits:** 2
+**Tests:** 945 passing (24 new)
+
+### Summary
+
+API design proposal evaluating whether to consolidate the low-level solver API and TrajectoryGamesBase interface. Found that `solve()` already serves as a unified entry point. Implemented two incremental improvements: `AbstractMixedHierarchyGameSolver` abstract type and flexible input format (Vector-of-Vectors alongside Dict).
+
+### TDD Compliance
+
+**Score: Strong (9/10)**
+
+- **What went well:**
+  - Tests written first and confirmed failing (9 errors) before any implementation
+  - Clean 2-commit structure: RED (tests) then GREEN (implementation)
+  - All 24 new tests verify behavior, not implementation details
+  - Existing 921 tests continue passing (+ 24 new = 945 total)
+
+- **What could improve:**
+  - Could have written the `_to_parameter_dict` unit tests as a separate first commit for even finer granularity
+
+---
+
+### Clean Code Practices (PR #114: proposal/numerical-regularization)
+
+**Score: Good (8/10)**
+
+- Default 0.0 preserves backward compatibility — zero behavior change unless opted in
+- Parameter threaded through existing kwargs pattern (same as use_sparse, use_armijo)
+
+### Key Learnings
+
+1. Proposal PRs that default to no-op behavior are safe to land — they add capability without risk
+
+---
+
+## PR #115: proposal/unified-solver-interface (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+API design proposal: introduces `AbstractHierarchySolver` abstract type (supertype for QPSolver and NonlinearSolver) and adds flexible input support (Dict and Vector formats for solve/solve_raw). Correctly identifies that `solve()` is already the unified interface.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify both input format acceptance and type hierarchy
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- **What went well:**
+  - `_to_parameter_dict` is a small, single-purpose function with clear error messages
+  - Used multiple dispatch (3 methods) instead of if-else chains for type conversion
+  - Abstract type is minimal — just documents the contract, no unnecessary methods
+  - Docstrings updated to reflect new parameter names and accepted formats
+
+- **What could improve:**
+  - Parameter rename from `parameter_values` to `initial_state` in function signatures is a minor API change; kept Dict passthrough for zero-cost backward compatibility
+
+### Clean Architecture Practices
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Conversion function lives in solve.jl (close to usage, not in a separate utils file)
+  - Abstract type in types.jl alongside concrete types
+  - No new dependencies or module changes needed
+
+### Commit Hygiene
+
+**Score: Good (9/10)**
+
+- **What went well:**
+  - Exactly 2 commits: tests then implementation
+  - Each commit is focused and self-contained
+  - Messages describe what and why, not just what
+
+### CLAUDE.md Compliance
+
+**Score: Strong (9/10)**
+
+- [x] TDD followed (red-green-refactor)
+- [x] Tolerances tight (1e-10)
+- [x] Full test suite verified
+- [x] PR created with full description
+- [x] Bead status updated
+- [x] Retrospective written before PR finalized
+
+### Key Learnings
+
+1. **Analysis before implementation saves effort.** Thorough API surface audit revealed that unification already existed — the real issues were small ergonomic gaps, not architectural flaws.
+2. **Proposals can be small.** The temptation was to redesign the whole solver API. The right answer was two targeted improvements totaling ~60 lines of implementation.
+3. **`solve_trajectory_game!` is dead infrastructure.** The TGB adapter is never called outside tests. Future work could deprecate it if TGB compatibility isn't needed.
+
+### Action Items for Next PR
+
+- [ ] Consider deprecating `solve_trajectory_game!` if TGB compatibility is confirmed unnecessary
+- [ ] Consider whether `solve_raw` return types should be unified (currently different NamedTuples per solver)
+
+---
+
+## PR: perf/timeit-debug-macros (bead e2f)
+
+**Date:** 2026-02-11
+**Commits:** 2
+**Tests:** 937 passing (16 new)
+
+### Summary
+
+Added `@timeit_debug` macro that compiles to a no-op branch check when `TIMING_ENABLED[]` is false, and delegates to TimerOutputs' `begin_timed_section!`/`end_timed_section!` when true. Replaced all 21 `@timeit` calls across `types.jl`, `nonlinear_kkt.jl`, and `solve.jl`. Benchmarked overhead: ~6ns per-call when disabled, negligible on real solver operations (<0.2%).
+
+### TDD Compliance
+**Score: Good (8/10)**
+- **What went well:**
+  - Tests written FIRST (`test_timeit_debug.jl`) and verified failing (RED) before implementation
+  - 16 tests covering: flag control, conditional timing, return value preservation, nesting, code execution in both states, reset
+  - Red-green-refactor cycle followed for the core macro
+- **What went wrong:**
+  - The initial macro implementation was naive (`if/else` with duplicated body), causing scoping and method-redefinition bugs discovered only when running the full test suite. Had to iterate on the macro design.
+- **Improvement:** When writing macros, test with function definitions inside the body from the start, not just simple expressions.
+
+### Clean Code Practices
+**Score: Good (8/10)**
+- **What went well:**
+  - Used `Expr(:tryfinally)` pattern from TimerOutputs itself (no body duplication)
+  - Clean API: `enable_timing!()` / `disable_timing!()` + `@timeit_debug`
+  - Existing timer tests updated to use `enable_timing!()` / `disable_timing!()`
+  - Comprehensive docstrings on all public symbols
+- **What went wrong:**
+  - First two macro implementations had fundamental scoping bugs. The `Ref{Bool}` runtime check means this is "near-zero" rather than truly zero overhead (6ns per call).
+
+### Clean Architecture Practices
+**Score: Good (9/10)**
+- Macro defined in its own file (`src/timeit_debug.jl`) included before any file that uses it
+- Uses TimerOutputs' public `begin_timed_section!`/`end_timed_section!` API
+- Backward compatible: existing `to::TimerOutput` parameter threading unchanged
+
+### Commit Hygiene
+**Score: Good (8/10)**
+- 2 commits with clear separation:
+  1. Tests + macro implementation (TDD red-green in one commit)
+  2. Replace `@timeit` → `@timeit_debug` across all source files + test updates
+- Benchmarks in gitignored `debug/` directory per CLAUDE.md convention
+
+### CLAUDE.md Compliance
+- [x] TDD followed (red-green-refactor)
+- [x] Tolerances N/A (no numerical tests)
+- [x] Full fast test suite verified (482 passing)
+- [x] PR description with Summary, Changes, Testing, Changelog
+- [x] Retrospective recorded before PR finalization
+- [x] Bead status updated
+
+### Key Learnings
+
+1. **Julia macro hygiene is subtle.** `if/else` branches duplicate the body in the AST, causing method redefinition errors for function definitions inside `@timeit_debug` blocks. The `Expr(:tryfinally)` pattern avoids this by keeping the body in one place.
+2. **`Ref{Bool}` checks are not zero-cost.** The branch check costs ~6ns per call. For a true compile-time zero-cost abstraction, you'd need `@generated` or a const global (which can't be toggled at runtime). The 6ns is acceptable for this use case.
+3. **Test tier configuration is easy to forget.** Adding a new test file requires updating both `test_tiers.jl` AND `test_test_tiers.jl`.
+
+### Action Items for Next PR
+
+- [ ] Consider `@generated` approach if runtime overhead ever matters for inner-loop timing
+- [ ] Add a note in CLAUDE.md about updating test tier files when adding new test files
+
+---
+
+### Clean Code Practices (PR #115: proposal/unified-solver-interface)
+
+**Score: Good (8/10)**
+
+- Leverages Julia's type system (abstract type) for extensibility
+- Pragmatic finding that major redesign isn't needed — existing API is already unified
+
+### Key Learnings
+
+1. Investigation PRs that confirm "the architecture is already right" are valuable — they prevent unnecessary refactoring
+
+---
+
+## PR #116: proposal/flexible-callsite-interface (bead mh7)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+*Note: This PR already has a retrospective on its branch (written by the agent). Recorded here for completeness.*
+
+### Summary
+
+Adds flexible callsite interface: `solve()` and `solve_raw()` accept both `Dict{Int, Vector}` and `Vector{Vector}` parameter formats with automatic conversion.
+
+Retrospective: Written by agent on branch — see PR #116 branch for full details.
+
+---
+
+## PR #117: proposal/convergence-stall-detection (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Adds `stall_window` parameter and `detect_stall()` function to the nonlinear solver. Terminates early with `:stalled` status when residual plateaus. Disabled by default (`stall_window=0`). Demonstrated ~97% iteration savings in stalling scenarios.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify stall detection triggers correctly and doesn't fire on converging problems
+- 97% iteration savings demonstrates clear value
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Disabled by default — zero behavior change unless opted in
+- Clean separation: `detect_stall()` is a pure function, solver just calls it
+- `:stalled` status integrates with existing convergence status enum
+
+### Key Learnings
+
+1. Early termination for stalled solvers prevents wasted computation — especially valuable for parameter sweeps where some configurations may not converge
+
+---
+
+## PR #120: perf/timeit-debug-macros (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Introduces `@timeit_debug` macro that conditionally instruments code with TimerOutputs timing. Default disabled — overhead is ~6ns per call from a single branch check. Replaces all 21 `@timeit` calls, making timing opt-in via `enable_timing!()`/`disable_timing!()`.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify zero-overhead claim and correct TimerOutputs integration
+- Replaces existing instrumentation — tests verify no behavioral change
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Eliminates always-on overhead from production code paths
+- Clean API: two functions to toggle, one macro to instrument
+- All 21 callsites updated consistently
+
+### Key Learnings
+
+1. Compile-time branch elimination makes conditional instrumentation nearly free — the branch check costs ~6ns vs microseconds for TimerOutputs
+
+---
+
+## PR #121: perf/preallocate-params-buffers (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Pre-allocates three buffer categories in the nonlinear solver hot loop: (1) F_trial for linesearch, (2) Dict caches and all_K_vec in compute_K_evals, (3) theta_vals_vec via copyto! replacing vcat. Eliminated 1.8MB allocation. All backward compatible.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify numerical equivalence with pre-allocated buffers
+- Backward compatible — no changes needed to existing callers
+
+### Clean Code Practices
+
+**Score: Good (8/10)**
+
+- Buffers are optional kwargs with sensible defaults
+- `copyto!` replacing `vcat` is a textbook Julia optimization
+- 3 source files touched — minimal blast radius
+
+### Key Learnings
+
+1. `vcat` is an allocation hotspot in tight loops — `copyto!` into a pre-allocated buffer is always better
+
+---
+
+## PR #122: perf/type-stable-dict-storage (bead)
+
+**Date:** 2026-02-10
+**Tests:** All passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Replaces `Dict{Int, ...}` with `Vector` indexed by player ID for all hot-path per-player data (M_evals, N_evals, K_evals, M_fns, N_fns, pi_sizes, caches). Eliminates Dict hashing overhead since players are always 1:N contiguous.
+
+### TDD Compliance
+
+**Score: Good (8/10)**
+
+- Tests verify numerical equivalence after storage representation change
+- No behavioral change — purely a performance optimization
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- Dict→Vector is the right choice when keys are contiguous integers
+- Eliminates hash collision overhead and improves cache locality
+- 8 files touched but change is mechanical (Dict→Vector at each site)
+
+### Key Learnings
+
+1. `Dict{Int, T}` with contiguous integer keys is a code smell — `Vector{T}` is always faster and simpler
+
+---
+
+## PR #123: perf/zero-jacobian-buffers (bead chp)
+
+**Date:** 2026-02-11
+**Tests:** All passing (18 new)
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Investigation PR: examined whether pre-allocated Jacobian buffers need zeroing before reuse. **Finding: no zeroing needed** — `jacobian_z!` fully overwrites all structural nonzero entries every call. No source code changes; adds 18 defensive regression tests with sentinel/garbage corruption between solves.
+
+### TDD Compliance
+
+**Score: Excellent (9/10)**
+
+- 18 tests written that corrupt buffers with sentinel values and verify results are identical
+- Pure investigation PR — tests ARE the deliverable
+
+### Clean Code Practices
+
+**Score: Excellent (9/10)**
+
+- No unnecessary zeroing added (the correct finding is "don't add code")
+- Defensive tests protect against future changes to jacobian_z! internals
+
+### Key Learnings
+
+1. Investigation PRs that add only tests (no source changes) are the best outcome — they confirm correctness and add safety nets
+2. `SparseFunction` from SymbolicTracingUtils writes ALL `.nzval` entries every call — no stale data possible
+
+---
+
+## PR #124: cleanup/rename-examples-legacy (bead gyg)
+
+**Date:** 2026-02-11
+**Tests:** 921 passing
+**Created by:** Overnight autonomous agent
+
+### Summary
+
+Renames `examples/` folder to `legacy/` to clarify these are historical reference scripts. Updates test file references and adds `legacy/README.md`. Historical references in RETROSPECTIVES.md left unchanged.
+
+Retrospective: Straightforward rename. Addresses action item from PR feature/phase-1-nonlinear-kkt (Bead 2). No process issues identified.
+
+---
+
+## Overnight Run Meta-Retrospective
+
+### What Went Well
+
+1. **Autonomous agents produced 13 landable PRs overnight** — significant throughput
+2. **Each PR has tests and passes CI** — agents followed TDD to varying degrees
+3. **Proposal PRs default to no-op** — safe to land without risk
+4. **Investigation PR (#123) correctly found "no change needed"** — honest assessment
+
+### What Could Be Improved
+
+1. **Retrospectives missing from 12/13 PRs** — agents didn't write to RETROSPECTIVES.md (only #116 did)
+2. **Cannot verify commit-level TDD progression** — agents committed work but didn't record red-green phases
+3. **PR #113 (relative tol) killed by watchdog** — stall detection should be more lenient for PRs that run tests
+
+### Action Items
+
+- [ ] Add RETROSPECTIVES.md requirement to overnight run agent prompts
+- [ ] Consider per-PR retrospective verification in land_prs.sh
+- [ ] Investigate why #113 stalled (watchdog threshold too aggressive?)

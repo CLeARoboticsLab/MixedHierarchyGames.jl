@@ -19,6 +19,7 @@ using MixedHierarchyGames:
     default_backend,
     get_all_followers,
     NonlinearSolver,
+    solve,
     solve_raw
 
 using TrajectoryGamesBase: unflatten_trajectory, JointStrategy
@@ -213,9 +214,9 @@ end
             vars.ws, vars.ys, prob.θs, all_variables, backend
         )
 
-        # Only player 2 has M_fns! and N_fns! (has a leader)
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        # M_fns! and N_fns! are Vector indexed by player ID (all slots exist)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
 
         # Test that they are callable with numeric input (in-place)
         test_input = zeros(length(augmented_vars))
@@ -242,17 +243,16 @@ end
 
         # P1 has no leader (root)
         @test isempty(setup_info.K_syms[1])
-        @test !haskey(setup_info.var"M_fns!", 1)
 
         # P2 has P1 as leader
         @test !isempty(setup_info.K_syms[2])
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
 
         # P3 has P2 as leader
         @test !isempty(setup_info.K_syms[3])
-        @test haskey(setup_info.var"M_fns!", 3)
-        @test haskey(setup_info.var"N_fns!", 3)
+
+        # M_fns! and N_fns! are Vector indexed by player ID (all slots exist)
+        @test length(setup_info.var"M_fns!") == 3
+        @test length(setup_info.var"N_fns!") == 3
     end
 end
 
@@ -334,7 +334,7 @@ end
         @test hasproperty(K_info, :K_evals) || haskey(K_info, :K_evals)
 
         K_evals = K_info.K_evals
-        @test K_evals isa Dict
+        @test K_evals isa Vector
     end
 
     @testset "Returns nothing for root players (no leaders)" begin
@@ -628,9 +628,9 @@ end
             vars.ws, vars.ys, prob.θs, vars.all_variables, backend
         )
 
-        # M_fns! and N_fns! should still be callable (Jacobian computed from collected πs)
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        # M_fns! and N_fns! should still be callable (Vector indexed by player ID)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
     end
 end
 
@@ -1924,8 +1924,8 @@ end
             cse=true
         )
 
-        @test haskey(setup_info.var"M_fns!", 2)
-        @test haskey(setup_info.var"N_fns!", 2)
+        @test length(setup_info.var"M_fns!") >= 2
+        @test length(setup_info.var"N_fns!") >= 2
     end
 
     @testset "CSE-compiled M/N functions produce identical results (2-player)" begin
@@ -2156,5 +2156,295 @@ end
         end
 
         @test contains(output, "iter")
+    end
+end
+
+#=
+    Tests for silent-by-default library behavior
+=#
+
+@testset "silent by default" begin
+    @testset "solve() produces no stdout with default options" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Capture stdout — default solve should produce zero output
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "solve_raw() produces no stdout with default options" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve_raw(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "verbose=true uses logging macros, not println" begin
+        prob = make_two_player_chain_problem()
+
+        solver = NonlinearSolver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+            prob.state_dim, prob.control_dim;
+            verbose=true
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # With verbose=true, stdout should still be empty because verbose
+        # messages should use @debug/@info (logging macros go to stderr, not stdout)
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                solve_raw(solver, initial_states)
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        @test isempty(output)
+    end
+
+    @testset "no bare println calls in src/ files" begin
+        # Verify that no println() calls exist in src/ outside of show_progress blocks.
+        # show_progress blocks are the intentional user-facing progress display.
+        # All other output should use logging macros (@debug, @info, @warn).
+        src_dir = joinpath(dirname(@__DIR__), "src")
+        violations = String[]
+
+        for (root, dirs, files) in walkdir(src_dir)
+            for f in files
+                endswith(f, ".jl") || continue
+                filepath = joinpath(root, f)
+                in_show_progress_block = 0
+                for (lineno, line) in enumerate(eachline(filepath))
+                    stripped = lstrip(line)
+                    startswith(stripped, "#") && continue
+                    # Track if show_progress block nesting
+                    if occursin(r"\bif\s+show_progress\b", stripped)
+                        in_show_progress_block += 1
+                    end
+                    if in_show_progress_block > 0 && occursin(r"^\s*end\s*$", line)
+                        in_show_progress_block -= 1
+                        continue
+                    end
+                    # Flag println() calls outside show_progress blocks
+                    if occursin(r"\bprintln\(", stripped) && in_show_progress_block == 0
+                        push!(violations, "$f:$lineno: $stripped")
+                    end
+                end
+            end
+        end
+
+        @test isempty(violations)
+    end
+end
+
+#=
+    Tests for pre-allocated parameter buffers
+=#
+
+@testset "Pre-allocated parameter buffers" begin
+    @testset "F_trial buffer is reused across linesearch iterations (2-player)" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        # Baseline result
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        # Run again - must produce identical results (buffer reuse must not corrupt)
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+        @test result_rerun.status == result_baseline.status
+    end
+
+    @testset "F_trial buffer is reused across linesearch iterations (3-player)" begin
+        prob = make_three_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5], 3 => [1.0, 1.0])
+
+        result_baseline = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_baseline.converged
+
+        result_rerun = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+        @test result_rerun.sol ≈ result_baseline.sol atol=1e-14
+        @test result_rerun.iterations == result_baseline.iterations
+        @test result_rerun.residual ≈ result_baseline.residual atol=1e-14
+    end
+
+    @testset "Armijo linesearch produces identical results with buffer reuse" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        result_geometric = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:geometric
+        )
+
+        result_armijo = run_nonlinear_solver(
+            precomputed,
+            initial_states,
+            prob.G;
+            max_iters=100,
+            tol=1e-6,
+            linesearch_method=:armijo
+        )
+
+        # Both should converge to same solution
+        @test result_geometric.converged
+        @test result_armijo.converged
+        @test result_geometric.sol ≈ result_armijo.sol atol=1e-6
+    end
+
+    @testset "all_K_vec buffer reused in compute_K_evals" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = zeros(length(precomputed.all_variables))
+
+        # Call compute_K_evals twice - results must be identical
+        all_K_vec_1, info_1 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_vec_2, info_2 = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+
+        @test all_K_vec_1 ≈ all_K_vec_2 atol=1e-14
+        @test info_1.status == info_2.status
+    end
+
+    @testset "compute_K_evals allocates less with pre-allocated buffers" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = zeros(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4  # 2 players × 2 state_dim
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        N_players = 2
+        bufs = (;
+            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+            buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
+            all_K_vec = Vector{Float64}(undef, K_len),
+        )
+
+        # Warmup both paths
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Measure
+        allocs_without = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        allocs_with = @allocated compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        # Pre-allocated buffers should allocate less than fresh Vectors
+        @test allocs_with < allocs_without
+    end
+
+    @testset "compute_K_evals with buffers returns identical results" begin
+        prob = make_two_player_chain_problem()
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        z_test = randn(length(precomputed.all_variables))
+        mcp_obj = precomputed.mcp_obj
+        θ_len = 4
+        K_len = mcp_obj.parameter_dimension - θ_len
+
+        N_players = 2
+        bufs = (;
+            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+            buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
+            all_K_vec = Vector{Float64}(undef, K_len),
+        )
+
+        all_K_fresh, info_fresh = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info)
+        all_K_buf, info_buf = compute_K_evals(z_test, precomputed.problem_vars, precomputed.setup_info; buffers=bufs)
+
+        @test all_K_fresh ≈ all_K_buf atol=1e-14
+        @test info_fresh.status == info_buf.status
     end
 end

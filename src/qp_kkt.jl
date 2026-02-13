@@ -48,14 +48,14 @@ Handles both leaf and non-leaf players differently:
 
 # Arguments
 - `G::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict{Int, Function}` - Cost function for each player: Js[i](zs...; θ) → scalar
+- `Js::Dict{Int, Function}` - Cost function for each player: `Js[i](zs...; θ)` → scalar
 - `zs` - Decision variables per player (Dict or Vector)
 - `λs` - Lagrange multipliers per player (Dict or Vector)
 - `μs::Dict{Tuple{Int,Int}, Any}` - Policy constraint multipliers for (leader, follower) pairs
-- `gs` - Constraint functions per player: gs[i](z) → Vector
+- `gs` - Constraint functions per player: `gs[i](z)` → Vector
 - `ws::Dict` - Remaining variables (for policy constraints)
 - `ys::Dict` - Information variables (leader decisions)
-- `ws_z_indices::Dict` - Index mapping: ws_z_indices[i][j] gives range where zs[j] appears in ws[i]
+- `ws_z_indices::Dict` - Index mapping: `ws_z_indices[i][j]` gives range where `zs[j]` appears in `ws[i]`
 - `θ` - Parameter variables (optional)
 - `verbose::Bool` - Print debug info
 
@@ -102,7 +102,7 @@ function get_qp_kkt_conditions(
         zi_size = length(zi)
 
         # Build Lagrangian: L = J - λ'g
-        # Cost function signature: Js[i](zs...; θ) with θ as keyword argument
+        # Cost function signature: `Js[i](zs...; θ)` with θ as keyword argument
         all_zs = [zs_dict[j] for j in 1:N]
         Jᵢ = isnothing(θ) ? Js[ii](all_zs...) : Js[ii](all_zs...; θ=θ)
         Lᵢ = Jᵢ - λs_dict[ii]' * gs[ii](zi)
@@ -163,7 +163,7 @@ function get_qp_kkt_conditions(
             Ks[ii] = Ms[ii] \ Ns[ii]
         end
 
-        verbose && println("Player $ii: $(length(πs[ii])) KKT conditions")
+        verbose && @debug "Player $ii: $(length(πs[ii])) KKT conditions"
     end
 
     (; πs, Ms, Ns, Ks)
@@ -263,8 +263,8 @@ This function rebuilds the MCP on every call, which is inefficient for repeated 
 
 # Arguments
 - `hierarchy_graph::SimpleDiGraph` - Hierarchy graph
-- `Js::Dict` - Cost functions per player: Js[i](zs...; θ) → scalar
-- `gs::Vector` - Constraint functions per player: gs[i](z) → Vector
+- `Js::Dict` - Cost functions per player: `Js[i](zs...; θ)` → scalar
+- `gs::Vector` - Constraint functions per player: `gs[i](z)` → Vector
 - `primal_dims::Vector{Int}` - Primal variable dimension per player
 - `θs::Dict` - Symbolic parameter variables per player
 - `parameter_values::Dict` - Numerical parameter values per player

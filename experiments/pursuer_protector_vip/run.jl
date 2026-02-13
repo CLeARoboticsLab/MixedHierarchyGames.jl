@@ -77,7 +77,7 @@ function run_pursuer_protector_vip(;
     verbose && @info "Building NonlinearSolver..." N T Δt
     solver = NonlinearSolver(
         G, Js, gs, primal_dims, θs, STATE_DIM, CONTROL_DIM;
-        max_iters = max_iters, tol = TOLERANCE, verbose = verbose,
+        max_iters = max_iters, tol = TOLERANCE, verbose = verbose, show_progress = true,
     )
 
     verbose && @info "Solving..."

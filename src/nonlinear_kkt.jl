@@ -237,10 +237,15 @@ function setup_approximate_kkt_solver(
     N = nv(G)
     reverse_order = reverse(topological_sort_by_dfs(G))
 
-    # Output containers
-    π_sizes = Dict{Int, Int}()
+    # Output containers — use Vector indexed by player ID for hot-path access
+    π_sizes = Vector{Int}(undef, N)
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
+    _root_player_stub(_...) = error("M_fn!/N_fn! called for root player (no leader) — this is a bug")
+    M_fns_inplace = Vector{Function}(undef, N)
+    N_fns_inplace = Vector{Function}(undef, N)
+    fill!(M_fns_inplace, _root_player_stub)
+    fill!(N_fns_inplace, _root_player_stub)
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -257,10 +262,6 @@ function setup_approximate_kkt_solver(
             K_syms[ii] = eltype(all_variables)[]  # Empty for roots
         end
     end
-
-    # In-place function variants
-    M_fns_inplace = Dict{Int, Function}()
-    N_fns_inplace = Dict{Int, Function}()
 
     # Second pass: build KKT conditions and M/N functions
     for ii in reverse_order
@@ -343,7 +344,7 @@ function setup_approximate_kkt_solver(
             augmented_variables[ii] = all_variables
         end
 
-        verbose && println("Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))")
+        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))"
     end
 
     # Build full augmented variable list
@@ -423,7 +424,7 @@ function preoptimize_nonlinear_solver(
     N = nv(hierarchy_graph)
 
     # Setup symbolic variables
-    @timeit to "variable setup" begin
+    @timeit_debug to "variable setup" begin
         problem_vars = setup_problem_variables(hierarchy_graph, primal_dims, gs; backend)
         all_variables = problem_vars.all_variables
         zs = problem_vars.zs
@@ -434,7 +435,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Setup approximate KKT solver (creates symbolic M/N functions)
-    @timeit to "approximate KKT setup" begin
+    @timeit_debug to "approximate KKT setup" begin
         all_augmented_variables, setup_info = setup_approximate_kkt_solver(
             hierarchy_graph, Js, zs, λs, μs, gs, ws, ys, θs,
             all_variables, backend;
@@ -462,7 +463,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Build ParametricMCP
-    @timeit to "ParametricMCP build" begin
+    @timeit_debug to "ParametricMCP build" begin
         z_lower = fill(-Inf, length(F_sym))
         z_upper = fill(Inf, length(F_sym))
 
@@ -476,7 +477,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Initialize linear solver
-    @timeit to "linear solver init" begin
+    @timeit_debug to "linear solver init" begin
         F_size = length(F_sym)
         linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
         linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
@@ -505,18 +506,20 @@ Build augmented z vector for player ii including follower K evaluations.
 # Arguments
 - `ii::Int` - Player index
 - `z_est::Vector` - Current z estimate
-- `K_evals::Dict` - Numerical K matrices per player
+- `K_evals::Vector` - Numerical K matrices per player (indexed by player ID)
 - `graph::SimpleDiGraph` - Hierarchy graph
-- `follower_cache::Dict` - Cache for follower lists
-- `buffer_cache::Dict` - Cache for augmented buffers
+- `follower_cache::Vector` - Cache for follower lists (indexed by player ID)
+- `buffer_cache::Vector` - Cache for augmented buffers (indexed by player ID)
 
 # Returns
 - `augmented_z::Vector` - z_est augmented with follower K values
 """
 function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffer_cache)
     # Get cached follower list
-    followers = get!(follower_cache, ii) do
-        collect(BFSIterator(graph, ii))[2:end]  # Exclude self
+    followers = follower_cache[ii]
+    if isnothing(followers)
+        followers = collect(BFSIterator(graph, ii))[2:end]  # Exclude self
+        follower_cache[ii] = followers
     end
 
     # Compute required length
@@ -527,10 +530,11 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
     end
 
     # Get or resize buffer
-    buf = get!(buffer_cache, ii) do
-        Vector{Float64}(undef, aug_len)
-    end
-    if length(buf) != aug_len
+    buf = buffer_cache[ii]
+    if isnothing(buf)
+        buf = Vector{Float64}(undef, aug_len)
+        buffer_cache[ii] = buf
+    elseif length(buf) != aug_len
         resize!(buf, aug_len)
     end
 
@@ -551,7 +555,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, M_buffers, N_buffers)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -574,10 +578,17 @@ See Phase 6 for planned thread-safety improvements.
   - `:always` - Always use sparse LU factorization
   - `:never` - Always use dense solve
   - `true`/`false` - Backward-compatible aliases for `:always`/`:never`
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ. When > 0,
+  solves `K = (M + λI) \\ N` instead of `K = M \\ N`. Improves numerical stability
+  for near-singular M at the cost of a small bias.
 - `M_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated M matrix buffers.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
 - `N_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated N matrix buffers (same semantics as M_buffers).
+- `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
+  across calls, reducing Dict and vector allocation overhead. When provided, must
+  contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
+  and `all_K_vec`. When `nothing`, fresh containers are allocated each call.
 
 # Returns
 Tuple of:
@@ -590,8 +601,10 @@ function compute_K_evals(
     problem_vars::NamedTuple,
     setup_info::NamedTuple;
     use_sparse::Union{Symbol,Bool}=:auto,
+    regularization::Float64=0.0,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
-    N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}()
+    N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
+    buffers::Union{Nothing, NamedTuple}=nothing
 )
     # Normalize Bool to Symbol for backward compatibility
     mode = if use_sparse isa Bool
@@ -609,13 +622,22 @@ function compute_K_evals(
     π_sizes = setup_info.π_sizes
     graph = setup_info.graph
 
-    M_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-    N_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
-    K_evals = Dict{Int, Union{Matrix{Float64}, Nothing}}()
+    N_players = nv(graph)
 
-    # Caches to reduce allocations
-    follower_cache = Dict{Int, Vector{Int}}()
-    buffer_cache = Dict{Int, Vector{Float64}}()
+    # Use pre-allocated buffers if provided, otherwise allocate fresh Vector-indexed containers
+    if isnothing(buffers)
+        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players)
+        buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players)
+    else
+        M_evals = buffers.M_evals
+        N_evals = buffers.N_evals
+        K_evals = buffers.K_evals
+        follower_cache = buffers.follower_cache
+        buffer_cache = buffers.buffer_cache
+    end
 
     status = :ok
 
@@ -645,7 +667,7 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse)
+            K_evals[ii] = _solve_K(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -656,30 +678,54 @@ function compute_K_evals(
         end
     end
 
-    # Concatenate all K values into single vector
-    N = nv(graph)
-    all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N]...)
+    # Concatenate all K values into single vector, reusing buffer if provided
+    if !isnothing(buffers) && hasproperty(buffers, :all_K_vec)
+        all_K_vec = buffers.all_K_vec
+        offset = 0
+        for ii in 1:N_players
+            k = K_evals[ii]
+            if isnothing(k)
+                continue
+            end
+            flat = reshape(k, :)
+            copyto!(all_K_vec, offset + 1, flat, 1, length(flat))
+            offset += length(flat)
+        end
+    else
+        all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N_players]...)
+    end
 
     return all_K_vec, (; M_evals, N_evals, K_evals, status)
 end
 
 """
-    _solve_K(M, N, player_idx; use_sparse=false)
+    _solve_K(M, N, player_idx; use_sparse=false, regularization=0.0)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
 
+When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
+which improves numerical stability for near-singular M at the cost of a small bias
+in the solution.
+
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false)
+function _solve_K(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
     try
-        K = if use_sparse
-            sparse(M) \ N
+        # Apply Tikhonov regularization if requested
+        M_solve = if regularization > 0
+            M + regularization * I
         else
-            M \ N
+            M
+        end
+
+        K = if use_sparse
+            sparse(M_solve) \ N
+        else
+            M_solve \ N
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
@@ -711,7 +757,7 @@ end
         verbose::Bool = false,
         linesearch_method::Symbol = :geometric,
         recompute_policy_in_linesearch::Bool = true,
-        use_sparse::Bool = false,
+        use_sparse::Union{Symbol,Bool} = :auto,
         show_progress::Bool = false,
         to::TimerOutput = TimerOutput()
     )
@@ -736,6 +782,9 @@ line search. Convergence is checked by [`check_convergence`](@ref).
 - `recompute_policy_in_linesearch::Bool=true` - Recompute K matrices at each line search trial step. Set to `false` for ~1.6x speedup (reuses K from current Newton iteration).
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve (see `compute_K_evals`)
 - `show_progress::Bool=false` - Display iteration progress table (iter, residual, step size, time)
+- `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias.
+- `callback::Union{Nothing, Function}=nothing` - Optional callback invoked each iteration with
+  `(; iteration, residual, step_size)`. Enables iteration history tracking and external monitoring.
 - `to::TimerOutput=TimerOutput()` - Timer for profiling solver phases
 
 # Returns
@@ -759,6 +808,8 @@ function run_nonlinear_solver(
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
+    regularization::Float64 = 0.0,
+    callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
     # Unpack precomputed components
@@ -768,9 +819,16 @@ function run_nonlinear_solver(
     linsolver = precomputed.linsolver
     all_variables = precomputed.all_variables
 
-    # Build parameter values vector
+    # Build parameter values vector (avoid comprehension + vcat allocation)
     θs_order = ordered_player_indices(initial_states)
-    θ_vals_vec = vcat([initial_states[k] for k in θs_order]...)
+    θ_len_total = sum(length(initial_states[k]) for k in θs_order)
+    θ_vals_vec = Vector{Float64}(undef, θ_len_total)
+    offset = 0
+    for k in θs_order
+        v = initial_states[k]
+        copyto!(θ_vals_vec, offset + 1, v, 1, length(v))
+        offset += length(v)
+    end
 
     # Initialize z estimate
     z_est = something(initial_guess, zeros(length(all_variables)))
@@ -787,6 +845,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    F_trial = zeros(n)  # Reused across linesearch iterations
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
 
@@ -809,12 +868,24 @@ function run_nonlinear_solver(
     # Pre-allocate param_vec buffer: [θ_vals_vec; all_K_vec]
     # Size is determined from the MCP's parameter_dimension (set during preoptimize)
     θ_len = length(θ_vals_vec)
+    K_len = mcp_obj.parameter_dimension - θ_len
     param_vec = Vector{Float64}(undef, mcp_obj.parameter_dimension)
     copyto!(param_vec, 1, θ_vals_vec, 1, θ_len)
 
+    # Pre-allocate buffers for compute_K_evals to avoid per-iteration allocation
+    N_players = nv(hierarchy_graph)
+    k_eval_buffers = (;
+        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
+        buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
+        all_K_vec = Vector{Float64}(undef, K_len),
+    )
+
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, M_buffers, N_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
@@ -831,12 +902,12 @@ function run_nonlinear_solver(
     α = NaN  # track step size for progress display
     while true
         # Evaluate K matrices at current z
-        @timeit to "compute K evals" begin
+        @timeit_debug to "compute K evals" begin
             param_vec, all_K_vec = params_for_z!(z_est)
         end
 
         # Evaluate residual and check convergence
-        @timeit to "residual evaluation" begin
+        @timeit_debug to "residual evaluation" begin
             mcp_obj.f!(F_eval, z_est, param_vec)
             residual_norm = norm(F_eval)
         end
@@ -860,11 +931,11 @@ function run_nonlinear_solver(
         num_iterations += 1
 
         # Solve linearized system: ∇F * δz = -F
-        @timeit to "Jacobian evaluation" begin
+        @timeit_debug to "Jacobian evaluation" begin
             mcp_obj.jacobian_z!(∇F, z_est, param_vec)
         end
 
-        @timeit to "Newton step" begin
+        @timeit_debug to "Newton step" begin
             newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
         end
 
@@ -877,15 +948,16 @@ function run_nonlinear_solver(
         δz = newton_result.step
 
         # Line search for step size
-        @timeit to "line search" begin
-            # Residual function closure that optionally recomputes K at each trial point
+        @timeit_debug to "line search" begin
+            # Residual function closure that optionally recomputes K at each trial point.
+            # Reuses pre-allocated F_trial buffer to avoid per-call allocation.
+            # NOT thread-safe: captures mutable buffers (F_trial, param_vec) from outer scope.
             function residual_at_trial(z)
                 param_trial = if recompute_policy_in_linesearch
                     first(params_for_z!(z))
                 else
                     param_vec
                 end
-                F_trial = similar(F_eval)
                 mcp_obj.f!(F_trial, z, param_trial)
                 return F_trial
             end
@@ -914,6 +986,11 @@ function run_nonlinear_solver(
             α_str = lpad(string(round(α; digits=4)), 8)
             t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
             println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+        end
+
+        # Invoke callback with iteration info
+        if callback !== nothing
+            callback((; iteration=num_iterations, residual=residual_norm, step_size=α))
         end
 
         # Guard against NaN/Inf in solution

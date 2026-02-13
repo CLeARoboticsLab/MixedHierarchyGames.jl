@@ -66,9 +66,9 @@ using MixedHierarchyGames:
         # which is done once at solver creation, not in the hot solve path.
         @test setup_info.πs isa Dict{Int, Any}
 
-        # M_fns! and N_fns! should be Dict{Int, Function}
-        @test setup_info.var"M_fns!" isa Dict{Int, Function}
-        @test setup_info.var"N_fns!" isa Dict{Int, Function}
+        # M_fns! and N_fns! should be Vector{Function}
+        @test setup_info.var"M_fns!" isa Vector{Function}
+        @test setup_info.var"N_fns!" isa Vector{Function}
     end
 
     @testset "compute_K_evals returns typed containers" begin
@@ -96,13 +96,13 @@ using MixedHierarchyGames:
 
         all_K_vec, info = compute_K_evals(z_current, problem_vars, setup_info)
 
-        # K_evals should be properly typed
-        @test info.K_evals isa Dict{Int, Union{Matrix{Float64}, Nothing}}
-        @test info.M_evals isa Dict{Int, Union{Matrix{Float64}, Nothing}}
-        @test info.N_evals isa Dict{Int, Union{Matrix{Float64}, Nothing}}
+        # K_evals should be Vector-indexed (not Dict)
+        @test info.K_evals isa Vector{Union{Matrix{Float64}, Nothing}}
+        @test info.M_evals isa Vector{Union{Matrix{Float64}, Nothing}}
+        @test info.N_evals isa Vector{Union{Matrix{Float64}, Nothing}}
 
         # Verify actual values have correct types
-        for (k, v) in info.K_evals
+        for v in info.K_evals
             @test v isa Union{Matrix{Float64}, Nothing}
         end
     end
