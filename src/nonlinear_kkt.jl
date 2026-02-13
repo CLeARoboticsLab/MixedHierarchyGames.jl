@@ -424,7 +424,7 @@ function preoptimize_nonlinear_solver(
     N = nv(hierarchy_graph)
 
     # Setup symbolic variables
-    @timeit to "variable setup" begin
+    @timeit_debug to "variable setup" begin
         problem_vars = setup_problem_variables(hierarchy_graph, primal_dims, gs; backend)
         all_variables = problem_vars.all_variables
         zs = problem_vars.zs
@@ -435,7 +435,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Setup approximate KKT solver (creates symbolic M/N functions)
-    @timeit to "approximate KKT setup" begin
+    @timeit_debug to "approximate KKT setup" begin
         all_augmented_variables, setup_info = setup_approximate_kkt_solver(
             hierarchy_graph, Js, zs, λs, μs, gs, ws, ys, θs,
             all_variables, backend;
@@ -463,7 +463,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Build ParametricMCP
-    @timeit to "ParametricMCP build" begin
+    @timeit_debug to "ParametricMCP build" begin
         z_lower = fill(-Inf, length(F_sym))
         z_upper = fill(Inf, length(F_sym))
 
@@ -477,7 +477,7 @@ function preoptimize_nonlinear_solver(
     end
 
     # Initialize linear solver
-    @timeit to "linear solver init" begin
+    @timeit_debug to "linear solver init" begin
         F_size = length(F_sym)
         linear_solve_algorithm = LinearSolve.UMFPACKFactorization()
         linsolver = init(LinearProblem(spzeros(F_size, F_size), zeros(F_size)), linear_solve_algorithm)
@@ -902,12 +902,12 @@ function run_nonlinear_solver(
     α = NaN  # track step size for progress display
     while true
         # Evaluate K matrices at current z
-        @timeit to "compute K evals" begin
+        @timeit_debug to "compute K evals" begin
             param_vec, all_K_vec = params_for_z!(z_est)
         end
 
         # Evaluate residual and check convergence
-        @timeit to "residual evaluation" begin
+        @timeit_debug to "residual evaluation" begin
             mcp_obj.f!(F_eval, z_est, param_vec)
             residual_norm = norm(F_eval)
         end
@@ -931,11 +931,11 @@ function run_nonlinear_solver(
         num_iterations += 1
 
         # Solve linearized system: ∇F * δz = -F
-        @timeit to "Jacobian evaluation" begin
+        @timeit_debug to "Jacobian evaluation" begin
             mcp_obj.jacobian_z!(∇F, z_est, param_vec)
         end
 
-        @timeit to "Newton step" begin
+        @timeit_debug to "Newton step" begin
             newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
         end
 
@@ -948,7 +948,7 @@ function run_nonlinear_solver(
         δz = newton_result.step
 
         # Line search for step size
-        @timeit to "line search" begin
+        @timeit_debug to "line search" begin
             # Residual function closure that optionally recomputes K at each trial point.
             # Reuses pre-allocated F_trial buffer to avoid per-call allocation.
             function residual_at_trial(z)

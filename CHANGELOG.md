@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite with OLSE validation
 - Single-player (N=1) edge case tests
 - Type stability tests
+- `@timeit_debug` macro for conditional performance profiling
+  - Opt-in timing system with `enable_timing!()` / `disable_timing!()` / `with_timing(f)`
+  - Near-zero overhead when disabled (~6ns per call, atomic boolean check only)
+  - Full TimerOutputs instrumentation when enabled
+  - Replaces all 21 `@timeit` calls in solver code
+  - Thread-safe flag via `Threads.Atomic{Bool}`
 
 ### Changed
 - Renamed package from FeedbackStackelbergGames to MixedHierarchyGames

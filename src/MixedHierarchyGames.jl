@@ -31,7 +31,11 @@ using LinearAlgebra: norm, I, SingularException, LAPACKException
 using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
-using TimerOutputs: TimerOutput, @timeit
+using TimerOutputs: TimerOutputs, TimerOutput, @timeit
+
+# Debug timing macro (must come before files that use @timeit_debug)
+include("timeit_debug.jl")
+export enable_timing!, disable_timing!, is_timing_enabled, with_timing, @timeit_debug
 
 # Graph utilities (must come first - used by problem_setup)
 include("utils.jl")

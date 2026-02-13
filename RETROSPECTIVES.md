@@ -1528,3 +1528,67 @@ API design proposal evaluating whether to consolidate the low-level solver API a
 
 - [ ] Consider deprecating `solve_trajectory_game!` if TGB compatibility is confirmed unnecessary
 - [ ] Consider whether `solve_raw` return types should be unified (currently different NamedTuples per solver)
+
+---
+
+## PR: perf/timeit-debug-macros (bead e2f)
+
+**Date:** 2026-02-11
+**Commits:** 2
+**Tests:** 937 passing (16 new)
+
+### Summary
+
+Added `@timeit_debug` macro that compiles to a no-op branch check when `TIMING_ENABLED[]` is false, and delegates to TimerOutputs' `begin_timed_section!`/`end_timed_section!` when true. Replaced all 21 `@timeit` calls across `types.jl`, `nonlinear_kkt.jl`, and `solve.jl`. Benchmarked overhead: ~6ns per-call when disabled, negligible on real solver operations (<0.2%).
+
+### TDD Compliance
+**Score: Good (8/10)**
+- **What went well:**
+  - Tests written FIRST (`test_timeit_debug.jl`) and verified failing (RED) before implementation
+  - 16 tests covering: flag control, conditional timing, return value preservation, nesting, code execution in both states, reset
+  - Red-green-refactor cycle followed for the core macro
+- **What went wrong:**
+  - The initial macro implementation was naive (`if/else` with duplicated body), causing scoping and method-redefinition bugs discovered only when running the full test suite. Had to iterate on the macro design.
+- **Improvement:** When writing macros, test with function definitions inside the body from the start, not just simple expressions.
+
+### Clean Code Practices
+**Score: Good (8/10)**
+- **What went well:**
+  - Used `Expr(:tryfinally)` pattern from TimerOutputs itself (no body duplication)
+  - Clean API: `enable_timing!()` / `disable_timing!()` + `@timeit_debug`
+  - Existing timer tests updated to use `enable_timing!()` / `disable_timing!()`
+  - Comprehensive docstrings on all public symbols
+- **What went wrong:**
+  - First two macro implementations had fundamental scoping bugs. The `Ref{Bool}` runtime check means this is "near-zero" rather than truly zero overhead (6ns per call).
+
+### Clean Architecture Practices
+**Score: Good (9/10)**
+- Macro defined in its own file (`src/timeit_debug.jl`) included before any file that uses it
+- Uses TimerOutputs' public `begin_timed_section!`/`end_timed_section!` API
+- Backward compatible: existing `to::TimerOutput` parameter threading unchanged
+
+### Commit Hygiene
+**Score: Good (8/10)**
+- 2 commits with clear separation:
+  1. Tests + macro implementation (TDD red-green in one commit)
+  2. Replace `@timeit` → `@timeit_debug` across all source files + test updates
+- Benchmarks in gitignored `debug/` directory per CLAUDE.md convention
+
+### CLAUDE.md Compliance
+- [x] TDD followed (red-green-refactor)
+- [x] Tolerances N/A (no numerical tests)
+- [x] Full fast test suite verified (482 passing)
+- [x] PR description with Summary, Changes, Testing, Changelog
+- [x] Retrospective recorded before PR finalization
+- [x] Bead status updated
+
+### Key Learnings
+
+1. **Julia macro hygiene is subtle.** `if/else` branches duplicate the body in the AST, causing method redefinition errors for function definitions inside `@timeit_debug` blocks. The `Expr(:tryfinally)` pattern avoids this by keeping the body in one place.
+2. **`Ref{Bool}` checks are not zero-cost.** The branch check costs ~6ns per call. For a true compile-time zero-cost abstraction, you'd need `@generated` or a const global (which can't be toggled at runtime). The 6ns is acceptable for this use case.
+3. **Test tier configuration is easy to forget.** Adding a new test file requires updating both `test_tiers.jl` AND `test_test_tiers.jl`.
+
+### Action Items for Next PR
+
+- [ ] Consider `@generated` approach if runtime overhead ever matters for inner-loop timing
+- [ ] Add a note in CLAUDE.md about updating test tier files when adding new test files
