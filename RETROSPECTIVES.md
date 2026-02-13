@@ -2148,8 +2148,8 @@ Addressed Medium-priority code review items from the 7-expert review of PR #128.
 ## PR: tranche3/options-and-review-fixes (Combined Retrospective)
 
 **Date:** 2026-02-13
-**Commits:** 11 (across 3 beads)
-**Tests:** 1206 passing (30 new net, after removing duplicated test setup)
+**Commits:** 13 (12 across 3 beads + 1 for 4-expert review fixes)
+**Tests:** 1235 passing (59 new net, after removing duplicated test setup)
 **Beads:** r89 (NonlinearSolverOptions), 9hy (test hygiene), mig (src-level review items)
 
 ### Summary
@@ -2231,6 +2231,16 @@ Tranche 3 bundles three code-review-driven beads into a single PR. Bead r89 repl
 3. **`something()` override deduplication was overdue.** The 8x repeated pattern in `solve`/`solve_raw` was a maintenance burden — `_merge_options` is a clean extraction.
 4. **In-place regularization with try-finally is robust.** Adding/subtracting λ on the diagonal avoids allocation while ensuring the matrix is always restored, even on exceptions.
 5. **Investigating and skipping items is valid.** The `Vector{Function}` type stability item was investigated, benchmarked, and skipped with rationale — better than cargo-culting a complex solution for negligible gain.
+
+### Post-Review (4-Expert Code Review)
+
+A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Computing Expert) produced 18 findings, all addressed in a single commit:
+- **`use_sparse` field narrowed** from `Union{Symbol,Bool}` to `Symbol` with Bool→Symbol normalization
+- **Field validation** added to constructor (max_iters>0, tol>0, regularization>=0)
+- **`_solve_K` → `_solve_K!`** renamed to follow Julia `!` convention
+- **Exception path tests** added for `_solve_K!` (rethrow non-Singular errors, M restoration on exception)
+- **NamedTuple deprecation** uses `Base.depwarn` instead of silent conversion
+- **Benchmark result:** No solve-time regression (min times -0.1% to -5.2% across all problem sizes). Regularization on non-square M matrices was broken on main (crashes with `DimensionMismatch`), now works correctly with zero overhead.
 
 ### Action Items for Next PR
 
