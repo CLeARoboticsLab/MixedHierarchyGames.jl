@@ -2088,6 +2088,77 @@ end
         @test contains(output, "time")
     end
 
+    @testset "show_progress table rows have consistent width" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        lines = split(output, '\n'; keepempty=false)
+
+        # Should have at least: header border, header, separator, 1+ data rows, footer border, summary
+        @test length(lines) >= 5
+
+        # All box-drawing lines (starting with │ or ┌ or ├ or └) should have the same character width
+        box_lines = filter(l -> !isempty(l) && l[1] in ('│', '┌', '├', '└'), lines)
+        @test length(box_lines) >= 4  # header border, header, separator, data row(s), footer border
+        widths = [length(l) for l in box_lines]
+        @test all(w -> w == widths[1], widths)  # All box lines same width
+    end
+
+    @testset "show_progress uses scientific notation for residuals" begin
+        prob = make_two_player_chain_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim,
+            control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        output = mktemp() do path, io
+            redirect_stdout(io) do
+                run_nonlinear_solver(
+                    precomputed,
+                    initial_states,
+                    prob.G;
+                    max_iters=100,
+                    tol=1e-6,
+                    verbose=false,
+                    show_progress=true
+                )
+            end
+            flush(io)
+            read(path, String)
+        end
+
+        # Data rows should use scientific notation (e.g., 1.23e+01 or 1.23e-06)
+        data_lines = filter(l -> startswith(l, "│") && contains(l, "e"), split(output, '\n'))
+        @test length(data_lines) >= 1  # At least one iteration row with scientific notation
+    end
+
     @testset "show_progress does not affect solver results" begin
         prob = make_two_player_chain_problem()
 

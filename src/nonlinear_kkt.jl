@@ -894,9 +894,9 @@ function run_nonlinear_solver(
     # Progress tracking
     t_start = time()
     if show_progress
-        println("┌──────────────────────────────────────────────────────────────┐")
-        println("│  iter      residual          α         time                  │")
-        println("├──────────────────────────────────────────────────────────────┤")
+        println("┌────────┬───────────────┬──────────┬───────────┐")
+        println("│  iter  │   residual    │    α     │   time    │")
+        println("├────────┼───────────────┼──────────┼───────────┤")
     end
 
     # Main iteration loop
@@ -982,11 +982,8 @@ function run_nonlinear_solver(
         # Progress display after iteration update
         if show_progress
             elapsed = time() - t_start
-            iter_str = lpad(num_iterations, 4)
-            res_str = lpad(string(residual_norm), 14)
-            α_str = lpad(string(round(α; digits=4)), 8)
-            t_str = lpad(string(round(elapsed; digits=2)) * "s", 9)
-            println("│  iter $iter_str  residual $res_str  α $α_str  time $t_str │")
+            println(@sprintf("│ %6d │ %13.6e │ %8.4f │ %8.2fs │",
+                num_iterations, residual_norm, α, elapsed))
         end
 
         # Invoke callback with iteration info (copy z_est since it's mutated in-place)
@@ -1005,9 +1002,10 @@ function run_nonlinear_solver(
     # Progress summary
     if show_progress
         elapsed = time() - t_start
-        println("└──────────────────────────────────────────────────────────────┘")
+        println("└────────┴───────────────┴──────────┴───────────┘")
         status_str = status in (:solved, :solved_initial_point) ? "Converged" : "Did not converge"
-        println("  $status_str in $num_iterations iterations ($(round(elapsed; digits=2))s), final residual: $residual_norm")
+        println(@sprintf("  %s in %d iterations (%.2fs), final residual: %.6e",
+            status_str, num_iterations, elapsed, residual_norm))
     end
 
     return (;

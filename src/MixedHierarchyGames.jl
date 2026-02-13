@@ -32,6 +32,7 @@ using SparseArrays: sparse, spzeros
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
 using TimerOutputs: TimerOutputs, TimerOutput, @timeit
+using Printf: @sprintf
 
 # Debug timing macro (must come before files that use @timeit_debug)
 include("timeit_debug.jl")
