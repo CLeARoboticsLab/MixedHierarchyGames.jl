@@ -231,32 +231,37 @@ function setup_problem_variables(
         leaders = get_all_leaders(graph, i)
         ws_z_indices[i] = Dict{Int, UnitRange{Int}}()
 
+        # Collect all pieces, then single vcat (avoids O(N²) intermediate allocations)
+        pieces = Vector{Symbolics.Num}[]
+
         # ws[i] starts with the player's own decision variable
-        ws[i] = copy(zs[i])
+        push!(pieces, zs[i])
         ws_z_indices[i][i] = 1:primal_dims[i]
         offset = primal_dims[i]
 
         # Add non-leader, non-self variables (in player index order for consistency)
         for j in 1:N
             if j != i && !(j in leaders)
-                ws[i] = vcat(ws[i], zs[j])
+                push!(pieces, zs[j])
                 ws_z_indices[i][j] = (offset + 1):(offset + primal_dims[j])
                 offset += primal_dims[j]
             end
         end
 
         # Add λs for self and followers
-        ws[i] = vcat(ws[i], λs[i])
+        push!(pieces, λs[i])
         for j in get_all_followers(graph, i)
-            ws[i] = vcat(ws[i], λs[j])
+            push!(pieces, λs[j])
         end
 
         # Add μs for follower policies
         for j in get_all_followers(graph, i)
             if haskey(μs, (i, j))
-                ws[i] = vcat(ws[i], μs[(i, j)])
+                push!(pieces, μs[(i, j)])
             end
         end
+
+        ws[i] = reduce(vcat, pieces)
     end
 
     # Flatten all variables (in player index order)
