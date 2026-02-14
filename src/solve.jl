@@ -484,7 +484,9 @@ function solve_with_path(
 )
     # Order parameters by player index
     order = ordered_player_indices(θs)
-    all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
+    total_len = sum(length(parameter_values[k]) for k in order)
+    all_param_vals_vec = Vector{Float64}(undef, total_len)
+    vcat_ordered!(all_param_vals_vec, parameter_values, order)
 
     # Initial guess
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
@@ -553,7 +555,9 @@ function solve_with_path(
 
     # Order parameters by player index
     order = ordered_player_indices(πs)
-    all_θ_vec = reduce(vcat, (θs[k] for k in order))
+    total_θ_len = sum(length(θs[k]) for k in order)
+    all_θ_vec = Vector{eltype(first(values(θs)))}(undef, total_θ_len)
+    vcat_ordered!(all_θ_vec, θs, order)
 
     # Build parametric MCP
     parametric_mcp = ParametricMCPs.ParametricMCP(
@@ -621,7 +625,9 @@ function solve_qp_linear(
 )
     # Order parameters by player index
     order = ordered_player_indices(θs)
-    all_param_vals_vec = reduce(vcat, (parameter_values[k] for k in order))
+    total_len = sum(length(parameter_values[k]) for k in order)
+    all_param_vals_vec = Vector{Float64}(undef, total_len)
+    vcat_ordered!(all_param_vals_vec, parameter_values, order)
 
     # Use pre-allocated buffers if provided, otherwise allocate
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
@@ -711,7 +717,9 @@ function solve_qp_linear(
 
     # Order parameters by player index
     order = ordered_player_indices(πs)
-    all_θ_vec = reduce(vcat, (θs[k] for k in order))
+    total_θ_len = sum(length(θs[k]) for k in order)
+    all_θ_vec = Vector{eltype(first(values(θs)))}(undef, total_θ_len)
+    vcat_ordered!(all_θ_vec, θs, order)
 
     # Build parametric MCP
     z_lower = fill(-Inf, length(F_sym))
