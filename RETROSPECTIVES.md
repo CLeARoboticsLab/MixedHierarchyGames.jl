@@ -2246,3 +2246,58 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/02-norm-to-dot (T1-6)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1241 passing
+
+### Summary
+
+Replaced `norm(f)^2` with `dot(f,f)` in linesearch.jl merit function computations. `norm(v)^2` computes `sqrt(dot(v,v))^2`, introducing an unnecessary sqrt. `dot(v,v)` computes the sum-of-squares directly. Changed 4 call sites across `armijo_backtracking` and `geometric_reduction`.
+
+### TDD Compliance
+
+- Tests written first and committed before implementation.
+- Tests verify dot-based merit equivalence and that linesearch step sizes satisfy conditions under dot-based merit.
+- Red-Green-Refactor cycle followed correctly.
+
+### Clean Code
+
+- Minimal, focused change: only the 4 call sites + 1 import line modified.
+- No unnecessary refactoring or feature additions.
+
+### Commits
+
+- 3 commits: (1) tests, (2) implementation, (3) verification/benchmarks — matches the required minimum.
+- Each commit is small and focused.
+
+### CLAUDE.md Compliance
+
+- All instructions followed. TDD mandatory, 3-commit minimum, retrospective written.
+
+### Benchmark Results
+
+```
+n=10:  norm(v)^2=9.3ns,  dot(v,v)=8.4ns  → 10.1% speedup
+n=50:  norm(v)^2=43.1ns, dot(v,v)=8.9ns  → 79.3% speedup
+n=200: norm(v)^2=164.5ns, dot(v,v)=24.6ns → 85.0% speedup
+n=500: norm(v)^2=453.5ns, dot(v,v)=56.6ns → 87.5% speedup
+```
+
+### What Went Well
+
+- Clean, minimal change with clear motivation.
+- TDD followed correctly from the start.
+- Benchmark clearly demonstrates the optimization value.
+
+### What Could Be Improved
+
+- Initial test design assumed exact `dot(v,v) == norm(v,v)^2` equality, which fails due to IEEE 754 rounding — the exact reason for the optimization. Caught and fixed quickly.
+
+### Action Items for Next PR
+
+- None — this was a clean, self-contained optimization.
