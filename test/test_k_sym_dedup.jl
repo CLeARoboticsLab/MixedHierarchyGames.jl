@@ -39,8 +39,12 @@ using MixedHierarchyGames:
     @test haskey(pairs(setup_info), :all_K_syms_vec)
 
     # The returned all_K_syms_vec should be identical to the inline computation
-    @test setup_info.all_K_syms_vec == all_K_syms_vec_inline
+    # Use isequal for symbolic comparison (== returns symbolic Num, not Bool)
+    @test length(setup_info.all_K_syms_vec) == length(all_K_syms_vec_inline)
+    @test all(isequal.(setup_info.all_K_syms_vec, all_K_syms_vec_inline))
 
     # Verify all_augmented_variables is consistent: should equal vcat(all_variables, all_K_syms_vec)
-    @test all_augmented_variables == vcat(all_variables, setup_info.all_K_syms_vec)
+    expected_augmented = vcat(all_variables, setup_info.all_K_syms_vec)
+    @test length(all_augmented_variables) == length(expected_augmented)
+    @test all(isequal.(all_augmented_variables, expected_augmented))
 end

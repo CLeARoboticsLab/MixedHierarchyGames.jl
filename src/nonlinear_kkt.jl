@@ -353,7 +353,7 @@ function setup_approximate_kkt_solver(
 
     # Use Symbol("M_fns!") to name the in-place function dicts clearly
     return all_augmented_variables, (;
-        graph=G, πs, K_syms, π_sizes,
+        graph=G, πs, K_syms, π_sizes, all_K_syms_vec,
         var"M_fns!" = M_fns_inplace,
         var"N_fns!" = N_fns_inplace
     )
@@ -443,10 +443,9 @@ function preoptimize_nonlinear_solver(
         )
 
         πs = setup_info.πs
-        K_syms = setup_info.K_syms
 
-        # Build flattened K symbols vector for use as parameters
-        all_K_syms_vec = vcat([reshape(something(K_syms[ii], eltype(all_variables)[]), :) for ii in 1:N]...)
+        # Reuse pre-computed flattened K symbols from setup
+        all_K_syms_vec = setup_info.all_K_syms_vec
 
         # Build parameter vector (θ values + K matrix values)
         θ_order = ordered_player_indices(θs)
