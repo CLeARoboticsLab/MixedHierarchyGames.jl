@@ -235,7 +235,7 @@ function setup_approximate_kkt_solver(
     cse::Bool = false
 )
     N = nv(G)
-    reverse_order = reverse(topological_sort_by_dfs(G))
+    reverse_topo_order = reverse(topological_sort_by_dfs(G))
 
     # Output containers — use Vector indexed by player ID for hot-path access
     π_sizes = Vector{Int}(undef, N)
@@ -264,7 +264,7 @@ function setup_approximate_kkt_solver(
     end
 
     # Second pass: build KKT conditions and M/N functions
-    for ii in reverse_order
+    for ii in reverse_topo_order
         # Compute π_sizes (total KKT conditions for player ii)
         # Structure: [grad_self | grad_f1 | policy_f1 | ... | own_constraints]
         π_sizes[ii] = length(gs[ii](zs[ii]))  # Own constraints
@@ -353,7 +353,7 @@ function setup_approximate_kkt_solver(
 
     # Use Symbol("M_fns!") to name the in-place function dicts clearly
     return all_augmented_variables, (;
-        graph=G, πs, K_syms, π_sizes,
+        graph=G, πs, K_syms, π_sizes, reverse_topo_order,
         var"M_fns!" = M_fns_inplace,
         var"N_fns!" = N_fns_inplace
     )
@@ -642,7 +642,7 @@ function compute_K_evals(
     status = :ok
 
     # Process in reverse topological order (leaves first)
-    for ii in reverse(topological_sort_by_dfs(graph))
+    for ii in setup_info.reverse_topo_order
         if has_leader(graph, ii)
             # Build augmented z with follower K evaluations
             augmented_z = _build_augmented_z_est(ii, z_current, K_evals, graph, follower_cache, buffer_cache)
