@@ -117,6 +117,96 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         @test length(result.ys[3]) == primal_dims[2]
     end
 
+    @testset "ws construction: exact symbolic content for chain 1→2→3" begin
+        # Chain: 1→2→3
+        # P1 is leader of P2, P2 is leader of P3
+        G = SimpleDiGraph(3)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 3)
+
+        primal_dims = [3, 4, 5]
+        constraint_dims = [2, 3, 2]
+        gs = [z -> zeros(Num, constraint_dims[i]) for i in 1:3]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+        (; zs, λs, μs, ws, ws_z_indices) = result
+
+        # P1 (root leader): ws[1] = [zs[1], zs[2], zs[3], λs[1], λs[2], λs[3], μs[(1,2)], μs[(1,3)]]
+        # P1 has no leaders, so all z variables appear. Followers: 2, 3 (all descendants).
+        # μs keys for P1: (1,2) and (1,3) since both are in get_all_followers
+        @test length(ws[1]) == primal_dims[1] + primal_dims[2] + primal_dims[3] +
+                               constraint_dims[1] + constraint_dims[2] + constraint_dims[3] +
+                               primal_dims[2] + primal_dims[3]  # μs[(1,2)] + μs[(1,3)]
+
+        # Verify exact symbolic variables: first block is zs[1]
+        @test isequal(ws[1][1:3], zs[1])
+        # Next is zs[2] (non-leader, non-self)
+        @test isequal(ws[1][4:7], zs[2])
+        # Then zs[3]
+        @test isequal(ws[1][8:12], zs[3])
+        # Then λs[1]
+        @test isequal(ws[1][13:14], λs[1])
+        # Then λs for followers (2 and 3)
+        @test isequal(ws[1][15:17], λs[2])
+        @test isequal(ws[1][18:19], λs[3])
+        # Then μs[(1,2)] and μs[(1,3)]
+        @test isequal(ws[1][20:23], μs[(1, 2)])
+        @test isequal(ws[1][24:28], μs[(1, 3)])
+
+        # Verify ws_z_indices for P1
+        @test ws_z_indices[1][1] == 1:3
+        @test ws_z_indices[1][2] == 4:7
+        @test ws_z_indices[1][3] == 8:12
+
+        # P2 (mid-level): leaders = [1]. ws[2] = [zs[2], zs[3], λs[2], λs[3], μs[(2,3)]]
+        # P2's leaders: P1. So zs[1] excluded from ws. Non-leader non-self: zs[3].
+        @test length(ws[2]) == primal_dims[2] + primal_dims[3] +
+                               constraint_dims[2] + constraint_dims[3] +
+                               primal_dims[3]  # μs[(2,3)]
+
+        @test isequal(ws[2][1:4], zs[2])
+        @test isequal(ws[2][5:9], zs[3])
+        @test isequal(ws[2][10:12], λs[2])
+        @test isequal(ws[2][13:14], λs[3])
+        @test isequal(ws[2][15:19], μs[(2, 3)])
+
+        @test ws_z_indices[2][2] == 1:4
+        @test ws_z_indices[2][3] == 5:9
+
+        # P3 (leaf follower): leaders = [1, 2]. ws[3] = [zs[3], λs[3]]
+        # All other z variables are leaders, so only zs[3]. No followers → no μs.
+        @test length(ws[3]) == primal_dims[3] + constraint_dims[3]
+        @test isequal(ws[3][1:5], zs[3])
+        @test isequal(ws[3][6:7], λs[3])
+        @test ws_z_indices[3][3] == 1:5
+    end
+
+    @testset "ws construction: Nash game (no edges)" begin
+        # 2-player Nash: no hierarchy edges
+        G = SimpleDiGraph(2)
+        primal_dims = [3, 4]
+        gs = [z -> zeros(Num, 2), z -> zeros(Num, 3)]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+        (; zs, λs, ws, ws_z_indices) = result
+
+        # P1: no leaders, no followers. ws[1] = [zs[1], zs[2], λs[1]]
+        @test length(ws[1]) == 3 + 4 + 2
+        @test isequal(ws[1][1:3], zs[1])
+        @test isequal(ws[1][4:7], zs[2])
+        @test isequal(ws[1][8:9], λs[1])
+        @test ws_z_indices[1][1] == 1:3
+        @test ws_z_indices[1][2] == 4:7
+
+        # P2: no leaders, no followers. ws[2] = [zs[2], zs[1], λs[2]]
+        @test length(ws[2]) == 4 + 3 + 3
+        @test isequal(ws[2][1:4], zs[2])
+        @test isequal(ws[2][5:7], zs[1])
+        @test isequal(ws[2][8:10], λs[2])
+        @test ws_z_indices[2][2] == 1:4
+        @test ws_z_indices[2][1] == 5:7
+    end
+
     @testset "coupled constraints are rejected" begin
         using MixedHierarchyGames: default_backend, make_symbolic_vector
 
