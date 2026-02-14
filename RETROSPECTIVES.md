@@ -2246,3 +2246,48 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/18-cache-topo-sort (Perf T3-4)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1241 passing (2 pre-existing failures in unrelated `NonlinearSolverOptions` NamedTuple test)
+
+### Summary
+
+Cache the result of `topological_sort_by_dfs(G)` in the `setup_info` NamedTuple so `compute_K_evals` reads it from cache instead of recomputing on every Newton iteration. Negligible impact (~42ns for 3-player graphs) but eliminates redundant O(V+E) work.
+
+### TDD Compliance
+
+- Fully followed. Failing tests written first (commit 1), implementation second (commit 2).
+- Tests verify both existence of `reverse_topo_order` field and correctness against freshly computed sort.
+- Tests cover 2-player and 3-player chain topologies.
+
+### Clean Code
+
+- Minimal change: renamed `reverse_order` to `reverse_topo_order` for clarity, added field to NamedTuple, replaced one recomputation call.
+- Total diff: 4 lines changed in `src/`, 39 lines added in `test/`.
+
+### Commits
+
+- 3 commits following the required pattern: failing tests, implementation, benchmarks.
+- Each commit is small and focused.
+
+### CLAUDE.md Compliance
+
+- All instructions followed. TDD mandatory, test tolerances N/A (equality check), minimum 3 commits.
+
+### What Went Well
+
+- Clean, minimal optimization with clear before/after behavior.
+- TDD cycle followed perfectly: red-green-refactor.
+
+### What Could Be Improved
+
+- Nothing significant for a change this small.
+
+### Action Items for Next PR
+
+- [ ] Pre-existing test failure at `test_nonlinear_solver_options.jl:151` should be investigated (NamedTuple constructor keyword path)
