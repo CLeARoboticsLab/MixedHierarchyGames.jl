@@ -863,6 +863,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    neg_F = zeros(n)    # Reused across Newton iterations for -F_eval
     F_trial = zeros(n)  # Reused across linesearch iterations
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
@@ -954,7 +955,8 @@ function run_nonlinear_solver(
         end
 
         @timeit_debug to "Newton step" begin
-            newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
+            @. neg_F = -F_eval
+            newton_result = compute_newton_step(linsolver, ∇F, neg_F)
         end
 
         if !newton_result.success
