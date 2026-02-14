@@ -187,6 +187,29 @@ end
         @test merged.linesearch_method == :geometric
     end
 
+    @testset "no overrides returns base object unchanged" begin
+        opts = NonlinearSolverOptions(max_iters=42, tol=1e-8)
+        merged = MixedHierarchyGames._merge_options(opts)
+        @test merged === opts
+    end
+
+    @testset "explicit nothing kwargs returns base object unchanged" begin
+        opts = NonlinearSolverOptions(max_iters=42, tol=1e-8, verbose=true)
+        merged = MixedHierarchyGames._merge_options(opts;
+            max_iters=nothing, tol=nothing, verbose=nothing,
+            linesearch_method=nothing, recompute_policy_in_linesearch=nothing,
+            use_sparse=nothing, show_progress=nothing, regularization=nothing)
+        @test merged === opts
+    end
+
+    @testset "partial nothing kwargs still constructs new options" begin
+        opts = NonlinearSolverOptions(max_iters=42, tol=1e-8)
+        # One non-nothing override means we must go through the constructor
+        merged = MixedHierarchyGames._merge_options(opts; max_iters=nothing, tol=1e-10)
+        @test merged.max_iters == 42   # kept from base
+        @test merged.tol == 1e-10      # overridden
+    end
+
     @testset "single override replaces that field" begin
         opts = NonlinearSolverOptions()
         merged = MixedHierarchyGames._merge_options(opts; max_iters=200)
