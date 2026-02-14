@@ -107,15 +107,18 @@ When `use_armijo=false`, returns α=1.0 (full Newton step).
 - `α::Float64` - Selected step size
 """
 function perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
-                            use_armijo::Bool=true)
+                            use_armijo::Bool=true,
+                            z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing)
     α = 1.0
 
     if !use_armijo
         return α
     end
 
+    z_trial = something(z_trial_buffer, similar(z_est))
+
     for _ in 1:LINESEARCH_MAX_ITERS
-        z_trial = z_est .+ α .* δz
+        @. z_trial = z_est + α * δz
         trial_residual_norm = residual_norm_fn(z_trial)
 
         if trial_residual_norm < current_residual_norm
@@ -982,10 +985,12 @@ function run_nonlinear_solver(
 
             if linesearch_method == :armijo
                 α = armijo_backtracking(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :geometric
                 α = geometric_reduction(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :constant
                 α = 1.0
             else

@@ -19,6 +19,8 @@ where for Newton-like methods ∇ϕ'*d ≈ -2*||f(x)||².
 - `c1::Float64=1e-4` - Sufficient decrease parameter (Armijo constant)
 - `rho::Float64=0.5` - Step size reduction factor per backtracking iteration
 - `max_iters::Int=20` - Maximum number of backtracking iterations
+- `x_buffer::Union{Nothing,Vector}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `x + α*d` each iteration. Must have same length as `x`.
 
 # Returns
 - `α::Float64` - Selected step size, or `0.0` if no sufficient decrease found
@@ -31,13 +33,16 @@ function armijo_backtracking(
     c1::Float64=1e-4,
     rho::Float64=0.5,
     max_iters::Int=20,
+    x_buffer::Union{Nothing,Vector}=nothing,
 )
     f_x = f(x)
     ϕ_0 = norm(f_x)^2
 
+    x_new = something(x_buffer, similar(x))
+
     α = alpha_init
     for _ in 1:max_iters
-        x_new = x .+ α .* d
+        @. x_new = x + α * d
         ϕ_new = norm(f(x_new))^2
 
         # Sufficient decrease: ϕ(x + α*d) ≤ ϕ(x) + c1 * α * (-2 * ϕ(x))
@@ -74,6 +79,8 @@ rather than sufficient decrease, and has no Armijo constant `c1`.
 # Keyword Arguments
 - `rho::Float64=0.5` - Step size reduction factor per iteration
 - `max_iters::Int=20` - Maximum number of reduction iterations
+- `x_buffer::Union{Nothing,Vector}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `x + α*d` each iteration. Must have same length as `x`.
 
 # Returns
 - `α::Float64` - Selected step size, or `0.0` if no decrease found
@@ -85,12 +92,15 @@ function geometric_reduction(
     alpha_init::Float64;
     rho::Float64=0.5,
     max_iters::Int=20,
+    x_buffer::Union{Nothing,Vector}=nothing,
 )
     ϕ_0 = norm(f(x))^2
 
+    x_new = something(x_buffer, similar(x))
+
     α = alpha_init
     for _ in 1:max_iters
-        x_new = x .+ α .* d
+        @. x_new = x + α * d
         ϕ_new = norm(f(x_new))^2
 
         if ϕ_new < ϕ_0
