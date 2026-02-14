@@ -11,7 +11,7 @@
 
 Check if node has any incoming edges (i.e., has a leader).
 """
-function has_leader(G::SimpleDiGraph, node::Int)
+@inline function has_leader(G::SimpleDiGraph, node::Int)
     return !isempty(inneighbors(G, node))
 end
 
@@ -20,7 +20,7 @@ end
 
 Check if node has no incoming edges (i.e., is a root/top-level leader).
 """
-function is_root(G::SimpleDiGraph, node::Int)
+@inline function is_root(G::SimpleDiGraph, node::Int)
     return isempty(inneighbors(G, node))
 end
 
@@ -29,7 +29,7 @@ end
 
 Check if node has no outgoing edges (i.e., is a leaf/pure follower).
 """
-function is_leaf(G::SimpleDiGraph, node::Int)
+@inline function is_leaf(G::SimpleDiGraph, node::Int)
     return isempty(outneighbors(G, node))
 end
 
@@ -86,7 +86,7 @@ Return the keys of `d` as a sorted vector, providing a canonical player ordering
 This is a convenience wrapper around `sort(collect(keys(d)))` used throughout the
 codebase to iterate over player-indexed dictionaries in a deterministic order.
 """
-ordered_player_indices(d::Dict) = sort(collect(keys(d)))
+@inline ordered_player_indices(d::Dict) = sort(collect(keys(d)))
 
 #=
     BlockArrays utilities
