@@ -2246,3 +2246,49 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/03-neg-f-buffer (Perf T1-8)
+
+**Date:** 2026-02-14
+**Commits:** 2
+**Tests:** 1242 passing (1 pre-existing failure in test_nonlinear_solver_options.jl unrelated to this PR)
+
+### Summary
+
+Pre-allocate `neg_F` buffer in `run_nonlinear_solver` to avoid allocating a new vector via `-F_eval` on every Newton iteration. Uses `@. neg_F = -F_eval` for in-place negation.
+
+### TDD Compliance
+
+- Test written first verifying neg_F buffer reuse correctness (repeated solves with same params produce identical results).
+- Implementation followed: buffer allocation + `@.` broadcast assignment.
+- TDD cycle followed correctly.
+
+### Clean Code
+
+- Minimal, focused change: 1 new buffer allocation line + 1 line changed in Newton loop.
+- Follows existing pattern of pre-allocated buffers (F_eval, F_trial, z_trial).
+
+### Commits
+
+- Commit 1: Failing test (buffer reuse correctness)
+- Commit 2: Implementation (pre-allocate neg_F, use @. in-place negation)
+
+### Benchmark Results
+
+Allocation profiling (--fast mode):
+- NL LQ 3P chain: 1.5MB (median)
+- NL PPV 3P T=5: 2.0MB (median)
+- NL Lane Change 4P T=8: 937.3MB (median)
+
+Solve times (--fast mode):
+- NL LQ 3P chain: 205.7μs (1 iter)
+- NL PPV 3P T=5: 458.5μs (1 iter)
+- NL Lane Change 4P T=8: 654.48ms (65 iters)
+
+Impact: Eliminates 1 vector allocation per Newton iteration. For the Lane Change problem (65 iterations, n=340 variables), this saves ~65 × 2.7KB = ~175KB per solve. Small relative to total allocations but contributes to the cumulative allocation reduction across the Track 1 series.
+
+### Action Items for Next PR
+
+- [ ] Continue with Perf T1-9+ in the Track 1 plan
