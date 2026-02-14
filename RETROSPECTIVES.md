@@ -2246,3 +2246,54 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/14-cache-extractor-matrices (T3-2)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 565 passing (fast tier)
+
+### Summary
+
+Cached extractor matrices in `get_qp_kkt_conditions` to avoid redundant `_build_extractor` calls. Each follower's extractor is now built once via `get!()` on a `Dict{Int, Any}` cache keyed by follower index, and reused across the Lagrangian loop and KKT blocks loop.
+
+### TDD Compliance
+
+**Score: 9/10**
+
+- **What went well:**
+  - Failing tests written first (RED): tests expected `extractor_cache` field in result NamedTuple
+  - Implementation made tests pass (GREEN): added cache Dict and `get!()` pattern
+  - Clean 3-commit structure: failing tests → implementation → benchmarks
+- **Minor gap:** Some tests (correctness assertions on block structure) passed before implementation since they test existing behavior. Only the `extractor_cache` field tests were truly RED.
+
+### Clean Code
+
+- Implementation is minimal: 4 lines changed in `src/qp_kkt.jl` (cache init + 2 `get!` calls + return field)
+- No over-engineering: simple Dict cache, no LRU/weak-ref complexity
+
+### Commits
+
+- 3 commits, logical separation: (1) failing tests, (2) implementation, (3) benchmarks
+- Each commit is self-contained
+
+### Benchmark Results
+
+- `_build_extractor` single call: ~0.2μs
+- 2-player KKT construction: 811.6μs median
+- 3-player chain KKT: 2.49ms median
+- Savings are small in absolute terms (~0.6μs for 3-player) because symbolic differentiation dominates. The optimization eliminates redundant work and scales with problem size.
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Test tolerances N/A (symbolic tests, no numerical tolerance)
+- [x] 3-commit minimum met
+- [x] Retrospective written before final push
+
+### Action Items for Next PR
+
+- [ ] Profile symbolic differentiation cost — it dominates KKT construction and is the real optimization target
+- [ ] Consider whether `extractor_cache` should be exposed in the public API or remain internal
