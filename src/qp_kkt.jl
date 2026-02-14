@@ -94,6 +94,11 @@ function get_qp_kkt_conditions(
     Ns = Dict{Int, Any}()
     Ks = Dict{Int, Any}()
 
+    # Cache extractor matrices keyed by follower index.
+    # Each follower's extractor is built once and reused across both
+    # the Lagrangian loop and the KKT blocks loop.
+    extractor_cache = Dict{Int, Any}()
+
     # Process in reverse topological order (leaves first)
     order = reverse(topological_sort_by_dfs(G))
 
@@ -120,7 +125,9 @@ function get_qp_kkt_conditions(
                     # Extract the zs[jj] portion from the full policy response
                     zj_indices = ws_z_indices[jj][jj]  # Where zs[jj] appears in ws[jj]
                     zj_size = length(zj_indices)
-                    extractor = _build_extractor(zj_indices, length(ws[jj]))
+                    extractor = get!(extractor_cache, jj) do
+                        _build_extractor(zj_indices, length(ws[jj]))
+                    end
                     Φⱼ = -extractor * Ks[jj] * ys[jj]
                     Lᵢ -= μs[(ii, jj)]' * (zs_dict[jj] - Φⱼ)
                 end
@@ -137,7 +144,9 @@ function get_qp_kkt_conditions(
                 # Policy constraint
                 if haskey(Ks, jj)
                     zj_indices = ws_z_indices[jj][jj]
-                    extractor = _build_extractor(zj_indices, length(ws[jj]))
+                    extractor = get!(extractor_cache, jj) do
+                        _build_extractor(zj_indices, length(ws[jj]))
+                    end
                     Φⱼ = -extractor * Ks[jj] * ys[jj]
                     push!(kkt_blocks, zs_dict[jj] - Φⱼ)
                 end
@@ -166,7 +175,7 @@ function get_qp_kkt_conditions(
         verbose && @debug "Player $ii: $(length(πs[ii])) KKT conditions"
     end
 
-    (; πs, Ms, Ns, Ks)
+    (; πs, Ms, Ns, Ks, extractor_cache)
 end
 
 """

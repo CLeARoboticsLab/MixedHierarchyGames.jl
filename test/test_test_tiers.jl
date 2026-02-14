@@ -18,6 +18,7 @@
             "test_timeit_debug.jl",
             "test_type_bounds.jl",
             "test_block_arrays.jl",
+            "test_extractor_cache.jl",
             "test_unified_interface.jl",
             "olse/test_qp_solver.jl",
         ]
@@ -71,6 +72,7 @@
             "test_allocation_optimization.jl",
             "test_jacobian_buffer_safety.jl",
             "test_regularization.jl",
+            "test_extractor_cache.jl",
             "test_unified_interface.jl",
         ])
         @test all_classified == expected_all
