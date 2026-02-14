@@ -282,3 +282,82 @@ end
         @test α == 0.25
     end
 end
+
+@testset "Pre-allocated x_buffer" begin
+    @testset "armijo_backtracking: buffer gives same result as allocating" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-5.0, -10.0]
+        x_buffer = similar(x)
+
+        α_alloc = armijo_backtracking(r, x, d, 1.0)
+        α_buf = armijo_backtracking(r, x, d, 1.0; x_buffer)
+
+        @test α_buf == α_alloc
+        @test α_buf > 0.0
+    end
+
+    @testset "armijo_backtracking: buffer is actually used (no extra allocation)" begin
+        r(x) = x
+        x = [2.0, 3.0, 4.0]
+        d = -x
+        x_buffer = similar(x)
+
+        α = armijo_backtracking(r, x, d, 1.0; x_buffer)
+        @test α == 1.0
+        # Buffer should have been written to (last trial point)
+        @test x_buffer ≈ x .+ α .* d atol = 1e-14
+    end
+
+    @testset "geometric_reduction: buffer gives same result as allocating" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-5.0, -10.0]
+        x_buffer = similar(x)
+
+        α_alloc = geometric_reduction(r, x, d, 1.0)
+        α_buf = geometric_reduction(r, x, d, 1.0; x_buffer)
+
+        @test α_buf == α_alloc
+        @test α_buf > 0.0
+    end
+
+    @testset "geometric_reduction: buffer is actually used (no extra allocation)" begin
+        r(x) = x
+        x = [2.0, 3.0, 4.0]
+        d = -x
+        x_buffer = similar(x)
+
+        α = geometric_reduction(r, x, d, 1.0; x_buffer)
+        @test α == 1.0
+        # Buffer should have been written to (last trial point)
+        @test x_buffer ≈ x .+ α .* d atol = 1e-14
+    end
+
+    @testset "armijo_backtracking: multidimensional with backtracking" begin
+        r(x) = x .^ 2
+        x = [2.0, 3.0, 4.0, 5.0]
+        d = [-20.0, -30.0, -40.0, -50.0]
+        x_buffer = similar(x)
+
+        α_alloc = armijo_backtracking(r, x, d, 1.0; rho=0.5, max_iters=20)
+        α_buf = armijo_backtracking(r, x, d, 1.0; rho=0.5, max_iters=20, x_buffer)
+
+        @test α_buf == α_alloc
+        @test 0.0 < α_buf < 1.0
+    end
+
+    @testset "perform_linesearch: z_trial_buffer gives same result" begin
+        # Simple residual norm function
+        residual_norm_fn(z) = sum(abs2, z)
+        z_est = [1.0, 2.0, 3.0]
+        δz = -z_est  # Newton step toward origin
+        current_norm = residual_norm_fn(z_est)
+        z_trial_buffer = similar(z_est)
+
+        α_alloc = perform_linesearch(residual_norm_fn, z_est, δz, current_norm; use_armijo=true)
+        α_buf = perform_linesearch(residual_norm_fn, z_est, δz, current_norm; use_armijo=true, z_trial_buffer)
+
+        @test α_buf == α_alloc
+    end
+end
