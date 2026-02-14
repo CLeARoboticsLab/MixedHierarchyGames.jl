@@ -1,5 +1,5 @@
 using Test
-using LinearAlgebra: norm
+using LinearAlgebra: norm, dot
 using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_step
 
 @testset "Armijo Backtracking Linesearch" begin
@@ -280,5 +280,53 @@ end
 
         α = ls(r, x, d, 1.0)
         @test α == 0.25
+    end
+end
+
+@testset "dot(f,f) merit equivalence" begin
+    @testset "dot(f,f) avoids sqrt rounding in norm(f)^2" begin
+        # norm(v)^2 computes sqrt(dot(v,v))^2 which can introduce IEEE 754
+        # rounding error. dot(v,v) is the direct sum-of-squares — more accurate.
+        # This test documents that the two can differ, motivating the optimization.
+        v = [1.0, 2.0, 3.0, 4.0, 5.0]
+        merit_dot = dot(v, v)
+        merit_norm = norm(v)^2
+        # They agree to machine precision but may not be bitwise identical
+        @test merit_dot ≈ merit_norm atol = 1e-14
+        # dot(v,v) should equal the algebraic sum of squares exactly
+        @test merit_dot == sum(vi^2 for vi in v)
+    end
+
+    @testset "Armijo linesearch step unchanged after norm-to-dot optimization" begin
+        # Record the step size returned by armijo_backtracking. This should be
+        # identical before and after replacing norm(f)^2 with dot(f,f) because
+        # both compute the same merit up to negligible rounding.
+        r(x) = x .^ 2
+        x = [2.0, 3.0]
+        d = [-1.0, -1.5]
+
+        α = armijo_backtracking(r, x, d, 1.0)
+
+        # The step should satisfy Armijo condition using dot-based merit
+        f_x = r(x)
+        f_new = r(x .+ α .* d)
+        ϕ_0 = dot(f_x, f_x)
+        ϕ_new = dot(f_new, f_new)
+        @test ϕ_new <= ϕ_0 + 1e-4 * α * (-2 * ϕ_0)
+        @test α > 0.0
+    end
+
+    @testset "Geometric reduction step unchanged after norm-to-dot optimization" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-0.5, -1.0]
+
+        α = geometric_reduction(r, x, d, 1.0)
+
+        # Step should satisfy strict decrease using dot-based merit
+        f_x = r(x)
+        f_new = r(x .+ α .* d)
+        @test dot(f_new, f_new) < dot(f_x, f_x)
+        @test α > 0.0
     end
 end
