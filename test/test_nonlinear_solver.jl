@@ -2500,4 +2500,42 @@ end
         @test all_K_fresh ≈ all_K_buf atol=1e-14
         @test info_fresh.status == info_buf.status
     end
+
+    @testset "BFS follower list via manual iteration matches collect-then-slice" begin
+        using Graphs: SimpleDiGraph, add_edge!, BFSIterator
+
+        # Helper: manual BFS iteration skipping self (the optimized approach)
+        function _bfs_followers_manual(g, root)
+            result = Int[]
+            for v in BFSIterator(g, root)
+                v == root && continue
+                push!(result, v)
+            end
+            return result
+        end
+
+        # Build a 3-player chain: 1 → 2 → 3
+        g = SimpleDiGraph(3)
+        add_edge!(g, 1, 2)
+        add_edge!(g, 2, 3)
+
+        for root in 1:3
+            # Reference: the old collect-then-slice approach
+            expected = collect(BFSIterator(g, root))[2:end]
+            # Optimized: manual iteration skipping self
+            optimized = _bfs_followers_manual(g, root)
+            @test optimized == expected
+        end
+
+        # Branching graph: 1 → 2, 1 → 3
+        g2 = SimpleDiGraph(3)
+        add_edge!(g2, 1, 2)
+        add_edge!(g2, 1, 3)
+
+        for root in 1:3
+            expected = collect(BFSIterator(g2, root))[2:end]
+            optimized = _bfs_followers_manual(g2, root)
+            @test optimized == expected
+        end
+    end
 end

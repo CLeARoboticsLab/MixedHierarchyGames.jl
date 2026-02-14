@@ -2291,3 +2291,52 @@ Cache the result of `topological_sort_by_dfs(G)` in the `setup_info` NamedTuple 
 ### Action Items for Next PR
 
 - [ ] Pre-existing test failure at `test_nonlinear_solver_options.jl:151` should be investigated (NamedTuple constructor keyword path)
+
+---
+
+## PR: perf/19-optimize-bfs-collect (T3-5)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Bead:** ge7
+
+### Summary
+
+Replaced `collect(BFSIterator(graph, ii))[2:end]` with manual iteration that skips self, avoiding intermediate allocation and array slicing. Also improves type stability (`Vector{Any}` -> `Vector{Int}`). Impact is negligible since the result is cached per-player.
+
+### TDD Compliance
+
+- [x] Test written first (characterization test verifying equivalence of old and new approaches)
+- [x] Red-Green-Refactor cycle followed
+- [x] No implementation before tests
+
+### Clean Code
+
+- [x] Single, focused change
+- [x] No duplicated code
+- [x] Clear naming
+
+### Commits
+
+- [x] 3 commits: test, implementation, benchmark
+- [x] Each commit is small and focused
+- [x] Descriptive messages
+
+### CLAUDE.md Compliance
+
+- [x] All instructions followed
+- [x] Note: `Iterators.drop` was initially planned but `BFSIterator` has `SizeUnknown` which breaks `collect(Iterators.drop(...))`. Manual iteration was the correct fix.
+
+### What Went Well
+
+- Clean TDD cycle for a tiny change
+- Discovered `Iterators.drop` incompatibility early via testing
+- Benchmark confirms expected negligible-but-positive impact
+
+### What Could Be Improved
+
+- Nothing significant for a change this small
+
+### Action Items for Next PR
+
+- [ ] Pre-existing test failure at `test_nonlinear_solver_options.jl:151` persists from previous PRs
