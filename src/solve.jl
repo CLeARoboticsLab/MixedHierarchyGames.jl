@@ -621,7 +621,7 @@ function solve_qp_linear(
 
     # Use pre-allocated buffers if provided, otherwise allocate
     n = size(parametric_mcp.jacobian_z!.result_buffer, 1)
-    J = something(J_buffer, copy(parametric_mcp.jacobian_z!.result_buffer))
+    J = something(J_buffer, similar(parametric_mcp.jacobian_z!.result_buffer))
     F = something(F_buffer, zeros(n))
     z0 = something(z0_buffer, zeros(n))
 
