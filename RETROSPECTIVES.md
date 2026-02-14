@@ -2246,3 +2246,32 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/24-symbolics-num-conversion (T3-1)
+
+**Date:** 2026-02-14
+**Scope:** Remove unnecessary `Symbolics.Num()` conversions in MCP construction
+
+### TDD Compliance
+- TDD was followed: failing tests written first (commit 1), implementation second (commit 2).
+- Test tier validation file was missed in the initial commit — fixed in commit 3.
+
+### Clean Code
+- Added `_ensure_num_vec` as a clean two-method dispatch helper. Minimal and focused.
+- No unnecessary abstractions added.
+
+### Commits
+- 3 commits: (1) failing tests, (2) implementation, (3) test tier fix.
+- Each commit is focused and leaves the codebase in a working state (after commit 3).
+
+### What Went Well
+- Clean TDD cycle with method dispatch instead of runtime branching.
+- Impact is negligible as expected (setup-time optimization, not hot-path).
+
+### What Could Be Improved
+- `test_test_tiers.jl` should have been updated in commit 1 when adding the new test file to tiers. Required a fix commit.
+
+### Action Items for Next PR
+- [ ] When adding new test files, always update both `test_tiers.jl` AND `test_test_tiers.jl` in the same commit
