@@ -33,12 +33,13 @@ function armijo_backtracking(
     max_iters::Int=20,
 )
     f_x = f(x)
-    ϕ_0 = norm(f_x)^2
+    ϕ_0 = dot(f_x, f_x)
 
     α = alpha_init
     for _ in 1:max_iters
         x_new = x .+ α .* d
-        ϕ_new = norm(f(x_new))^2
+        f_new = f(x_new)
+        ϕ_new = dot(f_new, f_new)
 
         # Sufficient decrease: ϕ(x + α*d) ≤ ϕ(x) + c1 * α * (-2 * ϕ(x))
         if ϕ_new <= ϕ_0 + c1 * α * (-2 * ϕ_0)
@@ -86,12 +87,14 @@ function geometric_reduction(
     rho::Float64=0.5,
     max_iters::Int=20,
 )
-    ϕ_0 = norm(f(x))^2
+    f_x = f(x)
+    ϕ_0 = dot(f_x, f_x)
 
     α = alpha_init
     for _ in 1:max_iters
         x_new = x .+ α .* d
-        ϕ_new = norm(f(x_new))^2
+        f_new = f(x_new)
+        ϕ_new = dot(f_new, f_new)
 
         if ϕ_new < ϕ_0
             return α
