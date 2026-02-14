@@ -17,6 +17,15 @@ const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
 """
+    _ensure_num_vec(v::AbstractVector) -> Vector{Symbolics.Num}
+
+Return `v` unchanged if it is already a `Vector{Symbolics.Num}`, otherwise convert via
+`Symbolics.Num.(v)`. Avoids redundant allocation when symbolic vectors are already typed.
+"""
+_ensure_num_vec(v::Vector{Symbolics.Num}) = v
+_ensure_num_vec(v::AbstractVector) = Symbolics.Num.(v)
+
+"""
     check_convergence(residual, tol; verbose=false, iteration=nothing)
 
 Check whether the solver has converged based on the KKT residual norm.
@@ -459,7 +468,7 @@ function preoptimize_nonlinear_solver(
 
         # Build MCP function vector
         π_order = ordered_player_indices(πs_solve)
-        F_sym = Symbolics.Num.(vcat([πs_solve[k] for k in π_order]...))
+        F_sym = _ensure_num_vec(vcat([πs_solve[k] for k in π_order]...))
     end
 
     # Build ParametricMCP
@@ -469,7 +478,7 @@ function preoptimize_nonlinear_solver(
 
         verbose && @info "Preoptimization: $(length(all_variables)) variables, $(length(F_sym)) conditions"
 
-        params_syms_vec = Symbolics.Num.(all_param_syms_vec)
+        params_syms_vec = _ensure_num_vec(all_param_syms_vec)
         mcp_obj = ParametricMCPs.ParametricMCP(
             F_sym, all_variables, params_syms_vec, z_lower, z_upper;
             compute_sensitivities = false
