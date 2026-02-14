@@ -2246,3 +2246,47 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/12-ws-single-vcat (T2-7, bead 40x)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1271 passing (60 in problem_setup)
+
+### Summary
+
+Replaced repeated `vcat` calls in ws construction loop with collect-then-`reduce(vcat, pieces)` pattern. Eliminates O(N²) intermediate allocations.
+
+### TDD Compliance
+**Score: Strong (9/10)**
+- What went well: Tests written first locking in exact symbolic content of ws vectors for chain and Nash topologies. Implementation swapped in afterward.
+- What could improve: Initial test had wrong μs count (forgot transitive followers get μs pairs) — fixed before committing.
+
+### Clean Code Practices
+**Score: Strong (10/10)**
+- What went well: Minimal 10-line change. No new abstractions. Same variable names and loop structure preserved.
+
+### Clean Architecture Practices
+**Score: Strong (10/10)**
+- What went well: Pure performance refactor — no interface or architecture changes.
+
+### Commit Hygiene
+**Score: Strong (10/10)**
+- What went well: Exactly 3 commits: (1) tests, (2) implementation, (3) benchmarks. Each self-contained.
+
+### CLAUDE.md Compliance
+**Score: Strong (10/10)**
+- [x] TDD followed
+- [x] Minimum 3 commits
+- [x] Benchmark results included
+- [x] Retrospective written before final push
+
+### Key Learnings
+
+1. **Collect-then-reduce is always better than loop-vcat.** The quadratic cost of repeated vcat is invisible at small N but dramatic at N=6 (32x speedup).
+2. **Symbolic equality tests (`isequal`) are excellent for refactoring confidence.** They verify exact variable identity, not just dimensions.
+
+### Action Items for Next PR
+- [ ] Apply same pattern to `all_variables` construction (lines 263-267 in problem_setup.jl)
