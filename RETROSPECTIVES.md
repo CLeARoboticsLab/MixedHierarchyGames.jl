@@ -2280,3 +2280,40 @@ Removed unnecessary `collect(values(μs))` intermediate allocation in `setup_pro
 ### Action Items for Next PR
 
 - None — trivial change with full test coverage
+
+---
+
+## PR: perf/17-merge-options-shortcircuit (Perf T2-2)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1258 passing (full suite), 1 pre-existing failure (NamedTuple validation test on base branch)
+
+### Summary
+
+Added short-circuit early return in `_merge_options` when all kwargs are `nothing` (no overrides). Returns the base `NonlinearSolverOptions` directly, skipping 8 `something()` calls, constructor validation, and keyword splatting. The Julia compiler can then fully eliminate this path (~0ns vs ~5-7ns for constructor path).
+
+### TDD Compliance
+
+**Score: 7/10**
+
+- Tests were written first (commit 1), but they passed immediately because `===` on immutable structs in Julia compares bitwise, not by identity. The optimization doesn't change observable behavior — it's purely a performance improvement.
+- The "RED" phase was not achievable without timing-based assertions (which are flaky in CI).
+- This is an inherent limitation of testing pure performance optimizations on immutable value types.
+- **Improvement**: For future perf-only PRs on immutable structs, acknowledge upfront that TDD "RED" may not be achievable and focus on correctness + benchmark evidence.
+
+### Clean Code
+
+- 4-line addition (3 lines for the `if` check + 1 `return`)
+- No unnecessary changes
+- Clear comment explaining the short-circuit
+
+### Commits
+
+- Commit 1: Tests for short-circuit contract (=== identity, explicit nothing, partial override)
+- Commit 2: Implementation (isnothing conjunction + early return)
+- Commit 3: Benchmark script showing compiler eliminates short-circuit path entirely
+
+### Action Items for Next PR
+
+- [ ] Pre-existing test failure at line 151 (`NamedTuple constructor validates through keyword path`) should be investigated separately
