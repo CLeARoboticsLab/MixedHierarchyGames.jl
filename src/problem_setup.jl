@@ -259,12 +259,24 @@ function setup_problem_variables(
         end
     end
 
-    # Flatten all variables (in player index order)
-    all_variables = vcat(
-        vcat([zs[i] for i in 1:N]...),
-        vcat([λs[i] for i in 1:N]...),
-        (isempty(μs) ? eltype(zs[1])[] : vcat(collect(values(μs))...))
-    )
+    # Flatten all variables in a single pass (player index order: zs, λs, μs)
+    total_len = sum(length(zs[i]) for i in 1:N) +
+                sum(length(λs[i]) for i in 1:N) +
+                sum(length(v) for v in values(μs); init=0)
+    all_variables = Vector{eltype(zs[1])}(undef, total_len)
+    offset = 0
+    for i in 1:N
+        copyto!(all_variables, offset + 1, zs[i], 1, length(zs[i]))
+        offset += length(zs[i])
+    end
+    for i in 1:N
+        copyto!(all_variables, offset + 1, λs[i], 1, length(λs[i]))
+        offset += length(λs[i])
+    end
+    for v in values(μs)
+        copyto!(all_variables, offset + 1, v, 1, length(v))
+        offset += length(v)
+    end
 
     (; zs, λs, μs, ys, ws, ws_z_indices, all_variables)
 end
