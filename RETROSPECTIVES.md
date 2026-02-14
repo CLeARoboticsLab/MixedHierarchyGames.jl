@@ -2246,3 +2246,69 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/11-cache-graph-traversals (Perf T2-6)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1275 passing (full suite)
+
+### Summary
+
+Cache `get_all_followers` and `get_all_leaders` results in `setup_problem_variables` to avoid O(N²) repeated BFS traversals. Added `_build_graph_caches(graph)` internal function that pre-computes both lookups as `Dict{Int,Vector{Int}}` once, replacing 5 call sites.
+
+### TDD Compliance
+
+- **Fully followed.** Wrote failing tests first (4 graph topologies: chain, star, Nash, mixed), then implemented the cache, then verified all tests pass.
+- Red-Green-Refactor cycle completed correctly in 3 commits.
+
+### Clean Code
+
+- Single-purpose function: `_build_graph_caches` does one thing (build caches)
+- Minimal change: only 5 lines replaced in `setup_problem_variables`, 22 lines added for the new function
+- No dead code introduced
+
+### Clean Architecture
+
+- Cache is an implementation detail internal to `setup_problem_variables`
+- `_build_graph_caches` is not exported (accessed via explicit import in tests only)
+- No public API changes
+
+### Commit Hygiene
+
+- 3 focused commits: (1) failing tests, (2) implementation, (3) benchmarks
+- Each commit leaves codebase in a testable state
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed
+- [x] 3+ commits (failing tests, implementation, benchmarks)
+- [x] Tolerances not applicable (no numerical tests added)
+- [x] Full test suite passes (1275 tests)
+
+### What Went Well
+
+- Clean TDD cycle - tests written first, failed correctly, passed after implementation
+- Small, focused change with clear impact
+
+### What Could Be Improved
+
+- Benchmark only measures isolated traversal cost, not full `setup_problem_variables` speedup
+- For small N (3-5), caching overhead is marginal; benefit primarily at N>8
+
+### Benchmark Results
+
+| N  | Chain Speedup | Star Speedup |
+|----|--------------|-------------|
+| 3  | 1.0x         | 0.83x       |
+| 5  | 1.24x        | 0.89x       |
+| 8  | 1.54x        | 1.05x       |
+| 10 | 2.17x        | 1.11x       |
+| 15 | 1.93x        | 1.59x       |
+| 20 | 2.06x        | 4.28x       |
+
+### Action Items for Next PR
+
+- [ ] Consider caching in `get_qp_kkt_conditions` which also calls graph traversals
