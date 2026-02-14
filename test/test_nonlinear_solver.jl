@@ -1,6 +1,6 @@
 using Test
 using Logging
-using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort
+using Graphs: SimpleDiGraph, add_edge!, nv, topological_sort, topological_sort_by_dfs
 using LinearAlgebra: norm, I
 using SparseArrays: spzeros, sparse
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
@@ -125,6 +125,43 @@ end
         @test haskey(setup_info, Symbol("M_fns!")) || hasproperty(setup_info, Symbol("M_fns!"))
         @test haskey(setup_info, Symbol("N_fns!")) || hasproperty(setup_info, Symbol("N_fns!"))
         @test haskey(setup_info, :π_sizes) || hasproperty(setup_info, :π_sizes)
+    end
+
+    @testset "setup_info contains cached reverse_topo_order" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend
+        )
+
+        # setup_info should contain a cached reverse_topo_order field
+        @test hasproperty(setup_info, :reverse_topo_order)
+
+        # The cached value must match a freshly computed topological sort
+        expected = reverse(topological_sort_by_dfs(prob.G))
+        @test setup_info.reverse_topo_order == expected
+    end
+
+    @testset "reverse_topo_order cached in setup_info for 3-player chain" begin
+        prob = make_three_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        _, setup_info = setup_approximate_kkt_solver(
+            prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+            vars.ws, vars.ys, prob.θs, all_variables, backend
+        )
+
+        expected = reverse(topological_sort_by_dfs(prob.G))
+        @test setup_info.reverse_topo_order == expected
+        # For 3-player chain P1->P2->P3, reverse topo order should process leaves first
+        @test setup_info.reverse_topo_order[1] == 3  # leaf first
+        @test setup_info.reverse_topo_order[end] == 1  # root last
     end
 
     @testset "K_syms has correct dimensions per player" begin
