@@ -518,7 +518,11 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
     # Get cached follower list
     followers = follower_cache[ii]
     if isnothing(followers)
-        followers = collect(BFSIterator(graph, ii))[2:end]  # Exclude self
+        followers = Int[]  # Exclude self via manual iteration
+        for v in BFSIterator(graph, ii)
+            v == ii && continue
+            push!(followers, v)
+        end
         follower_cache[ii] = followers
     end
 
