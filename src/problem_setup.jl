@@ -85,6 +85,25 @@ function make_symbolic_matrix(name::Symbol, player::Int, rows::Int, cols::Int; b
 end
 
 #=
+    Graph traversal caching
+=#
+
+"""
+    _build_graph_caches(graph::SimpleDiGraph)
+
+Pre-compute `get_all_followers` and `get_all_leaders` for every node in `graph`.
+
+Returns `(followers_cache, leaders_cache)` where each is a `Dict{Int,Vector{Int}}`.
+Called once at the start of `setup_problem_variables` to avoid O(N²) repeated traversals.
+"""
+function _build_graph_caches(graph::SimpleDiGraph)
+    N = nv(graph)
+    followers_cache = Dict{Int,Vector{Int}}(i => get_all_followers(graph, i) for i in 1:N)
+    leaders_cache = Dict{Int,Vector{Int}}(i => get_all_leaders(graph, i) for i in 1:N)
+    return followers_cache, leaders_cache
+end
+
+#=
     Problem variable setup
 =#
 
@@ -192,6 +211,9 @@ function setup_problem_variables(
 )
     N = nv(graph)
 
+    # Cache graph traversals once to avoid O(N²) repeated BFS calls
+    followers_cache, leaders_cache = _build_graph_caches(graph)
+
     # Create decision variables for each player
     zs = Dict(i => make_symbolic_vector(:z, i, primal_dims[i]; backend) for i in 1:N)
 
@@ -203,12 +225,12 @@ function setup_problem_variables(
 
     # Create policy constraint multipliers for leader-follower pairs
     μs = Dict((i, j) => make_symbolic_vector(:μ, i, j, primal_dims[j]; backend)
-              for i in 1:N for j in get_all_followers(graph, i))
+              for i in 1:N for j in followers_cache[i])
 
     # Information vectors: ys[i] contains decisions of all leaders of i
     ys = Dict{Int, Vector{Symbolics.Num}}()
     for i in 1:N
-        leaders = get_all_leaders(graph, i)
+        leaders = leaders_cache[i]
         ys[i] = isempty(leaders) ? eltype(zs[1])[] : vcat([zs[l] for l in leaders]...)
     end
 
@@ -228,7 +250,7 @@ function setup_problem_variables(
     ws_z_indices = Dict{Int, Dict{Int, UnitRange{Int}}}()
 
     for i in 1:N
-        leaders = get_all_leaders(graph, i)
+        leaders = leaders_cache[i]
         ws_z_indices[i] = Dict{Int, UnitRange{Int}}()
 
         # ws[i] starts with the player's own decision variable
@@ -247,12 +269,12 @@ function setup_problem_variables(
 
         # Add λs for self and followers
         ws[i] = vcat(ws[i], λs[i])
-        for j in get_all_followers(graph, i)
+        for j in followers_cache[i]
             ws[i] = vcat(ws[i], λs[j])
         end
 
         # Add μs for follower policies
-        for j in get_all_followers(graph, i)
+        for j in followers_cache[i]
             if haskey(μs, (i, j))
                 ws[i] = vcat(ws[i], μs[(i, j)])
             end
