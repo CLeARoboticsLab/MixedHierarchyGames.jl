@@ -2246,3 +2246,48 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/27-debug-getter (Perf T1-3)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 532 passing
+
+### Summary
+
+Removed unnecessary `get()` with empty vector default in debug logging path of `setup_approximate_kkt_solver`. The `get(augmented_variables, ii, [])` call allocated an empty `Vector` on every loop iteration as the default argument, even though `augmented_variables[ii]` is always set earlier in the loop. Replaced with direct dict access `augmented_variables[ii]`.
+
+### TDD Compliance
+
+- [x] TDD followed: test written first verifying verbose debug output behavior
+- [x] Red-Green-Refactor cycle completed correctly
+- [x] No implementation before tests
+
+### Clean Code
+
+- [x] Single-line change, minimal and focused
+- [x] No unnecessary abstractions added
+
+### Commits
+
+- [x] 3 commits: (1) test, (2) implementation, (3) retrospective
+- [x] Each commit is small and focused
+
+### CLAUDE.md Compliance
+
+- [x] All instructions followed
+
+### What Went Well
+
+- Clean TDD cycle for a simple performance fix
+- Test captures both verbose and non-verbose behavior
+
+### What Could Be Improved
+
+- Impact is negligible (setup-time only, not hot-path) — but part of larger perf audit
+
+### Action Items for Next PR
+
+- None — straightforward fix
