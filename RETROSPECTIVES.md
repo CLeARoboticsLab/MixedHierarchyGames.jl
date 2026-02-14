@@ -2246,3 +2246,37 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/28-collect-values (Perf T2-1)
+
+**Date:** 2026-02-14
+**Commits:** 2
+**Tests:** 550 passing (fast tier)
+
+### Summary
+
+Removed unnecessary `collect(values(μs))` intermediate allocation in `setup_problem_variables`. Replaced `vcat(collect(values(μs))...)` with `reduce(vcat, values(μs))` which iterates directly without creating a temporary array.
+
+### TDD Compliance
+
+**Score: 10/10**
+
+- Tests written first verifying `all_variables` construction for both Stackelberg (with μ) and Nash (without μ) configurations
+- Implementation committed only after tests passed on current code
+- Optimization verified against same tests
+
+### Clean Code
+
+- Single-line change, minimal scope
+- No unnecessary additions
+
+### Commits
+
+- Commit 1: Tests for `all_variables` construction
+- Commit 2: Implementation (replace `collect(values(...))` with `reduce(vcat, ...)`)
+
+### Action Items for Next PR
+
+- None — trivial change with full test coverage

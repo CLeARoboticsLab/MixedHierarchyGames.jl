@@ -117,6 +117,68 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         @test length(result.ys[3]) == primal_dims[2]
     end
 
+    @testset "all_variables contains all z, λ, and μ variables" begin
+        # 2-player Stackelberg: 1→2 (has μ variables)
+        G = SimpleDiGraph(2)
+        add_edge!(G, 1, 2)
+
+        primal_dims = [3, 4]
+        constraint_dims = [2, 2]
+        gs = [z -> zeros(Num, constraint_dims[i]) for i in 1:2]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+
+        # all_variables should contain all zs, λs, and μs
+        total_z = sum(primal_dims)          # 3 + 4 = 7
+        total_λ = sum(constraint_dims)      # 2 + 2 = 4
+        # μ[(1,2)] has dim = primal_dims[2] = 4 (leader 1 → follower 2)
+        total_μ = primal_dims[2]            # 4
+        expected_length = total_z + total_λ + total_μ  # 15
+
+        @test length(result.all_variables) == expected_length
+
+        # Helper: symbolic-safe membership check
+        sym_in(v, collection) = any(x -> isequal(x, v), collection)
+
+        # Verify all z variables are present in all_variables
+        for i in 1:2
+            for v in result.zs[i]
+                @test sym_in(v, result.all_variables)
+            end
+        end
+
+        # Verify all λ variables are present
+        for i in 1:2
+            for v in result.λs[i]
+                @test sym_in(v, result.all_variables)
+            end
+        end
+
+        # Verify all μ variables are present
+        for (key, μ_vec) in result.μs
+            for v in μ_vec
+                @test sym_in(v, result.all_variables)
+            end
+        end
+    end
+
+    @testset "all_variables correct with no μ (Nash game)" begin
+        # 2-player Nash: no edges → no μ variables
+        G = SimpleDiGraph(2)
+        # No edges added
+
+        primal_dims = [3, 4]
+        constraint_dims = [2, 2]
+        gs = [z -> zeros(Num, constraint_dims[i]) for i in 1:2]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+
+        # all_variables should contain only zs and λs
+        expected_length = sum(primal_dims) + sum(constraint_dims)  # 7 + 4 = 11
+        @test length(result.all_variables) == expected_length
+        @test isempty(result.μs)
+    end
+
     @testset "coupled constraints are rejected" begin
         using MixedHierarchyGames: default_backend, make_symbolic_vector
 
