@@ -2246,3 +2246,64 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/15-dedup-k-flattening (T3-3)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1240 passing (5 new)
+
+### Summary
+
+Deduplicated K symbol vector flattening in the nonlinear KKT solver setup. The same `vcat+reshape` expression was computed identically in both `setup_approximate_kkt_solver` (line 351) and `preoptimize_nonlinear_solver` (line 449). Now computed once in `setup_approximate_kkt_solver` and returned via the named tuple.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- Wrote failing test first verifying `setup_info.all_K_syms_vec` exists and matches inline computation
+- Committed failing test before implementation
+- Implementation was minimal: added field to named tuple, replaced duplicate expression with field access
+
+### Clean Code
+
+**Score: Good (9/10)**
+
+- Change is minimal and focused — only two lines modified in source
+- Named tuple field name (`all_K_syms_vec`) is consistent with existing naming conventions
+- No unnecessary refactoring beyond the task scope
+
+### Clean Architecture
+
+**Score: Good (9/10)**
+
+- Proper data flow: compute once at source, pass through return value
+- No new coupling introduced
+
+### Commit Hygiene
+
+**Score: Excellent (10/10)**
+
+- Three commits following investigation PR pattern: (1) failing test, (2) implementation, (3) test tier fix
+- Each commit leaves codebase in coherent state
+
+### CLAUDE.md Compliance
+
+- TDD followed strictly
+- Test tolerances use `isequal` for symbolic comparison (appropriate for this case)
+- Test registered in fast tier
+
+### What Went Well
+
+- Clean TDD cycle with minimal code changes
+- Learned that Symbolics.Num requires `isequal` not `==` for boolean comparison in tests
+
+### What Could Be Improved
+
+- Initial test used `==` for symbolic comparison, needed fix — could have anticipated this from the symbolic types
+
+### Action Items for Next PR
+
+- Remember to use `isequal` for Symbolics.Num comparisons in tests
