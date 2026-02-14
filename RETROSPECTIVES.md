@@ -2246,3 +2246,50 @@ A 4-expert review (Julia Expert, Software Engineer, Test Engineer, Numerical Com
 
 - [ ] Consider making `NonlinearSolverOptions` the default constructor path (currently both NamedTuple and struct work)
 - [ ] Update README examples if they reference the old NamedTuple options format
+
+---
+
+## PR: perf/23-all-variables-single-pass (T2-8)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 539 passing
+
+### Summary
+
+Replaced nested `vcat` operations in `all_variables` construction with a single-pass pre-allocated `copyto!` approach. Minor performance optimization (2.7x speedup, 61% allocation reduction for the specific operation).
+
+### TDD Compliance
+
+- [x] Tests written first defining expected `all_variables` structure
+- [x] Tests committed before implementation
+- [x] Red-Green-Refactor followed correctly
+
+### Clean Code
+
+- [x] Functions remain small and single-purpose
+- [x] Change is minimal and focused on the optimization target
+- [x] No unnecessary abstractions introduced
+
+### Commits
+
+- [x] 3 commits: tests, implementation, verification/benchmark
+- [x] Each commit leaves codebase in working state
+
+### CLAUDE.md Compliance
+
+- [x] All instructions followed
+- [x] TDD mandatory process followed
+
+### What Went Well
+
+- Clean, focused optimization with clear before/after metrics
+- Existing test suite (539 tests) provided confidence in correctness
+
+### What Could Be Improved
+
+- Benchmark results are ephemeral (printed to console) — could be captured in a file for reproducibility
+
+### Action Items for Next PR
+
+- None — this was a straightforward, isolated optimization
