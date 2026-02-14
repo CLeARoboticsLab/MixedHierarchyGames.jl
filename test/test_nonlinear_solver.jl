@@ -199,6 +199,54 @@ end
         @test length(setup_info.var"M_fns!") == 3
         @test length(setup_info.var"N_fns!") == 3
     end
+
+    @testset "verbose mode reports correct augmented variable counts" begin
+        prob = make_two_player_chain_problem()
+        backend = default_backend()
+        vars = setup_problem_variables(prob.G, prob.primal_dims, prob.gs; backend)
+        all_variables = vars.all_variables
+
+        # Capture @debug messages with verbose=true
+        test_logger = TestLogger(; min_level=Logging.Debug)
+        with_logger(test_logger) do
+            setup_approximate_kkt_solver(
+                prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+                vars.ws, vars.ys, prob.θs, all_variables, backend;
+                verbose=true
+            )
+        end
+
+        # Should have debug messages for each player
+        debug_msgs = filter(l -> l.level == Logging.Debug, test_logger.logs)
+        @test length(debug_msgs) >= 2  # At least 2 players
+
+        # Each message should contain "KKT conditions" and "augmented vars"
+        for msg in debug_msgs
+            msg_str = string(msg.message)
+            @test occursin("KKT conditions", msg_str)
+            @test occursin("augmented vars", msg_str)
+        end
+
+        # Augmented var count should be > 0 for all players (never the empty-vec fallback)
+        for msg in debug_msgs
+            msg_str = string(msg.message)
+            m = match(r"augmented vars: (\d+)", msg_str)
+            @test m !== nothing
+            @test parse(Int, m[1]) > 0
+        end
+
+        # Run without verbose — should produce no debug messages from this function
+        quiet_logger = TestLogger(; min_level=Logging.Debug)
+        with_logger(quiet_logger) do
+            setup_approximate_kkt_solver(
+                prob.G, prob.Js, vars.zs, vars.λs, vars.μs, prob.gs,
+                vars.ws, vars.ys, prob.θs, all_variables, backend;
+                verbose=false
+            )
+        end
+        quiet_msgs = filter(l -> l.level == Logging.Debug, quiet_logger.logs)
+        @test length(quiet_msgs) == 0
+    end
 end
 
 #=
