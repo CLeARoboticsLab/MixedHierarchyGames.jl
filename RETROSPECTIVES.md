@@ -2288,3 +2288,64 @@ Added `@inline` annotations to four trivial utility functions (`is_root`, `is_le
 
 ### Action Items for Next PR
 - None—this is a self-contained trivial change
+
+---
+
+## PR: perf/25-lazy-warn-linesearch (T1-2)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1256 passing (2 new)
+
+### Summary
+
+Changed `@warn "message $var"` to `@warn lazy"message $var"` in both `armijo_backtracking` and `geometric_reduction` in `src/linesearch.jl`. This avoids unnecessary string allocation when the warning log level is suppressed. Added tests verifying warning messages use `Base.LazyString`.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- Tests written first (commit 1) — verified failing because message was `String` not `LazyString`
+- Implementation (commit 2) — changed to `lazy"..."`, tests pass
+- Clean red-green-refactor cycle with no shortcuts
+
+### Clean Code
+
+**Score: 10/10**
+
+- Minimal, focused change: 2 characters changed per line (`lazy"` prefix added)
+- No unnecessary modifications beyond the task scope
+- No new functions, abstractions, or dependencies
+
+### Clean Architecture
+
+**Score: 10/10**
+
+- Change is localized to a single file (`src/linesearch.jl`)
+- No API changes, no behavioral changes
+
+### Commit Hygiene
+
+**Score: 9/10**
+
+- 3 commits: (1) failing tests, (2) implementation, (3) retrospective
+- Each commit is focused and self-contained
+- Minor: the change is so small that 3 commits feels like overhead, but follows CLAUDE.md requirements
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed (Red-Green-Refactor)
+- [x] Tests written before implementation
+- [x] Full test suite passing (1256/1256)
+- [x] Minimum 3 commits (tests, implementation, retrospective)
+- [x] Retrospective written before PR finalization
+- [x] Bead status updated
+
+### Key Learnings
+
+1. `lazy"..."` strings in Julia (Base.LazyString, since 1.8) are the correct way to defer string interpolation in logging macros. The `@warn` macro doesn't automatically defer interpolation of `"$var"` syntax.
+2. `Test.collect_test_logs()` is useful for inspecting log record properties (level, message type) beyond just pattern matching.
+
+### Action Items for Next PR
+
+- None—self-contained trivial change
