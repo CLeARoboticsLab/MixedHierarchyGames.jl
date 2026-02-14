@@ -738,7 +738,7 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
             @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
-            return fill(NaN, size(K))
+            return fill!(K, NaN)
         end
 
         return K
