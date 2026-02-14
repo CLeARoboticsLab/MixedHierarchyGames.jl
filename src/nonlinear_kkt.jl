@@ -102,6 +102,8 @@ When `use_armijo=false`, returns α=1.0 (full Newton step).
 
 # Keyword Arguments
 - `use_armijo::Bool=true` - Whether to perform backtracking line search
+- `z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `z_est + α*δz` each iteration. Must have same length as `z_est`.
 
 # Returns
 - `α::Float64` - Selected step size
