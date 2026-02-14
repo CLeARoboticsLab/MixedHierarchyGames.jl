@@ -1,4 +1,5 @@
 using Test
+using Logging
 using LinearAlgebra: norm
 using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_step
 
@@ -42,6 +43,21 @@ using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_st
 
         # Should signal failure by returning 0.0
         @test α == 0.0
+    end
+
+    @testset "Warning on failure uses lazy string" begin
+        r(x) = x
+        x = [1.0]
+        d = [1.0]  # Ascent direction forces failure
+
+        # Capture the log record to inspect message type
+        logs, _ = Test.collect_test_logs() do
+            armijo_backtracking(r, x, d, 1.0; max_iters=3)
+        end
+        @test length(logs) >= 1
+        @test logs[1].level == Logging.Warn
+        @test logs[1].message isa Base.LazyString
+        @test contains(string(logs[1].message), "Armijo line search failed")
     end
 
     @testset "Armijo sufficient decrease condition holds" begin
@@ -168,6 +184,21 @@ end
         α = geometric_reduction(r, x, d, 1.0; max_iters=5)
 
         @test α == 0.0
+    end
+
+    @testset "Warning on failure uses lazy string" begin
+        r(x) = x
+        x = [1.0]
+        d = [1.0]  # Ascent direction forces failure
+
+        # Capture the log record to inspect message type
+        logs, _ = Test.collect_test_logs() do
+            geometric_reduction(r, x, d, 1.0; max_iters=3)
+        end
+        @test length(logs) >= 1
+        @test logs[1].level == Logging.Warn
+        @test logs[1].message isa Base.LazyString
+        @test contains(string(logs[1].message), "Geometric reduction line search failed")
     end
 
     @testset "Simple decrease condition (no Armijo constant)" begin
