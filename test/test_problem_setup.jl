@@ -117,6 +117,54 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
         @test length(result.ys[3]) == primal_dims[2]
     end
 
+    @testset "all_variables is flat concatenation of zs, λs, μs in player order" begin
+        # 3-player chain: 1→2→3 (has μs for leader-follower pairs)
+        G = SimpleDiGraph(3)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 3)
+
+        primal_dims = [4, 3, 5]
+        constraint_dims = [2, 3, 2]
+        gs = [z -> zeros(Num, constraint_dims[i]) for i in 1:3]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+
+        # Build expected all_variables manually: zs in order, λs in order, μs values
+        expected_zs = vcat(result.zs[1], result.zs[2], result.zs[3])
+        expected_λs = vcat(result.λs[1], result.λs[2], result.λs[3])
+        expected_μs = isempty(result.μs) ? eltype(result.zs[1])[] : vcat(collect(values(result.μs))...)
+
+        expected = vcat(expected_zs, expected_λs, expected_μs)
+
+        @test length(result.all_variables) == length(expected)
+        @test all(isequal.(result.all_variables, expected))
+
+        # Verify expected total length: sum(primal_dims) + sum(constraint_dims) + μ dims
+        # In chain 1→2→3, get_all_followers gives transitive followers:
+        #   μs: (1,2) dim=3, (1,3) dim=5, (2,3) dim=5
+        total_μ_dim = sum(length(v) for v in values(result.μs))
+        expected_total = sum(primal_dims) + sum(constraint_dims) + total_μ_dim
+        @test length(result.all_variables) == expected_total
+    end
+
+    @testset "all_variables with no hierarchy (Nash, no μs)" begin
+        # 2 Nash players: no edges, so no μs
+        G = SimpleDiGraph(2)  # No edges
+
+        primal_dims = [3, 4]
+        constraint_dims = [2, 2]
+        gs = [z -> zeros(Num, constraint_dims[i]) for i in 1:2]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+
+        expected = vcat(result.zs[1], result.zs[2], result.λs[1], result.λs[2])
+
+        @test isempty(result.μs)
+        @test length(result.all_variables) == length(expected)
+        @test all(isequal.(result.all_variables, expected))
+        @test length(result.all_variables) == sum(primal_dims) + sum(constraint_dims)
+    end
+
     @testset "coupled constraints are rejected" begin
         using MixedHierarchyGames: default_backend, make_symbolic_vector
 
