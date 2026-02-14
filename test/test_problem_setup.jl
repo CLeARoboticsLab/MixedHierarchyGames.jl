@@ -1,7 +1,8 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!, nv
 using Symbolics: Num  # Only for type checking
-using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_variables
+using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_variables,
+    get_all_followers, get_all_leaders, _build_graph_caches
 
 @testset "Problem Setup" begin
     @testset "setup_problem_parameter_variables" begin
@@ -139,5 +140,92 @@ using MixedHierarchyGames: setup_problem_parameter_variables, setup_problem_vari
 
         # Should throw ArgumentError for coupled constraint
         @test_throws ArgumentError setup_problem_variables(G, primal_dims, gs_coupled)
+    end
+
+    @testset "graph cache correctness" begin
+        @testset "chain graph 1→2→3" begin
+            G = SimpleDiGraph(3)
+            add_edge!(G, 1, 2)
+            add_edge!(G, 2, 3)
+
+            followers_cache, leaders_cache = _build_graph_caches(G)
+
+            # Verify cached results match uncached for every node
+            for i in 1:nv(G)
+                @test sort(followers_cache[i]) == sort(get_all_followers(G, i))
+                @test sort(leaders_cache[i]) == sort(get_all_leaders(G, i))
+            end
+
+            # Spot-check expected values
+            @test sort(followers_cache[1]) == [2, 3]
+            @test followers_cache[3] == Int[]
+            @test leaders_cache[1] == Int[]
+            @test sort(leaders_cache[3]) == [1, 2]
+        end
+
+        @testset "star graph: 1→2, 1→3, 1→4" begin
+            G = SimpleDiGraph(4)
+            add_edge!(G, 1, 2)
+            add_edge!(G, 1, 3)
+            add_edge!(G, 1, 4)
+
+            followers_cache, leaders_cache = _build_graph_caches(G)
+
+            for i in 1:nv(G)
+                @test sort(followers_cache[i]) == sort(get_all_followers(G, i))
+                @test sort(leaders_cache[i]) == sort(get_all_leaders(G, i))
+            end
+
+            @test sort(followers_cache[1]) == [2, 3, 4]
+            @test followers_cache[2] == Int[]
+            @test leaders_cache[2] == [1]
+        end
+
+        @testset "Nash (no edges)" begin
+            G = SimpleDiGraph(3)
+
+            followers_cache, leaders_cache = _build_graph_caches(G)
+
+            for i in 1:nv(G)
+                @test followers_cache[i] == Int[]
+                @test leaders_cache[i] == Int[]
+            end
+        end
+
+        @testset "mixed hierarchy: 2→3 (P1 Nash)" begin
+            G = SimpleDiGraph(3)
+            add_edge!(G, 2, 3)
+
+            followers_cache, leaders_cache = _build_graph_caches(G)
+
+            for i in 1:nv(G)
+                @test sort(followers_cache[i]) == sort(get_all_followers(G, i))
+                @test sort(leaders_cache[i]) == sort(get_all_leaders(G, i))
+            end
+        end
+    end
+
+    @testset "cached setup_problem_variables matches uncached behavior" begin
+        # Verify that setup_problem_variables still returns correct results
+        # after introducing caching (regression test)
+        G = SimpleDiGraph(3)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 2, 3)
+
+        primal_dims = [4, 4, 4]
+        gs = [z -> zeros(Num, 2) for _ in 1:3]
+
+        result = setup_problem_variables(G, primal_dims, gs)
+
+        # P1 (root): no leaders, followers are [2,3]
+        @test length(result.ys[1]) == 0
+        @test length(result.ys[2]) == primal_dims[1]
+        @test length(result.ys[3]) == primal_dims[1] + primal_dims[2]
+
+        # μs should exist for leader-follower pairs
+        @test haskey(result.μs, (1, 2))
+        @test haskey(result.μs, (2, 3))
+        @test haskey(result.μs, (1, 3))  # P1 is indirect leader of P3
+        @test length(result.μs[(1, 2)]) == primal_dims[2]
     end
 end
