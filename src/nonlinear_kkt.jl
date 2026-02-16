@@ -590,6 +590,9 @@ See Phase 6 for planned thread-safety improvements.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
 - `N_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated N matrix buffers (same semantics as M_buffers).
+- `sparse_M_caches::Dict{Int,SparseMatrixCSC{Float64,Int}}=Dict()` - Cached sparse patterns
+  per player. When provided, `_solve_K!` reuses the sparsity structure and only updates
+  nzval in-place, avoiding `sparse(M)` construction on every call.
 - `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
   across calls, reducing Dict and vector allocation overhead. When provided, must
   contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
@@ -609,6 +612,7 @@ function compute_K_evals(
     regularization::Float64=0.0,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
+    sparse_M_caches::Dict{Int,SparseMatrixCSC{Float64,Int}} = Dict{Int,SparseMatrixCSC{Float64,Int}}(),
     buffers::Union{Nothing, NamedTuple}=nothing
 )
     # Normalize Bool to Symbol for backward compatibility
@@ -672,7 +676,8 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
+            player_sparse_cache = get(sparse_M_caches, ii, nothing)
+            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization, sparse_cache=player_sparse_cache)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -704,12 +709,32 @@ function compute_K_evals(
 end
 
 """
-    _solve_K!(M, N, player_idx; use_sparse=false, regularization=0.0)
+    _update_sparse_from_dense!(M_sp::SparseMatrixCSC, M_dense::Matrix)
+
+Update the nonzero values of a cached sparse matrix from a dense matrix.
+The sparsity pattern (rowval, colptr) must match the structural nonzeros of M_dense.
+Only the nzval array is modified — no allocation occurs.
+"""
+function _update_sparse_from_dense!(M_sp::SparseMatrixCSC{Float64, Int}, M_dense::Matrix{Float64})
+    nzv = nonzeros(M_sp)
+    rv = rowvals(M_sp)
+    for col in axes(M_dense, 2)
+        @inbounds for idx in nzrange(M_sp, col)
+            nzv[idx] = M_dense[rv[idx], col]
+        end
+    end
+    return M_sp
+end
+
+"""
+    _solve_K!(M, N, player_idx; use_sparse=false, regularization=0.0, sparse_cache=nothing)
 
 Solve `K = M \\ N` with protection against singular or ill-conditioned M matrices.
 
 When `use_sparse=true`, converts M to sparse format before solving, which can be
 beneficial for large M matrices (>100 rows) with structural sparsity from the KKT system.
+If `sparse_cache` is provided, reuses the cached sparsity pattern instead of calling
+`sparse(M)` — only the nonzero values are updated in-place.
 
 When `regularization > 0`, applies Tikhonov regularization: `K = (M + λI) \\ N`,
 which improves numerical stability for near-singular M at the cost of a small bias
@@ -725,7 +750,9 @@ differ from the original by up to machine epsilon (~2.2e-16).
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
+function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                    use_sparse::Bool=false, regularization::Float64=0.0,
+                    sparse_cache::Union{Nothing, SparseMatrixCSC{Float64, Int}}=nothing)
     # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
     # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
     if regularization > 0
@@ -735,7 +762,13 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
     end
     try
         K = if use_sparse
-            sparse(M) \ N
+            if !isnothing(sparse_cache)
+                # Reuse cached sparsity pattern — update nzval in-place, no allocation
+                _update_sparse_from_dense!(sparse_cache, M)
+                sparse_cache \ N
+            else
+                sparse(M) \ N
+            end
         else
             M \ N
         end
@@ -907,9 +940,36 @@ function run_nonlinear_solver(
         all_K_vec = Vector{Float64}(undef, K_len),
     )
 
+    # Pre-compute sparse patterns for players that will use sparse solves.
+    # This avoids calling sparse(M) on every iteration — we reuse the CSC structure
+    # and only update nzval in-place.
+    # Normalize use_sparse to Symbol for pattern determination
+    sparse_mode = if use_sparse isa Bool
+        use_sparse ? :always : :never
+    else
+        use_sparse
+    end
+    sparse_M_caches = Dict{Int, SparseMatrixCSC{Float64, Int}}()
+    if sparse_mode != :never
+        # Do a probe evaluation at z_est to populate M_buffers and determine patterns
+        compute_K_evals(z_est, problem_vars, setup_info;
+            use_sparse=:never, regularization=0.0, M_buffers, N_buffers,
+            buffers=k_eval_buffers)
+        for (ii, M_buf) in M_buffers
+            needs_sparse = if sparse_mode == :auto
+                !is_leaf(graph, ii)
+            else  # :always
+                true
+            end
+            if needs_sparse
+                sparse_M_caches[ii] = sparse(M_buf)
+            end
+        end
+    end
+
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, sparse_M_caches, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
