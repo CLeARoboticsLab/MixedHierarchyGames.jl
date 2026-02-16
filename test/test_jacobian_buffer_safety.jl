@@ -5,6 +5,7 @@ using MixedHierarchyGames:
     QPSolver,
     NonlinearSolver,
     solve_raw,
+    solve_qp_linear,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver
 
@@ -141,19 +142,25 @@ using MixedHierarchyGames:
                          prob.state_dim, prob.control_dim)
 
         params = Dict(1 => [0.0, 0.0], 2 => [1.0, 0.5])
+        parameter_values = Dict{Int, Vector{Float64}}(k => Float64.(v) for (k, v) in params)
+
+        mcp = solver.precomputed.parametric_mcp
+        θs = solver.problem.θs
+        n = size(mcp.jacobian_z!.result_buffer, 1)
 
         # Solve with copy()-allocated buffer (baseline)
-        mcp = solver.precomputed.parametric_mcp
         J_copy = copy(mcp.jacobian_z!.result_buffer)
-        result_copy = solve_raw(solver, params)
-        @test result_copy.status == :solved
+        sol_copy, status_copy = solve_qp_linear(mcp, θs, parameter_values;
+                                                 J_buffer=J_copy, F_buffer=zeros(n), z0_buffer=zeros(n))
+        @test status_copy == :solved
 
-        # Solve with similar()-allocated buffer
+        # Solve with similar()-allocated buffer (the optimization)
         J_sim = similar(mcp.jacobian_z!.result_buffer)
-        result_sim = solve_raw(solver, params)
-        @test result_sim.status == :solved
+        sol_sim, status_sim = solve_qp_linear(mcp, θs, parameter_values;
+                                               J_buffer=J_sim, F_buffer=zeros(n), z0_buffer=zeros(n))
+        @test status_sim == :solved
 
-        @test isapprox(result_copy.sol, result_sim.sol, atol=1e-14)
+        @test isapprox(sol_copy, sol_sim, atol=1e-14)
     end
 
     @testset "jacobian_z! fully overwrites sparse buffer nonzeros" begin
