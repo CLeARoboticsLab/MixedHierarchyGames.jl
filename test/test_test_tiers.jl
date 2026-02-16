@@ -19,6 +19,7 @@
             "test_type_bounds.jl",
             "test_block_arrays.jl",
             "test_unified_interface.jl",
+            "test_typed_k_eval_buffers.jl",
             "test_vcat_ordered.jl",
             "olse/test_qp_solver.jl",
         ]
@@ -73,6 +74,7 @@
             "test_jacobian_buffer_safety.jl",
             "test_regularization.jl",
             "test_unified_interface.jl",
+            "test_typed_k_eval_buffers.jl",
             "test_vcat_ordered.jl",
         ])
         @test all_classified == expected_all

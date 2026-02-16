@@ -218,7 +218,7 @@ end
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
         for (ii, M) in enumerate(M_evals)
-            isnothing(M) && continue
+            isempty(M) && continue
             N_mat = N_evals[ii]
 
             K_dense = M \ N_mat
@@ -233,7 +233,7 @@ end
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
         for (ii, M) in enumerate(M_evals)
-            isnothing(M) && continue
+            isempty(M) && continue
             N_mat = N_evals[ii]
 
             K_dense = M \ N_mat
@@ -248,7 +248,7 @@ end
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
         for (ii, M) in enumerate(M_evals)
-            isnothing(M) && continue
+            isempty(M) && continue
             N_mat = N_evals[ii]
 
             K_dense = M \ N_mat
@@ -270,7 +270,7 @@ end
 
             for ii in eachindex(M_evals)
                 M = M_evals[ii]
-                isnothing(M) && continue
+                isempty(M) && continue
                 N_mat = N_evals[ii]
 
                 sr_M = sparsity_ratio(M)
@@ -302,7 +302,7 @@ end
 
         for ii in eachindex(K_info.M_evals)
             M = K_info.M_evals[ii]
-            isnothing(M) && continue
+            isempty(M) && continue
             N_mat = K_info.N_evals[ii]
 
             sr_M = sparsity_ratio(M)
@@ -325,7 +325,7 @@ end
         M_evals, N_evals, _ = extract_M_N_matrices(prob)
 
         for (ii, M) in enumerate(M_evals)
-            isnothing(M) && continue
+            isempty(M) && continue
             N_mat = N_evals[ii]
             M_sp = sparse(M)
 
@@ -382,8 +382,8 @@ end
         for ii in 1:prob.N
             K_d = info_dense.K_evals[ii]
             K_s = info_sparse.K_evals[ii]
-            if isnothing(K_d)
-                @test isnothing(K_s)
+            if isempty(K_d)
+                @test isempty(K_s)
             else
                 @test norm(K_s - K_d) / max(norm(K_d), 1.0) < 1e-10
             end
