@@ -6,6 +6,9 @@
     K = M \ N numerically at each iteration.
 =#
 
+# Empty 0×0 sentinel matrix for root players (replaces `nothing` in typed vectors)
+const _EMPTY_MATRIX = Matrix{Float64}(undef, 0, 0)
+
 # Use Julia's built-in `something(x, default)` for value-or-default pattern
 # Note: something() returns the first non-nothing value, so something(x, default)
 # is equivalent to isnothing(x) ? default : x
@@ -531,7 +534,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
     aug_len = length(z_est)
     for jj in followers
         kj = K_evals[jj]
-        aug_len += isnothing(kj) ? 0 : length(kj)
+        aug_len += length(kj)
     end
 
     # Get or resize buffer
@@ -548,12 +551,13 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
     offset = length(z_est) + 1
     for jj in followers
         kj = K_evals[jj]
-        if isnothing(kj)
+        n = length(kj)
+        if n == 0
             continue
         end
         flat = reshape(kj, :)
-        copyto!(buf, offset, flat, 1, length(flat))
-        offset += length(flat)
+        copyto!(buf, offset, flat, 1, n)
+        offset += n
     end
 
     return buf
@@ -631,9 +635,9 @@ function compute_K_evals(
 
     # Use pre-allocated buffers if provided, otherwise allocate fresh Vector-indexed containers
     if isnothing(buffers)
-        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
-        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
-        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players)
+        M_evals = fill(_EMPTY_MATRIX, N_players)
+        N_evals = fill(_EMPTY_MATRIX, N_players)
+        K_evals = fill(_EMPTY_MATRIX, N_players)
         follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players)
         buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players)
     else
@@ -677,9 +681,9 @@ function compute_K_evals(
                 status = :singular_matrix
             end
         else
-            M_evals[ii] = nothing
-            N_evals[ii] = nothing
-            K_evals[ii] = nothing
+            M_evals[ii] = _EMPTY_MATRIX
+            N_evals[ii] = _EMPTY_MATRIX
+            K_evals[ii] = _EMPTY_MATRIX
         end
     end
 
@@ -689,15 +693,16 @@ function compute_K_evals(
         offset = 0
         for ii in 1:N_players
             k = K_evals[ii]
-            if isnothing(k)
+            n = length(k)
+            if n == 0
                 continue
             end
             flat = reshape(k, :)
-            copyto!(all_K_vec, offset + 1, flat, 1, length(flat))
-            offset += length(flat)
+            copyto!(all_K_vec, offset + 1, flat, 1, n)
+            offset += n
         end
     else
-        all_K_vec = vcat([reshape(something(K_evals[ii], Float64[]), :) for ii in 1:N_players]...)
+        all_K_vec = vcat([reshape(K_evals[ii], :) for ii in 1:N_players]...)
     end
 
     return all_K_vec, (; M_evals, N_evals, K_evals, status)
@@ -899,9 +904,9 @@ function run_nonlinear_solver(
     # Pre-allocate buffers for compute_K_evals to avoid per-iteration allocation
     N_players = nv(hierarchy_graph)
     k_eval_buffers = (;
-        M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-        N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-        K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+        M_evals = fill(_EMPTY_MATRIX, N_players),
+        N_evals = fill(_EMPTY_MATRIX, N_players),
+        K_evals = fill(_EMPTY_MATRIX, N_players),
         follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
         buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
         all_K_vec = Vector{Float64}(undef, K_len),

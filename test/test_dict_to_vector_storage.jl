@@ -68,11 +68,13 @@ using MixedHierarchyGames:
         @test length(info.M_evals) == 2
         @test length(info.N_evals) == 2
 
-        # Root player (1) should have nothing, follower (2) should have Matrix
-        @test isnothing(info.K_evals[1])
+        # Root player (1) should have 0×0 sentinel, follower (2) should have real Matrix
+        @test size(info.K_evals[1]) == (0, 0)
         @test info.K_evals[2] isa Matrix{Float64}
-        @test isnothing(info.M_evals[1])
+        @test !isempty(info.K_evals[2])
+        @test size(info.M_evals[1]) == (0, 0)
         @test info.M_evals[2] isa Matrix{Float64}
+        @test !isempty(info.M_evals[2])
     end
 
     @testset "Numerical results identical after storage change" begin
@@ -139,10 +141,12 @@ using MixedHierarchyGames:
 
         @test info.K_evals isa Vector
         @test length(info.K_evals) == 3
-        # Player 1 is root (nothing), players 2 and 3 are followers (Matrix)
-        @test isnothing(info.K_evals[1])
+        # Player 1 is root (0×0 sentinel), players 2 and 3 are followers (real Matrix)
+        @test size(info.K_evals[1]) == (0, 0)
         @test info.K_evals[2] isa Matrix{Float64}
+        @test !isempty(info.K_evals[2])
         @test info.K_evals[3] isa Matrix{Float64}
+        @test !isempty(info.K_evals[3])
 
         # Run full solver
         initial_states3 = Dict(1 => [1.0, 0.0], 2 => [0.0, 1.0], 3 => [0.5, 0.5])

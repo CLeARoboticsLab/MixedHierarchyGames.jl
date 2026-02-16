@@ -96,14 +96,14 @@ using MixedHierarchyGames:
 
         all_K_vec, info = compute_K_evals(z_current, problem_vars, setup_info)
 
-        # K_evals should be Vector-indexed (not Dict)
-        @test info.K_evals isa Vector{Union{Matrix{Float64}, Nothing}}
-        @test info.M_evals isa Vector{Union{Matrix{Float64}, Nothing}}
-        @test info.N_evals isa Vector{Union{Matrix{Float64}, Nothing}}
+        # K_evals should be concretely typed Vector{Matrix{Float64}} (no Union)
+        @test info.K_evals isa Vector{Matrix{Float64}}
+        @test info.M_evals isa Vector{Matrix{Float64}}
+        @test info.N_evals isa Vector{Matrix{Float64}}
 
-        # Verify actual values have correct types
+        # Verify actual values have correct types (root = 0×0 sentinel, follower = real matrix)
         for v in info.K_evals
-            @test v isa Union{Matrix{Float64}, Nothing}
+            @test v isa Matrix{Float64}
         end
     end
 

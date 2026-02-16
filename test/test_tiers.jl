@@ -21,6 +21,7 @@ const FAST_TEST_FILES = [
     "test_type_bounds.jl",
     "test_block_arrays.jl",
     "test_unified_interface.jl",
+    "test_typed_k_eval_buffers.jl",
     "olse/test_qp_solver.jl",
 ]
 
