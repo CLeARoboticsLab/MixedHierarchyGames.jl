@@ -1,10 +1,11 @@
 using Test
 using LinearAlgebra: norm
-using SparseArrays: nonzeros
+using SparseArrays: nonzeros, nnz, SparseMatrixCSC
 using MixedHierarchyGames:
     QPSolver,
     NonlinearSolver,
     solve_raw,
+    solve_qp_linear,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver
 
@@ -101,6 +102,65 @@ using MixedHierarchyGames:
         @test result_corrupted.converged
         @test isapprox(result_clean.sol, result_corrupted.sol, atol=1e-10)
         @test result_clean.iterations == result_corrupted.iterations
+    end
+
+    @testset "similar() buffer produces identical Jacobian to copy() buffer" begin
+        # Verify that using similar() (uninitialized) instead of copy() for Jacobian
+        # buffer allocation produces identical results, since jacobian_z! fully overwrites
+        prob = make_standard_two_player_problem(goal1=[1.0, 0.0], goal2=[0.0, 1.0])
+        solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                         prob.state_dim, prob.control_dim)
+
+        mcp = solver.precomputed.parametric_mcp
+        n = size(mcp.jacobian_z!.result_buffer, 1)
+
+        # Allocate via copy (current approach)
+        J_copy = copy(mcp.jacobian_z!.result_buffer)
+        # Allocate via similar (proposed optimization — no value copy)
+        J_similar = similar(mcp.jacobian_z!.result_buffer)
+
+        # Both must have same sparse structure
+        @test size(J_copy) == size(J_similar)
+        @test nnz(J_copy) == nnz(J_similar)
+        @test J_copy isa SparseMatrixCSC
+        @test J_similar isa SparseMatrixCSC
+
+        # Evaluate Jacobian into both buffers at the same point
+        z0 = zeros(n)
+        θ_vals = zeros(mcp.parameter_dimension)
+        mcp.jacobian_z!(J_copy, z0, θ_vals)
+        mcp.jacobian_z!(J_similar, z0, θ_vals)
+
+        # Results must be identical (not just approx — exact same computation)
+        @test nonzeros(J_copy) == nonzeros(J_similar)
+    end
+
+    @testset "solve_qp_linear with similar() buffer matches copy() buffer" begin
+        # End-to-end test: solve results must be identical whether J is from copy() or similar()
+        prob = make_standard_two_player_problem(goal1=[1.0, 0.0], goal2=[0.0, 1.0])
+        solver = QPSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                         prob.state_dim, prob.control_dim)
+
+        params = Dict(1 => [0.0, 0.0], 2 => [1.0, 0.5])
+        parameter_values = Dict{Int, Vector{Float64}}(k => Float64.(v) for (k, v) in params)
+
+        mcp = solver.precomputed.parametric_mcp
+        θs = solver.problem.θs
+        n = size(mcp.jacobian_z!.result_buffer, 1)
+
+        # Solve with copy()-allocated buffer (baseline)
+        J_copy = copy(mcp.jacobian_z!.result_buffer)
+        sol_copy, status_copy = solve_qp_linear(mcp, θs, parameter_values;
+                                                 J_buffer=J_copy, F_buffer=zeros(n), z0_buffer=zeros(n))
+        @test status_copy == :solved
+
+        # Solve with similar()-allocated buffer (the optimization)
+        J_sim = similar(mcp.jacobian_z!.result_buffer)
+        sol_sim, status_sim = solve_qp_linear(mcp, θs, parameter_values;
+                                               J_buffer=J_sim, F_buffer=zeros(n), z0_buffer=zeros(n))
+        @test status_sim == :solved
+
+        @test isapprox(sol_copy, sol_sim, atol=1e-14)
     end
 
     @testset "jacobian_z! fully overwrites sparse buffer nonzeros" begin
