@@ -246,4 +246,28 @@ end
         @test isapprox(strategy.substrategies[1].xs[1], [0.0, 0.0], atol=1e-6)
         @test isapprox(strategy.substrategies[2].xs[1], [0.5, 0.5], atol=1e-6)
     end
+
+    @testset "NonlinearSolver: neg_F buffer reuse correctness" begin
+        prob = make_nonlinear_test_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                prob.state_dim, prob.control_dim;
+                                max_iters=50, tol=1e-8, linesearch_method=:armijo)
+
+        # Solve with varying initial conditions to exercise neg_F buffer reuse
+        param_sets = [
+            Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5]),
+            Dict(1 => [1.0, -1.0], 2 => [0.0, 0.0]),
+            Dict(1 => [-0.5, 0.3], 2 => [0.8, -0.2]),
+            Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5]),  # repeat first
+        ]
+
+        results = [solve_raw(solver, p) for p in param_sets]
+
+        # First and last use identical params — must produce identical results
+        @test results[1].converged
+        @test results[4].converged
+        @test isapprox(results[1].sol, results[4].sol, atol=1e-10)
+        @test results[1].iterations == results[4].iterations
+        @test isapprox(results[1].residual, results[4].residual, atol=1e-14)
+    end
 end
