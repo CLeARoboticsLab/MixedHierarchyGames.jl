@@ -35,6 +35,7 @@ const SLOW_TEST_FILES = [
     "test_allocation_optimization.jl",
     "test_jacobian_buffer_safety.jl",
     "test_regularization.jl",
+    "test_sparse_pattern_cache.jl",
 ]
 
 """
