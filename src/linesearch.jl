@@ -48,7 +48,7 @@ function armijo_backtracking(
         α *= rho
     end
 
-    @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
+    @warn lazy"Armijo line search failed to find sufficient decrease after $max_iters iterations"
     return 0.0
 end
 
@@ -100,7 +100,7 @@ function geometric_reduction(
         α *= rho
     end
 
-    @warn "Geometric reduction line search failed to find decrease after $max_iters iterations"
+    @warn lazy"Geometric reduction line search failed to find decrease after $max_iters iterations"
     return 0.0
 end
 
