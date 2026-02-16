@@ -2829,3 +2829,54 @@ The `if callback !== nothing` guard was already in place from a prior PR (commit
 ### Action Items for Next PR
 
 - None identified — this was a small, focused change
+
+---
+
+## PR: perf/08-concrete-precomputed (PR #154)
+
+**Date:** 2026-02-16
+**Commits:** 1
+**Tests:** 1356 passing (15 new)
+
+### Summary
+
+Investigated whether `NonlinearSolver.precomputed` NamedTuple causes type instability (Perf #8). Found it does NOT — the NamedTuple is already fully concrete and type-stable. Added guard tests proving stability instead of refactoring.
+
+### TDD Compliance
+
+**Score: N/A — Investigation PR**
+
+This was an investigation-first PR. The process was:
+1. Read and understand the code structure
+2. Write diagnostic script with `@code_warntype`
+3. Empirically verify type stability
+4. Write tests documenting the finding
+
+### Clean Code
+
+- No source code changes, only test additions
+- Tests are well-documented with comments explaining WHY the NamedTuple is type-stable
+
+### Commits
+
+- Single commit: investigation findings + guard tests (appropriate for investigation PR)
+
+### CLAUDE.md Compliance
+
+- Followed expert review protocol checkpoints
+- Correctly identified "skip refactor" path per task instructions
+- Ran full test suite before PR
+
+### What Went Well
+
+- **Measure before optimizing**: Empirical `@code_warntype` testing prevented unnecessary refactoring
+- **Following instructions**: Task explicitly said to skip if type-stable, and we did
+- **Guard tests**: Added `@inferred`-based tests that will catch future regressions
+
+### What Could Be Improved
+
+- Investigation could have been faster — first diagnostic script had a bug in cost function construction
+
+### Action Items for Next PR
+
+- None identified — this was a focused investigation
