@@ -344,11 +344,11 @@ end
         _, K_info = compute_K_evals(z_current, precomputed.problem_vars, precomputed.setup_info)
         K_evals = K_info.K_evals
 
-        # P1 is root (no leader), should have nothing
-        @test isnothing(K_evals[1])
+        # P1 is root (no leader), should have 0×0 sentinel
+        @test size(K_evals[1]) == (0, 0)
 
-        # P2 has a leader, should have a K matrix
-        @test !isnothing(K_evals[2])
+        # P2 has a leader, should have a real K matrix
+        @test !isempty(K_evals[2])
     end
 
     @testset "K matrix dimensions are correct" begin
@@ -367,7 +367,7 @@ end
         K_evals = K_info.K_evals
 
         # K[2] should be size (length(ws[2]), length(ys[2]))
-        if !isnothing(K_evals[2])
+        if !isempty(K_evals[2])
             K2 = K_evals[2]
             expected_rows = length(vars.ws[2])
             expected_cols = length(vars.ys[2])
@@ -393,9 +393,9 @@ end
 
         # P3 should be computed first (leaf), then P2, then P1 (root)
         # All followers should have K matrices, root should not
-        @test isnothing(K_evals[1])  # P1 is root
-        @test !isnothing(K_evals[2])  # P2 is follower of P1
-        @test !isnothing(K_evals[3])  # P3 is follower of P2
+        @test size(K_evals[1]) == (0, 0)  # P1 is root (sentinel)
+        @test !isempty(K_evals[2])  # P2 is follower of P1
+        @test !isempty(K_evals[3])  # P3 is follower of P2
     end
 
     @testset "Handles singular M matrix gracefully" begin
@@ -2461,11 +2461,12 @@ end
         θ_len = 4  # 2 players × 2 state_dim
         K_len = mcp_obj.parameter_dimension - θ_len
 
+        empty_sentinel = Matrix{Float64}(undef, 0, 0)
         N_players = 2
         bufs = (;
-            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            M_evals = fill(empty_sentinel, N_players),
+            N_evals = fill(empty_sentinel, N_players),
+            K_evals = fill(empty_sentinel, N_players),
             follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
             buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
             all_K_vec = Vector{Float64}(undef, K_len),
@@ -2495,11 +2496,12 @@ end
         θ_len = 4
         K_len = mcp_obj.parameter_dimension - θ_len
 
+        empty_sentinel = Matrix{Float64}(undef, 0, 0)
         N_players = 2
         bufs = (;
-            M_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-            N_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
-            K_evals = Vector{Union{Matrix{Float64}, Nothing}}(nothing, N_players),
+            M_evals = fill(empty_sentinel, N_players),
+            N_evals = fill(empty_sentinel, N_players),
+            K_evals = fill(empty_sentinel, N_players),
             follower_cache = Vector{Union{Vector{Int}, Nothing}}(nothing, N_players),
             buffer_cache = Vector{Union{Vector{Float64}, Nothing}}(nothing, N_players),
             all_K_vec = Vector{Float64}(undef, K_len),
