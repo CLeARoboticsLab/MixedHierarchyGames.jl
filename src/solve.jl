@@ -13,6 +13,10 @@ Accepted formats:
 
 Throws `ArgumentError` for unrecognized types.
 """
+function _to_parameter_dict(initial_state::Dict{Int})
+    return initial_state
+end
+
 function _to_parameter_dict(initial_state::Dict)
     return initial_state
 end
