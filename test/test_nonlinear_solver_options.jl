@@ -148,7 +148,10 @@
             linesearch_method=:bogus, recompute_policy_in_linesearch=true,
             use_sparse=:auto, show_progress=false, regularization=0.0
         )
-        @test_throws ArgumentError @test_deprecated NonlinearSolverOptions(bad_nt)
+        # Note: @test_throws and @test_deprecated don't compose under --depwarn=yes
+        # (Pkg.test default). Use @test_throws directly since the ArgumentError is
+        # thrown before any deprecation warning fires.
+        @test_throws ArgumentError NonlinearSolverOptions(bad_nt)
     end
 
     @testset "NamedTuple constructor handles partial NamedTuples with defaults" begin
