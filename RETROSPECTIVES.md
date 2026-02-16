@@ -2695,3 +2695,53 @@ n=500: norm(v)^2=453.5ns, dot(v,v)=56.6ns → 87.5% speedup
 ### Action Items for Next PR
 
 - None — this was a clean, self-contained optimization.
+
+---
+
+## PR: perf/01-linesearch-buffer (Perf T1-7)
+
+**Date:** 2026-02-14
+**Commits:** 3
+**Tests:** 1246 passing (all)
+
+### Summary
+
+Pre-allocate `x_buffer` in `armijo_backtracking` and `geometric_reduction` to eliminate per-trial-step allocation of `x + α*d`. Also added `z_trial_buffer` kwarg to `perform_linesearch`. Updated `run_nonlinear_solver` to pass the existing pre-allocated `z_trial` buffer through to the linesearch functions.
+
+### TDD Compliance
+
+**Score: Full (10/10)**
+
+- Wrote 6 failing tests first (RED), committed, then implemented (GREEN)
+- All tests verify identical results with/without buffer
+- Tests verify buffer is actually written to (not just accepted silently)
+
+### Clean Code
+
+- Functions remain small and focused — only added kwarg + `@.` in-place assignment
+- No magic numbers, no duplicated code
+- Docstrings updated for all modified functions
+
+### Commits
+
+- Small and focused: (1) failing tests, (2) implementation, (3) verification/retrospective
+- Each commit leaves codebase in a working state
+
+### CLAUDE.md Compliance
+
+- All instructions followed
+- TDD mandatory: followed strictly
+- Test tolerances: 1e-14 where applicable
+- Retrospective: written before final push
+
+### Benchmark Results
+
+**Micro-benchmark (isolated loop, n=500, 10 iterations):**
+- Old (allocating): 41,616 B per call
+- New (in-place):   16 B per call → ~100% allocation reduction in the loop
+
+**Note:** In the actual solver, the residual function (`mcp_obj.f!`) is already in-place, so the linesearch buffer savings are a small fraction of total solve allocations. The optimization eliminates O(backtrack_iters × n) bytes per Newton iteration, which accumulates over many-iteration solves like Lane Change (65 iterations × up to 10 backtracking steps).
+
+### Action Items for Next PR
+
+- [ ] Continue with remaining Track 1 PRs (norm-to-dot, etc.)
