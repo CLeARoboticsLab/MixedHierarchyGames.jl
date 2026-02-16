@@ -2791,3 +2791,41 @@ Impact: Eliminates 1 vector allocation per Newton iteration. For the Lane Change
 ### Action Items for Next PR
 
 - [ ] Continue with Perf T1-9+ in the Track 1 plan
+
+---
+
+## PR: perf/04-callback-copy (T1-10)
+
+**Date:** 2026-02-14
+**Commits:** 2
+**Tests:** 4 new (1240+ total passing)
+
+### Summary
+
+Added allocation tests and benchmark verifying that the `copy(z_est)` call in the Newton loop is guarded by `if callback !== nothing`, avoiding unnecessary allocation on the default no-callback hot path.
+
+### TDD Compliance
+
+**Score: N/A — Guard already existed**
+
+The `if callback !== nothing` guard was already in place from a prior PR (commit `803a2e4`). This PR adds the missing allocation test that proves the guard works, plus a benchmark quantifying the impact.
+
+### Clean Code
+
+- Tests are focused and minimal
+- Benchmark script follows existing patterns in `scripts/`
+
+### Commits
+
+- Commit 1: Allocation tests for callback copy guard (4 tests)
+- Commit 2: Benchmark script with results
+
+### Benchmark Results
+
+- No callback: 165,312 B median allocs, 43.5 μs
+- With callback: 166,080 B median allocs, 47.5 μs
+- Guard saves 768 B (0.5% alloc reduction) and ~8% time on small problem
+
+### Action Items for Next PR
+
+- None identified — this was a small, focused change
