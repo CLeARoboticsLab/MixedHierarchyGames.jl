@@ -234,6 +234,12 @@ function _merge_options(
     show_progress::Union{Nothing, Bool} = nothing,
     regularization::Union{Nothing, Float64} = nothing
 )
+    # Short-circuit: return base directly when no kwargs override
+    if isnothing(max_iters) && isnothing(tol) && isnothing(verbose) &&
+       isnothing(linesearch_method) && isnothing(recompute_policy_in_linesearch) &&
+       isnothing(use_sparse) && isnothing(show_progress) && isnothing(regularization)
+        return base
+    end
     return NonlinearSolverOptions(;
         max_iters = something(max_iters, base.max_iters),
         tol = something(tol, base.tol),
