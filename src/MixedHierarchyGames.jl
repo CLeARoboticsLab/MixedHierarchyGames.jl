@@ -28,7 +28,7 @@ using SymbolicTracingUtils: SymbolicTracingUtils
 using ParametricMCPs: ParametricMCPs
 using BlockArrays: BlockArrays, mortar, blocks, PseudoBlockVector
 using LinearAlgebra: norm, dot, I, SingularException, LAPACKException
-using SparseArrays: sparse, spzeros
+using SparseArrays: sparse, spzeros, SparseMatrixCSC, nonzeros, rowvals, nzrange
 using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
 using TimerOutputs: TimerOutputs, TimerOutput, @timeit
