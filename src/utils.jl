@@ -88,6 +88,25 @@ codebase to iterate over player-indexed dictionaries in a deterministic order.
 """
 @inline ordered_player_indices(d::Dict) = sort(collect(keys(d)))
 
+"""
+    vcat_ordered!(buf, d::Dict, order)
+
+Concatenate `d[k]` for each `k` in `order` into pre-allocated buffer `buf` using `copyto!`.
+This avoids the intermediate allocations of `reduce(vcat, ...)`.
+
+Returns `buf`.
+"""
+function vcat_ordered!(buf::AbstractVector, d::Dict, order)
+    offset = 0
+    for k in order
+        v = d[k]
+        n = length(v)
+        copyto!(buf, offset + 1, v, 1, n)
+        offset += n
+    end
+    return buf
+end
+
 #=
     BlockArrays utilities
 =#

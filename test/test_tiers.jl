@@ -12,6 +12,7 @@ const FAST_TEST_FILES = [
     "test_input_validation.jl",
     "test_type_stability.jl",
     "test_dict_to_vector_storage.jl",
+    "test_vcat_ordered.jl",
     "test_qp_solver.jl",
     "test_qp_failure_modes.jl",
     "test_interface.jl",
