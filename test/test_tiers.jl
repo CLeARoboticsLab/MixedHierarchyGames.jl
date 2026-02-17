@@ -38,7 +38,7 @@ const SLOW_TEST_FILES = [
     "test_jacobian_buffer_safety.jl",
     "test_regularization.jl",
     "test_typed_kkt_dicts.jl",
-    "test_sparse_threshold.jl",
+    "test_ldiv_inplace.jl",
 ]
 
 """
