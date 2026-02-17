@@ -6,6 +6,11 @@
     K = M \ N numerically at each iteration.
 =#
 
+# Concrete callable type for M_fn!/N_fn! evaluation functions.
+# Replaces Vector{Function} to eliminate runtime dispatch on the hot path.
+# Signature: (result::Matrix{Float64}, x::Vector{Float64}) -> Matrix{Float64}
+const MNFunctionWrapper = FunctionWrapper{Matrix{Float64}, Tuple{Matrix{Float64}, Vector{Float64}}}
+
 # Use Julia's built-in `something(x, default)` for value-or-default pattern
 # Note: something() returns the first non-nothing value, so something(x, default)
 # is equivalent to isnothing(x) ? default : x
@@ -247,10 +252,10 @@ function setup_approximate_kkt_solver(
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
     _root_player_stub(_...) = error("M_fn!/N_fn! called for root player (no leader) — this is a bug")
-    M_fns_inplace = Vector{Function}(undef, N)
-    N_fns_inplace = Vector{Function}(undef, N)
-    fill!(M_fns_inplace, _root_player_stub)
-    fill!(N_fns_inplace, _root_player_stub)
+    M_fns_inplace = Vector{MNFunctionWrapper}(undef, N)
+    N_fns_inplace = Vector{MNFunctionWrapper}(undef, N)
+    fill!(M_fns_inplace, MNFunctionWrapper(_root_player_stub))
+    fill!(N_fns_inplace, MNFunctionWrapper(_root_player_stub))
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -342,9 +347,9 @@ function setup_approximate_kkt_solver(
             Mᵢ = Symbolics.jacobian(πs_flat, ws[ii])
             Nᵢ = Symbolics.jacobian(πs_flat, ys[ii])
 
-            # Compile in-place function variants
-            M_fns_inplace[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
-            N_fns_inplace[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
+            # Compile in-place function variants, wrapped for type-stable dispatch
+            M_fns_inplace[ii] = MNFunctionWrapper(SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)))
+            N_fns_inplace[ii] = MNFunctionWrapper(SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)))
         else
             augmented_variables[ii] = all_variables
         end

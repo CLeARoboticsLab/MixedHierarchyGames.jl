@@ -33,6 +33,7 @@ using LinearSolve: LinearSolve, LinearProblem, init, solve!
 using SciMLBase: SciMLBase
 using TimerOutputs: TimerOutputs, TimerOutput, @timeit
 using Printf: @sprintf
+using FunctionWrappers: FunctionWrapper
 
 # Debug timing macro (must come before files that use @timeit_debug)
 include("timeit_debug.jl")
@@ -62,7 +63,7 @@ include("linesearch.jl")
 export armijo_backtracking, geometric_reduction, constant_step
 
 include("nonlinear_kkt.jl")
-export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch
+export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch, MNFunctionWrapper
 
 # Solvers
 include("solve.jl")

@@ -4,6 +4,7 @@ using Symbolics: Num
 using MixedHierarchyGames:
     NonlinearSolver,
     NonlinearSolverOptions,
+    MNFunctionWrapper,
     setup_problem_variables,
     setup_problem_parameter_variables,
     setup_approximate_kkt_solver,
@@ -42,14 +43,17 @@ using MixedHierarchyGames:
         N_fns = setup_info.var"N_fns!"
 
         # The element type should NOT be the abstract `Function` type.
-        # It should be a concrete callable type (e.g., FunctionWrapper).
-        # @test_broken: currently Vector{Function}, fix will make concrete
-        @test_broken eltype(M_fns) !== Function
-        @test_broken eltype(N_fns) !== Function
+        # It should be MNFunctionWrapper (a concrete callable type).
+        @test eltype(M_fns) !== Function
+        @test eltype(N_fns) !== Function
 
         # The element type should be a concrete type
-        @test_broken isconcretetype(eltype(M_fns))
-        @test_broken isconcretetype(eltype(N_fns))
+        @test isconcretetype(eltype(M_fns))
+        @test isconcretetype(eltype(N_fns))
+
+        # Specifically, it should be MNFunctionWrapper
+        @test eltype(M_fns) === MNFunctionWrapper
+        @test eltype(N_fns) === MNFunctionWrapper
     end
 
     @testset "M_fn/N_fn calls are type-stable from Vector indexing" begin
@@ -74,9 +78,9 @@ using MixedHierarchyGames:
             N_fns[ii](buf, z)
         end
 
-        # @test_broken: currently Vector{Function} causes @inferred to fail with Any
-        @test_broken (@inferred(call_M_fn!(M_fns, ii, M_buf, z_test)) isa Matrix{Float64})
-        @test_broken (@inferred(call_N_fn!(N_fns, ii, N_buf, z_test)) isa Matrix{Float64})
+        # @inferred verifies that the return type is concrete, not Any
+        @test @inferred(call_M_fn!(M_fns, ii, M_buf, z_test)) isa Matrix{Float64}
+        @test @inferred(call_N_fn!(N_fns, ii, N_buf, z_test)) isa Matrix{Float64}
     end
 
     @testset "compute_K_evals correctness with typed function vectors" begin
