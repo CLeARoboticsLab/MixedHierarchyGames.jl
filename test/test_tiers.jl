@@ -19,6 +19,7 @@ const FAST_TEST_FILES = [
     "test_timer.jl",
     "test_timeit_debug.jl",
     "test_type_bounds.jl",
+    "test_tight_problem_types.jl",
     "test_block_arrays.jl",
     "test_unified_interface.jl",
     "test_typed_k_eval_buffers.jl",
