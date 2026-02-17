@@ -3042,3 +3042,65 @@ correctly inferred by Julia — the annotation is for documentation only.
 - Always update test_test_tiers.jl when adding new test files (easy to forget)
 - For performance investigation PRs, run a quick @code_warntype check BEFORE
   creating the task to validate that the suspected instability exists
+
+---
+
+## PR: perf/ldiv-inplace (Perf #8: In-place ldiv! for K = M \ N)
+
+**Date:** 2026-02-17
+**Commits:** 3
+**Tests:** 22 new (1414 total passing, pre-existing 3-player flaky failures)
+
+### Summary
+
+Pre-allocate K result buffers and use `lu!` + `ldiv!` in `_solve_K!` to eliminate
+per-solve allocation of the K result matrix. Dense path achieves ~50% allocation
+reduction. Sparse path uses `copyto!` instead (lu(sparse) + ldiv! is slower/larger).
+
+### TDD Compliance
+
+- Fully followed. Failing tests committed first (f0dbdee), then implementation (3c2c9a1).
+- All 22 tests written before any implementation code.
+- Red-Green cycle strictly observed.
+
+### Clean Code
+
+- Functions remain focused — `_solve_K!` got a new kwarg but no structural change.
+- Comments explain the `lu!` vs `lu` decision for regularization clearly.
+- Sparse path optimization was abandoned after benchmarking showed it was
+  counterproductive — good data-driven decision.
+
+### Clean Architecture
+
+- K_buffers follows the exact same pattern as M_buffers/N_buffers — consistent.
+- Backward compatibility maintained (K_buffer=nothing, K_buffers=Dict()).
+
+### Commit Hygiene
+
+- 3 clean commits: failing tests, implementation, benchmark.
+- Each commit leaves codebase in working state.
+
+### CLAUDE.md Compliance
+
+- TDD followed.
+- Investigation/benchmarking PR has 3 commits (tests, impl, benchmark).
+- Expert review conducted at key decision points.
+- Retrospective written before PR.
+
+### What Went Well
+
+- Expert review protocol caught the regularization + lu! interaction early
+- Benchmark revealed sparse ldiv! is counterproductive, leading to correct
+  hybrid approach (lu!/ldiv! for dense, copyto! for sparse)
+- Clean TDD cycle with no violations
+
+### What Could Be Improved
+
+- Initial approach assumed ldiv! would help sparse path too. Should have
+  benchmarked sparse LU separately before implementing.
+- The sparse allocation test had to be rewritten after discovering the issue.
+
+### Action Items for Next PR
+
+- Always benchmark before assuming an optimization helps all code paths
+- Consider adding a sparse-specific benchmark to the standard toolkit
