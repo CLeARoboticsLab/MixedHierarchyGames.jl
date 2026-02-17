@@ -37,10 +37,10 @@ Used by both QPSolver and NonlinearSolver.
 
 # Fields
 - `hierarchy_graph::SimpleDiGraph` - DAG of leader-follower relationships
-- `Js::Dict` - Cost functions per player: `Js[i](zs...; θ)` → scalar
-- `gs::Vector` - Constraint functions per player: `gs[i](z)` → Vector
+- `Js::Dict{Int,...}` - Cost functions per player: `Js[i](zs...; θ)` → scalar
+- `gs::Vector{<:Function}` - Constraint functions per player: `gs[i](z)` → Vector
 - `primal_dims::Vector{Int}` - Decision variable dimension per player
-- `θs::Dict` - Symbolic parameter variables per player
+- `θs::Dict{Int,...}` - Symbolic parameter variables per player
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
