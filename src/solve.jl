@@ -236,12 +236,14 @@ function _merge_options(
     recompute_policy_in_linesearch::Union{Nothing, Bool} = nothing,
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
-    regularization::Union{Nothing, Float64} = nothing
+    regularization::Union{Nothing, Float64} = nothing,
+    sparse_threshold::Union{Nothing, Int} = nothing
 )
     # Short-circuit: return base directly when no kwargs override
     if isnothing(max_iters) && isnothing(tol) && isnothing(verbose) &&
        isnothing(linesearch_method) && isnothing(recompute_policy_in_linesearch) &&
-       isnothing(use_sparse) && isnothing(show_progress) && isnothing(regularization)
+       isnothing(use_sparse) && isnothing(show_progress) && isnothing(regularization) &&
+       isnothing(sparse_threshold)
         return base
     end
     return NonlinearSolverOptions(;
@@ -253,6 +255,7 @@ function _merge_options(
         use_sparse = something(use_sparse, base.use_sparse),
         show_progress = something(show_progress, base.show_progress),
         regularization = something(regularization, base.regularization),
+        sparse_threshold = something(sparse_threshold, base.sparse_threshold),
     )
 end
 
@@ -289,6 +292,7 @@ function solve(
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     regularization::Union{Nothing, Float64} = nothing,
+    sparse_threshold::Union{Nothing, Int} = nothing,
     callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -302,7 +306,8 @@ function solve(
     # Merge caller overrides with solver defaults
     merged = _merge_options(options;
         max_iters, tol, verbose, linesearch_method,
-        recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
+        recompute_policy_in_linesearch, use_sparse, show_progress, regularization,
+        sparse_threshold)
 
     # Run the nonlinear solver
     @timeit_debug to "NonlinearSolver solve" begin
@@ -319,6 +324,7 @@ function solve(
             use_sparse = merged.use_sparse,
             show_progress = merged.show_progress,
             regularization = merged.regularization,
+            sparse_threshold = merged.sparse_threshold,
             callback = callback,
             to = to
         )
@@ -371,6 +377,7 @@ function solve_raw(
     use_sparse::Union{Nothing, Symbol, Bool} = nothing,
     show_progress::Union{Nothing, Bool} = nothing,
     regularization::Union{Nothing, Float64} = nothing,
+    sparse_threshold::Union{Nothing, Int} = nothing,
     callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -381,7 +388,8 @@ function solve_raw(
     # Merge caller overrides with solver defaults
     merged = _merge_options(options;
         max_iters, tol, verbose, linesearch_method,
-        recompute_policy_in_linesearch, use_sparse, show_progress, regularization)
+        recompute_policy_in_linesearch, use_sparse, show_progress, regularization,
+        sparse_threshold)
 
     # Run the nonlinear solver
     @timeit_debug to "NonlinearSolver solve" begin
@@ -398,6 +406,7 @@ function solve_raw(
             use_sparse = merged.use_sparse,
             show_progress = merged.show_progress,
             regularization = merged.regularization,
+            sparse_threshold = merged.sparse_threshold,
             callback = callback,
             to = to
         )
