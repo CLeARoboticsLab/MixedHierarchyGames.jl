@@ -2925,3 +2925,55 @@ This was an investigation-first PR. The process was:
 ### Action Items for Next PR
 
 - None identified
+
+---
+
+## PR: perf/06-typed-function-vectors
+
+**Date:** 2026-02-16
+**Commits:** 5
+**Tests:** 1381 passing
+
+### Summary
+
+Replaced `Vector{Function}` with `Vector{MNFunctionWrapper}` for M_fns!/N_fns! in `setup_approximate_kkt_solver` using FunctionWrappers.jl. Eliminates runtime dispatch on every M_fn/N_fn call in the hot `compute_K_evals` path.
+
+### TDD Compliance
+
+- TDD followed correctly: wrote failing tests first (commit 1), then implementation (commit 2).
+- Tests used `@test_broken` in the red phase, converted to `@test` in the green phase.
+- Discovered a return type mismatch (`build_function` returns either `Matrix{Float64}` or `nothing` depending on symbolic structure) during the full test suite run — required an additional fix commit.
+
+### Clean Code
+
+- Minimal change: 3 lines in `nonlinear_kkt.jl` plus a type alias constant.
+- Used a `let` block for proper closure capture of `M_raw`/`N_raw`.
+- Exported `MNFunctionWrapper` so tests can reference the concrete type.
+
+### Clean Architecture
+
+- FunctionWrappers.jl is a well-established dependency in the SciML ecosystem.
+- The wrapper normalizes the return type to `Nothing` (callers don't use the return value), which is a clean abstraction boundary.
+
+### Commits
+
+- 5 commits, each focused on a single concern. The extra 2 commits (return type fix + test update) were necessitated by discovering that `build_function`'s return type varies.
+- **Improvement**: Should have tested with complex problems (dynamics constraints) before the first implementation commit, not just the simple 2-player case.
+
+### CLAUDE.md Compliance
+
+- All instructions followed. Expert review conducted at approach selection.
+
+### What Went Well
+
+- FunctionWrappers.jl was thoroughly validated on Julia 1.11.7 before committing to the approach.
+- @code_warntype verification confirmed the type instability was eliminated.
+- Zero allocations in M_fn calls confirmed via benchmark.
+
+### What Could Be Improved
+
+- Initial FunctionWrapper return type was `Matrix{Float64}` based on testing with simple problems only. The full test suite revealed `build_function` returns `nothing` for complex problems. Should have tested with representative problem sizes before the first implementation commit.
+
+### Action Items for Next PR
+
+- When wrapping external function outputs, always test with the most complex available test case, not just the simplest one.
