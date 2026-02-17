@@ -2880,3 +2880,48 @@ This was an investigation-first PR. The process was:
 ### Action Items for Next PR
 
 - None identified — this was a focused investigation
+
+---
+
+## PR: perf/09-tight-problem-types
+
+**Date**: 2026-02-16
+**Scope**: Tighten HierarchyProblem type parameter bounds from AbstractDict/AbstractVector to Dict/Vector
+
+### TDD Compliance
+- [x] TDD followed: failing tests written first (3 rejection tests + 4 positive tests)
+- [x] RED phase verified: all 3 rejection tests failed before implementation
+- [x] GREEN phase verified: all 7 tests passed after one-line change
+- [x] No implementation before tests
+
+### Clean Code
+- [x] Single, focused change (one line in struct definition)
+- [x] Docstrings updated to reflect new constraints
+- [x] Test file well-organized with clear purpose per testset
+
+### Clean Architecture
+- [x] No behavioral change — purely tightening the API contract
+- [x] All 1369 existing tests continue to pass
+
+### Commit Hygiene
+- [x] 3 commits: (1) failing tests, (2) implementation, (3) verification + tier registration
+- [x] Each commit is small and focused
+- [x] Commit messages explain why, not just what
+
+### CLAUDE.md Compliance
+- [x] All instructions followed
+- [x] Expert review protocol applied at pre-implementation and post-implementation
+
+### What Went Well
+
+- **Thorough call-site analysis**: Exhaustive search confirmed all callers pass Dict/Vector, making the change safe
+- **Correct TDD cycle**: Clean red-green-refactor with verified failing tests
+- **Expert review identified nuance**: The parametric type already encoded concrete types via parameters, so the benefit is API enforcement rather than runtime performance
+
+### What Could Be Improved
+
+- Nothing significant — this was a straightforward, well-scoped change
+
+### Action Items for Next PR
+
+- None identified
