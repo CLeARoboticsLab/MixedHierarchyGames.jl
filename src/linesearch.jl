@@ -19,6 +19,8 @@ where for Newton-like methods ∇ϕ'*d ≈ -2*||f(x)||².
 - `c1::Float64=1e-4` - Sufficient decrease parameter (Armijo constant)
 - `rho::Float64=0.5` - Step size reduction factor per backtracking iteration
 - `max_iters::Int=20` - Maximum number of backtracking iterations
+- `x_buffer::Union{Nothing,Vector}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `x + α*d` each iteration. Must have same length as `x`.
 
 # Returns
 - `α::Float64` - Selected step size, or `0.0` if no sufficient decrease found
@@ -31,14 +33,18 @@ function armijo_backtracking(
     c1::Float64=1e-4,
     rho::Float64=0.5,
     max_iters::Int=20,
+    x_buffer::Union{Nothing,Vector}=nothing,
 )
     f_x = f(x)
-    ϕ_0 = norm(f_x)^2
+    ϕ_0 = dot(f_x, f_x)
+
+    x_new = something(x_buffer, similar(x))
 
     α = alpha_init
     for _ in 1:max_iters
-        x_new = x .+ α .* d
-        ϕ_new = norm(f(x_new))^2
+        @. x_new = x + α * d
+        f_new = f(x_new)
+        ϕ_new = dot(f_new, f_new)
 
         # Sufficient decrease: ϕ(x + α*d) ≤ ϕ(x) + c1 * α * (-2 * ϕ(x))
         if ϕ_new <= ϕ_0 + c1 * α * (-2 * ϕ_0)
@@ -48,7 +54,7 @@ function armijo_backtracking(
         α *= rho
     end
 
-    @warn "Armijo line search failed to find sufficient decrease after $max_iters iterations"
+    @warn lazy"Armijo line search failed to find sufficient decrease after $max_iters iterations"
     return 0.0
 end
 
@@ -74,6 +80,8 @@ rather than sufficient decrease, and has no Armijo constant `c1`.
 # Keyword Arguments
 - `rho::Float64=0.5` - Step size reduction factor per iteration
 - `max_iters::Int=20` - Maximum number of reduction iterations
+- `x_buffer::Union{Nothing,Vector}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `x + α*d` each iteration. Must have same length as `x`.
 
 # Returns
 - `α::Float64` - Selected step size, or `0.0` if no decrease found
@@ -85,13 +93,18 @@ function geometric_reduction(
     alpha_init::Float64;
     rho::Float64=0.5,
     max_iters::Int=20,
+    x_buffer::Union{Nothing,Vector}=nothing,
 )
-    ϕ_0 = norm(f(x))^2
+    f_x = f(x)
+    ϕ_0 = dot(f_x, f_x)
+
+    x_new = something(x_buffer, similar(x))
 
     α = alpha_init
     for _ in 1:max_iters
-        x_new = x .+ α .* d
-        ϕ_new = norm(f(x_new))^2
+        @. x_new = x + α * d
+        f_new = f(x_new)
+        ϕ_new = dot(f_new, f_new)
 
         if ϕ_new < ϕ_0
             return α
@@ -100,7 +113,7 @@ function geometric_reduction(
         α *= rho
     end
 
-    @warn "Geometric reduction line search failed to find decrease after $max_iters iterations"
+    @warn lazy"Geometric reduction line search failed to find decrease after $max_iters iterations"
     return 0.0
 end
 

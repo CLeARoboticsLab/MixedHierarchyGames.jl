@@ -135,6 +135,65 @@ using MixedHierarchyGames:
     end
 
     #==========================================================================
+        NaN-fill error path: allocation avoidance
+    ==========================================================================#
+
+    @testset "NaN-fill error paths avoid unnecessary allocation" begin
+
+        @testset "non-finite path returns NaN-filled array of correct size" begin
+            # M is invertible but M \ N overflows to Inf due to tiny diagonal + large N.
+            # This triggers the non-finite check (line 739) rather than SingularException.
+            M = [1.0 0.0; 0.0 1e-308]
+            N = [1.0 0.0; 1e308 0.0]
+
+            result = @test_warn r"non-finite values" _solve_K!(copy(M), copy(N), 1)
+            @test size(result) == size(N)
+            @test all(isnan, result)
+        end
+
+        @testset "singular exception path returns NaN-filled array of correct size" begin
+            # Exactly singular M: duplicate rows
+            M = [1.0 2.0; 2.0 4.0]
+            N = [1.0 0.0; 0.0 1.0]
+
+            result = @test_warn r"Singular M matrix" _solve_K!(copy(M), copy(N), 1)
+            @test size(result) == size(N)
+            @test all(isnan, result)
+        end
+
+        @testset "non-finite path returns correct dimensions for non-square N" begin
+            # M is invertible but M \ N overflows to Inf.
+            # Tests with non-square N to verify dimensions are preserved.
+            M = [1.0 0.0; 0.0 1e-308]
+            N = [1.0 2.0 3.0; 1e308 0.0 0.0]
+
+            result = @test_warn r"non-finite values" _solve_K!(copy(M), copy(N), 1)
+            @test size(result) == (2, 3)
+            @test all(isnan, result)
+        end
+
+        @testset "singular exception path returns correct dimensions for non-square N" begin
+            # Singular M with non-square N
+            M = [0.0 0.0; 0.0 0.0]
+            N = [1.0 2.0 3.0; 4.0 5.0 6.0]
+
+            result = @test_warn r"Singular M matrix" _solve_K!(copy(M), copy(N), 1)
+            @test size(result) == (2, 3)
+            @test all(isnan, result)
+        end
+
+        @testset "N buffer is not mutated by error paths" begin
+            # Ensure the input N matrix is not modified by either error path
+            M_singular = [1.0 2.0; 2.0 4.0]
+            N = [1.0 0.0; 0.0 1.0]
+            N_copy = copy(N)
+
+            _solve_K!(copy(M_singular), N, 1)
+            @test N == N_copy  # N must not be mutated
+        end
+    end
+
+    #==========================================================================
         Accuracy analysis: distortion vs regularization strength
     ==========================================================================#
 

@@ -8,6 +8,7 @@ using MixedHierarchyGames:
     compute_K_evals,
     preoptimize_nonlinear_solver,
     run_nonlinear_solver,
+    MNFunctionWrapper,
     default_backend
 
 @testset "Dict→Vector Storage Migration" begin
@@ -176,7 +177,7 @@ using MixedHierarchyGames:
         @test_throws ErrorException setup_info.var"N_fns!"[1](dummy_buf, dummy_input)
 
         # Player 2 is a follower — its M_fns!/N_fns! should be callable (not stubs)
-        @test setup_info.var"M_fns!"[2] isa Function
-        @test setup_info.var"N_fns!"[2] isa Function
+        @test setup_info.var"M_fns!"[2] isa MNFunctionWrapper
+        @test setup_info.var"N_fns!"[2] isa MNFunctionWrapper
     end
 end

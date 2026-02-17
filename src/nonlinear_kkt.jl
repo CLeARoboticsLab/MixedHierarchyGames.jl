@@ -6,6 +6,14 @@
     K = M \ N numerically at each iteration.
 =#
 
+# Concrete callable type for M_fn!/N_fn! evaluation functions.
+# Replaces Vector{Function} to eliminate runtime dispatch on the hot path.
+# Signature: (result::Matrix{Float64}, x::Vector{Float64}) -> Nothing
+# Note: build_function's in-place variant may return either the buffer or nothing
+# depending on the symbolic structure. We normalize to Nothing since callers
+# only use the mutated buffer, not the return value.
+const MNFunctionWrapper = FunctionWrapper{Nothing, Tuple{Matrix{Float64}, Vector{Float64}}}
+
 # Use Julia's built-in `something(x, default)` for value-or-default pattern
 # Note: something() returns the first non-nothing value, so something(x, default)
 # is equivalent to isnothing(x) ? default : x
@@ -102,20 +110,25 @@ When `use_armijo=false`, returns α=1.0 (full Newton step).
 
 # Keyword Arguments
 - `use_armijo::Bool=true` - Whether to perform backtracking line search
+- `z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `z_est + α*δz` each iteration. Must have same length as `z_est`.
 
 # Returns
 - `α::Float64` - Selected step size
 """
 function perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
-                            use_armijo::Bool=true)
+                            use_armijo::Bool=true,
+                            z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing)
     α = 1.0
 
     if !use_armijo
         return α
     end
 
+    z_trial = something(z_trial_buffer, similar(z_est))
+
     for _ in 1:LINESEARCH_MAX_ITERS
-        z_trial = z_est .+ α .* δz
+        @. z_trial = z_est + α * δz
         trial_residual_norm = residual_norm_fn(z_trial)
 
         if trial_residual_norm < current_residual_norm
@@ -242,10 +255,10 @@ function setup_approximate_kkt_solver(
     K_syms = Dict{Int, Union{Matrix{Symbolics.Num}, Vector{Symbolics.Num}}}()
     πs = Dict{Int, Any}()
     _root_player_stub(_...) = error("M_fn!/N_fn! called for root player (no leader) — this is a bug")
-    M_fns_inplace = Vector{Function}(undef, N)
-    N_fns_inplace = Vector{Function}(undef, N)
-    fill!(M_fns_inplace, _root_player_stub)
-    fill!(N_fns_inplace, _root_player_stub)
+    M_fns_inplace = Vector{MNFunctionWrapper}(undef, N)
+    N_fns_inplace = Vector{MNFunctionWrapper}(undef, N)
+    fill!(M_fns_inplace, MNFunctionWrapper(_root_player_stub))
+    fill!(N_fns_inplace, MNFunctionWrapper(_root_player_stub))
     augmented_variables = Dict{Int, Vector{Symbolics.Num}}()
 
     # First pass: create symbolic K matrices for all followers
@@ -337,14 +350,19 @@ function setup_approximate_kkt_solver(
             Mᵢ = Symbolics.jacobian(πs_flat, ws[ii])
             Nᵢ = Symbolics.jacobian(πs_flat, ys[ii])
 
-            # Compile in-place function variants
-            M_fns_inplace[ii] = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
-            N_fns_inplace[ii] = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
+            # Compile in-place function variants, wrapped for type-stable dispatch.
+            # build_function may return either the buffer or nothing depending on symbolic
+            # structure, so we wrap to normalize the return type to Nothing.
+            let M_raw = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)),
+                N_raw = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
+                M_fns_inplace[ii] = MNFunctionWrapper((buf, x) -> (M_raw(buf, x); nothing))
+                N_fns_inplace[ii] = MNFunctionWrapper((buf, x) -> (N_raw(buf, x); nothing))
+            end
         else
             augmented_variables[ii] = all_variables
         end
 
-        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))"
+        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(augmented_variables[ii]))"
     end
 
     # Build full augmented variable list
@@ -455,7 +473,7 @@ function preoptimize_nonlinear_solver(
 
         # Strip policy constraints for MCP construction
         πs_solve = strip_policy_constraints(πs, hierarchy_graph, zs, gs)
-        π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
+        π_sizes_trimmed = Dict{Int, Int}(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
 
         # Build MCP function vector
         π_order = ordered_player_indices(πs_solve)
@@ -555,7 +573,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, buffers=nothing)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, K_buffers, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -585,6 +603,10 @@ See Phase 6 for planned thread-safety improvements.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
 - `N_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated N matrix buffers (same semantics as M_buffers).
+- `K_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated K result buffers.
+  When provided, `_solve_K!` writes the result into the buffer via `ldiv!` instead of
+  allocating a new matrix. Uses `lu!(M)` for the dense no-regularization path to avoid
+  copying M (safe because M is refreshed each iteration via `M_fns!`).
 - `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
   across calls, reducing Dict and vector allocation overhead. When provided, must
   contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
@@ -604,6 +626,7 @@ function compute_K_evals(
     regularization::Float64=0.0,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
+    K_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     buffers::Union{Nothing, NamedTuple}=nothing
 )
     # Normalize Bool to Symbol for backward compatibility
@@ -667,7 +690,8 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
+            K_buf = get(K_buffers, ii, nothing)
+            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; K_buffer=K_buf, use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -720,7 +744,9 @@ differ from the original by up to machine epsilon (~2.2e-16).
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
+function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                   K_buffer::Union{Matrix{Float64}, Nothing}=nothing,
+                   use_sparse::Bool=false, regularization::Float64=0.0)
     # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
     # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
     if regularization > 0
@@ -729,29 +755,59 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
         end
     end
     try
-        K = if use_sparse
-            sparse(M) \ N
+        if !isnothing(K_buffer) && !use_sparse
+            # In-place path for dense solve: factorize M and solve into K_buffer via ldiv!
+            # When regularization == 0, use lu!(M) to avoid copying M (M is overwritten
+            # with LU factors, but callers refresh M each iteration via M_fns!).
+            # When regularization > 0, use lu(M) (copies internally) so the finally
+            # block can restore M's diagonal correctly.
+            # Note: sparse path skips ldiv! because lu(sparse(M)) + ldiv! allocates
+            # more than sparse(M) \ N due to factorization object overhead.
+            F = if regularization > 0
+                lu(M)
+            else
+                lu!(M)
+            end
+            ldiv!(K_buffer, F, N)
+            K = K_buffer
         else
-            M \ N
+            # Allocating path: sparse solve, or dense without K_buffer (backward compat)
+            K = if use_sparse
+                sparse(M) \ N
+            else
+                M \ N
+            end
+            # Copy into K_buffer if provided (sparse path still saves K allocation)
+            if !isnothing(K_buffer)
+                copyto!(K_buffer, K)
+                K = K_buffer
+            end
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
             @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
-            return fill(NaN, size(K))
+            return fill!(K, NaN)
         end
 
         return K
     catch e
         if e isa SingularException || e isa LAPACKException
             @warn "Singular M matrix for player $player_idx: $e. Using NaN fallback."
-            n_rows = size(N, 1)
-            n_cols = size(N, 2)
-            return fill(NaN, n_rows, n_cols)
+            if !isnothing(K_buffer)
+                return fill!(K_buffer, NaN)
+            else
+                n_rows = size(N, 1)
+                n_cols = size(N, 2)
+                return fill(NaN, n_rows, n_cols)
+            end
         end
         rethrow()
     finally
-        # Undo in-place regularization to preserve caller's M
+        # Undo in-place regularization to preserve caller's M.
+        # When K_buffer is used without regularization, lu!(M) overwrites M — but
+        # there's nothing to undo (regularization == 0), and callers overwrite M
+        # fresh each iteration via M_fns!.
         if regularization > 0
             @inbounds for i in 1:size(M, 1)
                 M[i, i] -= regularization
@@ -863,6 +919,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    neg_F = zeros(n)    # Reused across Newton iterations for -F_eval
     F_trial = zeros(n)  # Reused across linesearch iterations
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
@@ -876,10 +933,12 @@ function run_nonlinear_solver(
     
     M_buffers = Dict{Int, Matrix{Float64}}()
     N_buffers = Dict{Int, Matrix{Float64}}()
+    K_buffers = Dict{Int, Matrix{Float64}}()
     for ii in 1:nv(graph)
         if has_leader(graph, ii)
             M_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ws[ii]))
             N_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
+            K_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
         end
     end
 
@@ -903,7 +962,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, K_buffers, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
@@ -954,7 +1013,8 @@ function run_nonlinear_solver(
         end
 
         @timeit_debug to "Newton step" begin
-            newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
+            @. neg_F = -F_eval
+            newton_result = compute_newton_step(linsolver, ∇F, neg_F)
         end
 
         if !newton_result.success
@@ -982,10 +1042,12 @@ function run_nonlinear_solver(
 
             if linesearch_method == :armijo
                 α = armijo_backtracking(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :geometric
                 α = geometric_reduction(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :constant
                 α = 1.0
             else

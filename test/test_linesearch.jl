@@ -1,5 +1,6 @@
 using Test
-using LinearAlgebra: norm
+using Logging
+using LinearAlgebra: norm, dot
 using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_step
 
 @testset "Armijo Backtracking Linesearch" begin
@@ -42,6 +43,21 @@ using MixedHierarchyGames: armijo_backtracking, geometric_reduction, constant_st
 
         # Should signal failure by returning 0.0
         @test α == 0.0
+    end
+
+    @testset "Warning on failure uses lazy string" begin
+        r(x) = x
+        x = [1.0]
+        d = [1.0]  # Ascent direction forces failure
+
+        # Capture the log record to inspect message type
+        logs, _ = Test.collect_test_logs() do
+            armijo_backtracking(r, x, d, 1.0; max_iters=3)
+        end
+        @test length(logs) >= 1
+        @test logs[1].level == Logging.Warn
+        @test logs[1].message isa Base.LazyString
+        @test contains(string(logs[1].message), "Armijo line search failed")
     end
 
     @testset "Armijo sufficient decrease condition holds" begin
@@ -170,6 +186,21 @@ end
         @test α == 0.0
     end
 
+    @testset "Warning on failure uses lazy string" begin
+        r(x) = x
+        x = [1.0]
+        d = [1.0]  # Ascent direction forces failure
+
+        # Capture the log record to inspect message type
+        logs, _ = Test.collect_test_logs() do
+            geometric_reduction(r, x, d, 1.0; max_iters=3)
+        end
+        @test length(logs) >= 1
+        @test logs[1].level == Logging.Warn
+        @test logs[1].message isa Base.LazyString
+        @test contains(string(logs[1].message), "Geometric reduction line search failed")
+    end
+
     @testset "Simple decrease condition (no Armijo constant)" begin
         # Geometric reduction only requires ||f(x+αd)||^2 < ||f(x)||^2
         # Unlike Armijo, there's no c1 parameter for sufficient decrease
@@ -280,5 +311,132 @@ end
 
         α = ls(r, x, d, 1.0)
         @test α == 0.25
+    end
+end
+
+@testset "dot(f,f) merit equivalence" begin
+    @testset "dot(f,f) avoids sqrt rounding in norm(f)^2" begin
+        # norm(v)^2 computes sqrt(dot(v,v))^2 which can introduce IEEE 754
+        # rounding error. dot(v,v) is the direct sum-of-squares — more accurate.
+        # This test documents that the two can differ, motivating the optimization.
+        v = [1.0, 2.0, 3.0, 4.0, 5.0]
+        merit_dot = dot(v, v)
+        merit_norm = norm(v)^2
+        # They agree to machine precision but may not be bitwise identical
+        @test merit_dot ≈ merit_norm atol = 1e-14
+        # dot(v,v) should equal the algebraic sum of squares exactly
+        @test merit_dot == sum(vi^2 for vi in v)
+    end
+
+    @testset "Armijo linesearch step unchanged after norm-to-dot optimization" begin
+        # Record the step size returned by armijo_backtracking. This should be
+        # identical before and after replacing norm(f)^2 with dot(f,f) because
+        # both compute the same merit up to negligible rounding.
+        r(x) = x .^ 2
+        x = [2.0, 3.0]
+        d = [-1.0, -1.5]
+
+        α = armijo_backtracking(r, x, d, 1.0)
+
+        # The step should satisfy Armijo condition using dot-based merit
+        f_x = r(x)
+        f_new = r(x .+ α .* d)
+        ϕ_0 = dot(f_x, f_x)
+        ϕ_new = dot(f_new, f_new)
+        @test ϕ_new <= ϕ_0 + 1e-4 * α * (-2 * ϕ_0)
+        @test α > 0.0
+    end
+
+    @testset "Geometric reduction step unchanged after norm-to-dot optimization" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-0.5, -1.0]
+
+        α = geometric_reduction(r, x, d, 1.0)
+
+        # Step should satisfy strict decrease using dot-based merit
+        f_x = r(x)
+        f_new = r(x .+ α .* d)
+        @test dot(f_new, f_new) < dot(f_x, f_x)
+        @test α > 0.0
+    end
+end
+
+@testset "Pre-allocated x_buffer" begin
+    @testset "armijo_backtracking: buffer gives same result as allocating" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-5.0, -10.0]
+        x_buffer = similar(x)
+
+        α_alloc = armijo_backtracking(r, x, d, 1.0)
+        α_buf = armijo_backtracking(r, x, d, 1.0; x_buffer)
+
+        @test α_buf == α_alloc
+        @test α_buf > 0.0
+    end
+
+    @testset "armijo_backtracking: buffer is actually used (no extra allocation)" begin
+        r(x) = x
+        x = [2.0, 3.0, 4.0]
+        d = -x
+        x_buffer = similar(x)
+
+        α = armijo_backtracking(r, x, d, 1.0; x_buffer)
+        @test α == 1.0
+        # Buffer should have been written to (last trial point)
+        @test x_buffer ≈ x .+ α .* d atol = 1e-14
+    end
+
+    @testset "geometric_reduction: buffer gives same result as allocating" begin
+        r(x) = x .^ 3
+        x = [1.0, 2.0]
+        d = [-5.0, -10.0]
+        x_buffer = similar(x)
+
+        α_alloc = geometric_reduction(r, x, d, 1.0)
+        α_buf = geometric_reduction(r, x, d, 1.0; x_buffer)
+
+        @test α_buf == α_alloc
+        @test α_buf > 0.0
+    end
+
+    @testset "geometric_reduction: buffer is actually used (no extra allocation)" begin
+        r(x) = x
+        x = [2.0, 3.0, 4.0]
+        d = -x
+        x_buffer = similar(x)
+
+        α = geometric_reduction(r, x, d, 1.0; x_buffer)
+        @test α == 1.0
+        # Buffer should have been written to (last trial point)
+        @test x_buffer ≈ x .+ α .* d atol = 1e-14
+    end
+
+    @testset "armijo_backtracking: multidimensional with backtracking" begin
+        r(x) = x .^ 2
+        x = [2.0, 3.0, 4.0, 5.0]
+        d = [-20.0, -30.0, -40.0, -50.0]
+        x_buffer = similar(x)
+
+        α_alloc = armijo_backtracking(r, x, d, 1.0; rho=0.5, max_iters=20)
+        α_buf = armijo_backtracking(r, x, d, 1.0; rho=0.5, max_iters=20, x_buffer)
+
+        @test α_buf == α_alloc
+        @test 0.0 < α_buf < 1.0
+    end
+
+    @testset "perform_linesearch: z_trial_buffer gives same result" begin
+        # Simple residual norm function
+        residual_norm_fn(z) = sum(abs2, z)
+        z_est = [1.0, 2.0, 3.0]
+        δz = -z_est  # Newton step toward origin
+        current_norm = residual_norm_fn(z_est)
+        z_trial_buffer = similar(z_est)
+
+        α_alloc = perform_linesearch(residual_norm_fn, z_est, δz, current_norm; use_armijo=true)
+        α_buf = perform_linesearch(residual_norm_fn, z_est, δz, current_norm; use_armijo=true, z_trial_buffer)
+
+        @test α_buf == α_alloc
     end
 end

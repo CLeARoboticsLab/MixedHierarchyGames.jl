@@ -263,7 +263,7 @@ function setup_problem_variables(
     all_variables = vcat(
         vcat([zs[i] for i in 1:N]...),
         vcat([λs[i] for i in 1:N]...),
-        (isempty(μs) ? eltype(zs[1])[] : vcat(collect(values(μs))...))
+        (isempty(μs) ? eltype(zs[1])[] : reduce(vcat, values(μs)))
     )
 
     (; zs, λs, μs, ys, ws, ws_z_indices, all_variables)
