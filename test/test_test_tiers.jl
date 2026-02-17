@@ -40,6 +40,7 @@
             "test_jacobian_buffer_safety.jl",
             "test_regularization.jl",
             "test_typed_kkt_dicts.jl",
+            "test_sparse_threshold.jl",
         ]
         @test Set(SLOW_TEST_FILES) == Set(expected_slow)
     end
@@ -80,6 +81,7 @@
             "test_unified_interface.jl",
             "test_vcat_ordered.jl",
             "test_typed_kkt_dicts.jl",
+            "test_sparse_threshold.jl",
         ])
         @test all_classified == expected_all
     end

@@ -3042,3 +3042,72 @@ correctly inferred by Julia — the annotation is for documentation only.
 - Always update test_test_tiers.jl when adding new test files (easy to forget)
 - For performance investigation PRs, run a quick @code_warntype check BEFORE
   creating the task to validate that the suspected instability exists
+
+---
+
+## PR: perf/sparse-threshold-heuristic
+
+Change :auto sparse heuristic from graph-position-based (!is_leaf) to
+size-based (size(M, 1) >= sparse_threshold). This makes leaf players
+with large M matrices benefit from sparse factorization too.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- RED: Wrote 14 failing tests covering NonlinearSolverOptions field, validation,
+  _merge_options support, compute_K_evals kwarg, Nash game behavior, and full
+  solve_raw integration
+- GREEN: Implemented sparse_threshold across the full call chain, all tests pass
+- Clean three-commit structure: failing tests → implementation → benchmarks
+
+### Clean Code
+
+**Score: Excellent (10/10)**
+
+- Minimal change: one new field, one heuristic line changed
+- Backward-compatible: all defaults preserve existing API
+- No dead code, no over-engineering
+- Threshold is an explicit parameter (not a magic number buried in code)
+
+### Commit Hygiene
+
+**Score: Excellent (10/10)**
+
+- 3 commits as required: (1) failing tests, (2) implementation, (3) benchmarks
+- Each commit is small and focused
+- Implementation commit includes only src/ changes + test tier fix
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed strictly (RED-GREEN-REFACTOR)
+- [x] Test tolerances at 1e-10 (not loosened)
+- [x] Full test suite passes (1419 tests)
+- [x] Retrospective written before PR landing
+- [x] test_test_tiers.jl updated (learned from previous PR)
+
+### Benchmark Results
+
+| Problem | :never (dense) | new :auto (threshold=50) | :always (sparse) |
+|---------|---------------|--------------------------|-------------------|
+| 3P chain (time) | 0.33ms | 0.18ms (-45%) | 0.18ms |
+| 3P chain (alloc) | 1238KB | 556KB (-55%) | 755KB |
+| 4P chain (time) | 9.56ms | 2.27ms (-76%) | 2.30ms |
+| 4P chain (alloc) | 11659KB | 6648KB (-43%) | 6648KB |
+
+New :auto matches or beats :always because small M matrices (Player 3 at
+24×24) stay on the faster dense path.
+
+### What Went Well
+
+- TDD followed from the start, no violations
+- The threshold of 50 correctly separates small (24×24 → dense) from large (56×64+ → sparse)
+- Expert review protocol caught no issues — the change is simple and well-bounded
+
+### What Could Be Improved
+
+- Nothing significant — this was a clean, focused PR
+
+### Action Items for Next PR
+
+- Continue the pattern of size-based heuristics for adaptive behavior
