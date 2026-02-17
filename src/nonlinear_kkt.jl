@@ -578,8 +578,8 @@ See Phase 6 for planned thread-safety improvements.
 
 # Keyword Arguments
 - `use_sparse::Union{Symbol,Bool}=:auto` - Strategy for M\\N solve:
-  - `:auto` - Use sparse for non-leaf players (leaders with followers have larger M),
-    dense for leaf players (small M, no sparse overhead)
+  - `:auto` - Use sparse for players whose M matrix has `size(M, 1) >= sparse_threshold` rows,
+    dense for smaller M matrices. This selects sparse based on matrix size rather than graph position.
   - `:always` - Always use sparse LU factorization
   - `:never` - Always use dense solve
   - `true`/`false` - Backward-compatible aliases for `:always`/`:never`
@@ -607,6 +607,7 @@ function compute_K_evals(
     setup_info::NamedTuple;
     use_sparse::Union{Symbol,Bool}=:auto,
     regularization::Float64=0.0,
+    sparse_threshold::Int=50,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     buffers::Union{Nothing, NamedTuple}=nothing
@@ -666,7 +667,7 @@ function compute_K_evals(
 
             # Decide per-player whether to use sparse solve
             player_use_sparse = if mode == :auto
-                !is_leaf(graph, ii)  # sparse for leaders (large M), dense for leaves (small M)
+                size(M_buf, 1) >= sparse_threshold  # sparse for any large M, regardless of graph position
             else
                 mode == :always
             end
@@ -832,6 +833,7 @@ function run_nonlinear_solver(
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
     regularization::Float64 = 0.0,
+    sparse_threshold::Int = 50,
     callback::Union{Nothing, Function} = nothing,
     to::TimerOutput = TimerOutput()
 )
@@ -909,7 +911,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, sparse_threshold, M_buffers, N_buffers, sparse_M_caches, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end
