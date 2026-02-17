@@ -44,7 +44,7 @@ Used by both QPSolver and NonlinearSolver.
 - `state_dim::Int` - State dimension per player (for trajectory extraction)
 - `control_dim::Int` - Control dimension per player (for trajectory extraction)
 """
-struct HierarchyProblem{TG<:SimpleDiGraph, TJ<:AbstractDict, TC<:AbstractVector, TP<:AbstractDict}
+struct HierarchyProblem{TG<:SimpleDiGraph, TJ<:Dict, TC<:Vector, TP<:Dict}
     hierarchy_graph::TG
     Js::TJ
     gs::TC
