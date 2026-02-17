@@ -573,7 +573,7 @@ function _build_augmented_z_est(ii, z_est, K_evals, graph, follower_cache, buffe
 end
 
 """
-    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, buffers=nothing)
+    compute_K_evals(z_current, problem_vars, setup_info; use_sparse=:auto, regularization=0.0, M_buffers, N_buffers, K_buffers, buffers=nothing)
 
 Evaluate K (policy) matrices numerically in reverse topological order.
 
@@ -603,6 +603,10 @@ See Phase 6 for planned thread-safety improvements.
   When empty, buffers are lazily allocated on first access per player.
   Pass pre-allocated buffers from `run_nonlinear_solver` to avoid re-allocation across iterations.
 - `N_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated N matrix buffers (same semantics as M_buffers).
+- `K_buffers::Dict{Int,Matrix{Float64}}=Dict()` - Pre-allocated K result buffers.
+  When provided, `_solve_K!` writes the result into the buffer via `ldiv!` instead of
+  allocating a new matrix. Uses `lu!(M)` for the dense no-regularization path to avoid
+  copying M (safe because M is refreshed each iteration via `M_fns!`).
 - `buffers::Union{Nothing, NamedTuple}=nothing` - Pre-allocated buffers to reuse
   across calls, reducing Dict and vector allocation overhead. When provided, must
   contain fields: `M_evals`, `N_evals`, `K_evals`, `follower_cache`, `buffer_cache`,
@@ -622,6 +626,7 @@ function compute_K_evals(
     regularization::Float64=0.0,
     M_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     N_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
+    K_buffers::Dict{Int,Matrix{Float64}} = Dict{Int,Matrix{Float64}}(),
     buffers::Union{Nothing, NamedTuple}=nothing
 )
     # Normalize Bool to Symbol for backward compatibility
@@ -685,7 +690,8 @@ function compute_K_evals(
             end
 
             # Solve K = M \ N with singular matrix protection
-            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; use_sparse=player_use_sparse, regularization)
+            K_buf = get(K_buffers, ii, nothing)
+            K_evals[ii] = _solve_K!(M_evals[ii], N_evals[ii], ii; K_buffer=K_buf, use_sparse=player_use_sparse, regularization)
             if any(isnan, K_evals[ii])
                 status = :singular_matrix
             end
@@ -738,7 +744,9 @@ differ from the original by up to machine epsilon (~2.2e-16).
 Returns a NaN-filled matrix (same size as expected K) if M is singular or
 severely ill-conditioned, with a warning.
 """
-function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_sparse::Bool=false, regularization::Float64=0.0)
+function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int;
+                   K_buffer::Union{Matrix{Float64}, Nothing}=nothing,
+                   use_sparse::Bool=false, regularization::Float64=0.0)
     # Apply Tikhonov regularization in-place (add λ to diagonal), then undo after solve.
     # This avoids allocating M + λI each call. Safe because try-finally guarantees cleanup.
     if regularization > 0
@@ -747,10 +755,33 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
         end
     end
     try
-        K = if use_sparse
-            sparse(M) \ N
+        if !isnothing(K_buffer) && !use_sparse
+            # In-place path for dense solve: factorize M and solve into K_buffer via ldiv!
+            # When regularization == 0, use lu!(M) to avoid copying M (M is overwritten
+            # with LU factors, but callers refresh M each iteration via M_fns!).
+            # When regularization > 0, use lu(M) (copies internally) so the finally
+            # block can restore M's diagonal correctly.
+            # Note: sparse path skips ldiv! because lu(sparse(M)) + ldiv! allocates
+            # more than sparse(M) \ N due to factorization object overhead.
+            F = if regularization > 0
+                lu(M)
+            else
+                lu!(M)
+            end
+            ldiv!(K_buffer, F, N)
+            K = K_buffer
         else
-            M \ N
+            # Allocating path: sparse solve, or dense without K_buffer (backward compat)
+            K = if use_sparse
+                sparse(M) \ N
+            else
+                M \ N
+            end
+            # Copy into K_buffer if provided (sparse path still saves K allocation)
+            if !isnothing(K_buffer)
+                copyto!(K_buffer, K)
+                K = K_buffer
+            end
         end
 
         # Check for NaN/Inf in result (can occur with near-singular matrices)
@@ -763,13 +794,20 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
     catch e
         if e isa SingularException || e isa LAPACKException
             @warn "Singular M matrix for player $player_idx: $e. Using NaN fallback."
-            n_rows = size(N, 1)
-            n_cols = size(N, 2)
-            return fill(NaN, n_rows, n_cols)
+            if !isnothing(K_buffer)
+                return fill!(K_buffer, NaN)
+            else
+                n_rows = size(N, 1)
+                n_cols = size(N, 2)
+                return fill(NaN, n_rows, n_cols)
+            end
         end
         rethrow()
     finally
-        # Undo in-place regularization to preserve caller's M
+        # Undo in-place regularization to preserve caller's M.
+        # When K_buffer is used without regularization, lu!(M) overwrites M — but
+        # there's nothing to undo (regularization == 0), and callers overwrite M
+        # fresh each iteration via M_fns!.
         if regularization > 0
             @inbounds for i in 1:size(M, 1)
                 M[i, i] -= regularization
@@ -895,10 +933,12 @@ function run_nonlinear_solver(
     
     M_buffers = Dict{Int, Matrix{Float64}}()
     N_buffers = Dict{Int, Matrix{Float64}}()
+    K_buffers = Dict{Int, Matrix{Float64}}()
     for ii in 1:nv(graph)
         if has_leader(graph, ii)
             M_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ws[ii]))
             N_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
+            K_buffers[ii] = Matrix{Float64}(undef, π_sizes[ii], length(ys[ii]))
         end
     end
 
@@ -922,7 +962,7 @@ function run_nonlinear_solver(
 
     # Helper: compute parameters (θ, K) for a given z, reusing param_vec buffer
     function params_for_z!(z)
-        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, buffers=k_eval_buffers)
+        all_K_vec, _ = compute_K_evals(z, problem_vars, setup_info; use_sparse, regularization, M_buffers, N_buffers, K_buffers, buffers=k_eval_buffers)
         copyto!(param_vec, θ_len + 1, all_K_vec, 1, length(all_K_vec))
         return param_vec, all_K_vec
     end

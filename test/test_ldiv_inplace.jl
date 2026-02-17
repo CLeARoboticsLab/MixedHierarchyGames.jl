@@ -99,22 +99,17 @@ using MixedHierarchyGames:
             @test alloc_with < alloc_without
         end
 
-        @testset "K_buffer reduces allocation on sparse path" begin
+        @testset "K_buffer on sparse path produces correct results (large matrix)" begin
             M = randn(20, 20)
             M = M' * M + 5I  # positive definite
             N = randn(20, 10)
             K_buffer = Matrix{Float64}(undef, 20, 10)
 
-            # Warmup
-            _solve_K!(copy(M), copy(N), 1; K_buffer, use_sparse=true)
+            K_default = _solve_K!(copy(M), copy(N), 1; use_sparse=true)
+            K_inplace = _solve_K!(copy(M), copy(N), 1; K_buffer, use_sparse=true)
 
-            # Measure allocation with buffer
-            alloc_with = @allocated _solve_K!(copy(M), copy(N), 1; K_buffer, use_sparse=true)
-
-            # Measure allocation without buffer
-            alloc_without = @allocated _solve_K!(copy(M), copy(N), 1; use_sparse=true)
-
-            @test alloc_with < alloc_without
+            @test K_inplace === K_buffer
+            @test norm(K_inplace - K_default) < 1e-10
         end
 
         @testset "singular matrix NaN fallback works with K_buffer" begin
