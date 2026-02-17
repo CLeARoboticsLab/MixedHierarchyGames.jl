@@ -23,7 +23,6 @@ const FAST_TEST_FILES = [
     "test_typed_function_vectors.jl",
     "test_block_arrays.jl",
     "test_unified_interface.jl",
-    "test_typed_k_eval_buffers.jl",
     "olse/test_qp_solver.jl",
 ]
 
@@ -38,7 +37,7 @@ const SLOW_TEST_FILES = [
     "test_allocation_optimization.jl",
     "test_jacobian_buffer_safety.jl",
     "test_regularization.jl",
-    "test_sparse_pattern_cache.jl",
+    "test_typed_kkt_dicts.jl",
 ]
 
 """

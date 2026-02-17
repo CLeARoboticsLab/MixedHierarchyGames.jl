@@ -18,9 +18,9 @@
             "test_timeit_debug.jl",
             "test_type_bounds.jl",
             "test_tight_problem_types.jl",
+            "test_typed_function_vectors.jl",
             "test_block_arrays.jl",
             "test_unified_interface.jl",
-            "test_typed_k_eval_buffers.jl",
             "test_vcat_ordered.jl",
             "olse/test_qp_solver.jl",
         ]
@@ -39,7 +39,7 @@
             "test_allocation_optimization.jl",
             "test_jacobian_buffer_safety.jl",
             "test_regularization.jl",
-            "test_sparse_pattern_cache.jl",
+            "test_typed_kkt_dicts.jl",
         ]
         @test Set(SLOW_TEST_FILES) == Set(expected_slow)
     end
@@ -69,6 +69,7 @@
             "test_dict_to_vector_storage.jl",
             "test_type_bounds.jl",
             "test_tight_problem_types.jl",
+            "test_typed_function_vectors.jl",
             "test_block_arrays.jl",
             "test_timer.jl",
             "test_timeit_debug.jl",
@@ -77,9 +78,8 @@
             "test_jacobian_buffer_safety.jl",
             "test_regularization.jl",
             "test_unified_interface.jl",
-            "test_typed_k_eval_buffers.jl",
             "test_vcat_ordered.jl",
-            "test_sparse_pattern_cache.jl",
+            "test_typed_kkt_dicts.jl",
         ])
         @test all_classified == expected_all
     end

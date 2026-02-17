@@ -463,7 +463,7 @@ function preoptimize_nonlinear_solver(
 
         # Strip policy constraints for MCP construction
         πs_solve = strip_policy_constraints(πs, hierarchy_graph, zs, gs)
-        π_sizes_trimmed = Dict(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
+        π_sizes_trimmed = Dict{Int, Int}(ii => length(πs_solve[ii]) for ii in keys(πs_solve))
 
         # Build MCP function vector
         π_order = ordered_player_indices(πs_solve)
