@@ -2925,3 +2925,120 @@ This was an investigation-first PR. The process was:
 ### Action Items for Next PR
 
 - None identified
+
+---
+
+## PR: perf/06-typed-function-vectors
+
+**Date:** 2026-02-16
+**Commits:** 5
+**Tests:** 1381 passing
+
+### Summary
+
+Replaced `Vector{Function}` with `Vector{MNFunctionWrapper}` for M_fns!/N_fns! in `setup_approximate_kkt_solver` using FunctionWrappers.jl. Eliminates runtime dispatch on every M_fn/N_fn call in the hot `compute_K_evals` path.
+
+### TDD Compliance
+
+- TDD followed correctly: wrote failing tests first (commit 1), then implementation (commit 2).
+- Tests used `@test_broken` in the red phase, converted to `@test` in the green phase.
+- Discovered a return type mismatch (`build_function` returns either `Matrix{Float64}` or `nothing` depending on symbolic structure) during the full test suite run — required an additional fix commit.
+
+### Clean Code
+
+- Minimal change: 3 lines in `nonlinear_kkt.jl` plus a type alias constant.
+- Used a `let` block for proper closure capture of `M_raw`/`N_raw`.
+- Exported `MNFunctionWrapper` so tests can reference the concrete type.
+
+### Clean Architecture
+
+- FunctionWrappers.jl is a well-established dependency in the SciML ecosystem.
+- The wrapper normalizes the return type to `Nothing` (callers don't use the return value), which is a clean abstraction boundary.
+
+### Commits
+
+- 5 commits, each focused on a single concern. The extra 2 commits (return type fix + test update) were necessitated by discovering that `build_function`'s return type varies.
+- **Improvement**: Should have tested with complex problems (dynamics constraints) before the first implementation commit, not just the simple 2-player case.
+
+### CLAUDE.md Compliance
+
+- All instructions followed. Expert review conducted at approach selection.
+
+### What Went Well
+
+- FunctionWrappers.jl was thoroughly validated on Julia 1.11.7 before committing to the approach.
+- @code_warntype verification confirmed the type instability was eliminated.
+- Zero allocations in M_fn calls confirmed via benchmark.
+
+### What Could Be Improved
+
+- Initial FunctionWrapper return type was `Matrix{Float64}` based on testing with simple problems only. The full test suite revealed `build_function` returns `nothing` for complex problems. Should have tested with representative problem sizes before the first implementation commit.
+
+### Action Items for Next PR
+
+- When wrapping external function outputs, always test with the most complex available test case, not just the simplest one.
+
+---
+
+## PR: perf/07-typed-dicts
+
+**Date:** 2026-02-16
+**Commits:** 3
+**Tests:** 1405 passing (24 new)
+
+### Summary
+
+Investigation PR for Perf #7: Dict{Int, Any} type instability in KKT construction.
+Traced the full call chain from `solve()` through `run_nonlinear_solver` through
+`compute_K_evals` to determine which dicts are hot-path vs cold-path.
+
+**Key finding:** All `Dict{Int, Any}` instances in `qp_kkt.jl` (lines 92-95) and
+`nonlinear_kkt.jl` (line 256) are **cold-path only** — used during one-time symbolic
+construction, never accessed in the Newton iteration loop. The hot-path containers
+were already well-typed from previous PRs (Perf #4, #5, #6).
+
+### TDD Compliance
+
+**Score: N/A (investigation PR)**
+
+This was primarily an investigation PR. Tests were written to document the existing
+type guarantees as regression tests, not to drive new implementation. The one code
+change (explicit `Dict{Int, Int}` annotation on `π_sizes_trimmed`) was already
+correctly inferred by Julia — the annotation is for documentation only.
+
+### Clean Code
+
+- Tests clearly document the hot-path vs cold-path distinction
+- Each testset has a descriptive name explaining WHY the type is what it is
+- Benchmark script included for reproducibility
+
+### Commits
+
+- 3 small, focused commits: tests, implementation+tier-registration, benchmarks
+- Each commit has descriptive message explaining the finding
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Expert review protocol followed (hot-path identification checkpoint)
+- [x] Investigation documented before implementation
+- [x] Pre-merge retrospective recorded
+
+### What Went Well
+
+- Thorough call chain analysis before writing any code prevented wasted effort
+- Correctly identified that no hot-path changes were needed
+- Regression tests add value even when no code changes are needed
+
+### What Could Be Improved
+
+- The initial task description assumed Dict{Int, Any} was on the hot path. Earlier
+  investigation (before writing the task) would have saved the entire PR effort.
+- The test_test_tiers.jl expected file list was initially missed, causing a stale
+  test failure on the first full test run.
+
+### Action Items for Next PR
+
+- Always update test_test_tiers.jl when adding new test files (easy to forget)
+- For performance investigation PRs, run a quick @code_warntype check BEFORE
+  creating the task to validate that the suspected instability exists
