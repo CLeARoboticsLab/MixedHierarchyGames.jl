@@ -2977,3 +2977,68 @@ Replaced `Vector{Function}` with `Vector{MNFunctionWrapper}` for M_fns!/N_fns! i
 ### Action Items for Next PR
 
 - When wrapping external function outputs, always test with the most complex available test case, not just the simplest one.
+
+---
+
+## PR: perf/07-typed-dicts
+
+**Date:** 2026-02-16
+**Commits:** 3
+**Tests:** 1405 passing (24 new)
+
+### Summary
+
+Investigation PR for Perf #7: Dict{Int, Any} type instability in KKT construction.
+Traced the full call chain from `solve()` through `run_nonlinear_solver` through
+`compute_K_evals` to determine which dicts are hot-path vs cold-path.
+
+**Key finding:** All `Dict{Int, Any}` instances in `qp_kkt.jl` (lines 92-95) and
+`nonlinear_kkt.jl` (line 256) are **cold-path only** — used during one-time symbolic
+construction, never accessed in the Newton iteration loop. The hot-path containers
+were already well-typed from previous PRs (Perf #4, #5, #6).
+
+### TDD Compliance
+
+**Score: N/A (investigation PR)**
+
+This was primarily an investigation PR. Tests were written to document the existing
+type guarantees as regression tests, not to drive new implementation. The one code
+change (explicit `Dict{Int, Int}` annotation on `π_sizes_trimmed`) was already
+correctly inferred by Julia — the annotation is for documentation only.
+
+### Clean Code
+
+- Tests clearly document the hot-path vs cold-path distinction
+- Each testset has a descriptive name explaining WHY the type is what it is
+- Benchmark script included for reproducibility
+
+### Commits
+
+- 3 small, focused commits: tests, implementation+tier-registration, benchmarks
+- Each commit has descriptive message explaining the finding
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Expert review protocol followed (hot-path identification checkpoint)
+- [x] Investigation documented before implementation
+- [x] Pre-merge retrospective recorded
+
+### What Went Well
+
+- Thorough call chain analysis before writing any code prevented wasted effort
+- Correctly identified that no hot-path changes were needed
+- Regression tests add value even when no code changes are needed
+
+### What Could Be Improved
+
+- The initial task description assumed Dict{Int, Any} was on the hot path. Earlier
+  investigation (before writing the task) would have saved the entire PR effort.
+- The test_test_tiers.jl expected file list was initially missed, causing a stale
+  test failure on the first full test run.
+
+### Action Items for Next PR
+
+- Always update test_test_tiers.jl when adding new test files (easy to forget)
+- For performance investigation PRs, run a quick @code_warntype check BEFORE
+  creating the task to validate that the suspected instability exists
