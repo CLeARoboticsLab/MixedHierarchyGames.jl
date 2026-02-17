@@ -72,4 +72,22 @@ using Graphs: SimpleDiGraph
         @test typeof(prob.gs) <: Vector
         @test typeof(prob.θs) <: Dict
     end
+
+    @testset "Field access is type-stable with concrete return types" begin
+        G = SimpleDiGraph(1)
+        prob = HierarchyProblem(G, Dict(1 => identity), [z -> z], [2], Dict(1 => [1.0]), 1, 1)
+
+        # Verify field access returns concrete types (not abstract)
+        T = typeof(prob)
+        type_params = T.parameters
+        # TJ (Js) should be a concrete Dict type
+        @test type_params[2] <: Dict
+        @test isconcretetype(type_params[2])
+        # TC (gs) should be a concrete Vector type
+        @test type_params[3] <: Vector
+        @test isconcretetype(type_params[3])
+        # TP (θs) should be a concrete Dict type
+        @test type_params[4] <: Dict
+        @test isconcretetype(type_params[4])
+    end
 end
