@@ -59,7 +59,7 @@ using MixedHierarchyGames:
     @testset "M_fn/N_fn calls are type-stable from Vector indexing" begin
         # When we index into the vector and call the function, the return type
         # should be inferrable, not Any.
-        # The built functions return Matrix{Float64} (the mutated buffer).
+        # The wrapped functions return Nothing (buffer is mutated in-place).
         M_fns = setup_info.var"M_fns!"
         N_fns = setup_info.var"N_fns!"
 
@@ -78,9 +78,9 @@ using MixedHierarchyGames:
             N_fns[ii](buf, z)
         end
 
-        # @inferred verifies that the return type is concrete, not Any
-        @test @inferred(call_M_fn!(M_fns, ii, M_buf, z_test)) isa Matrix{Float64}
-        @test @inferred(call_N_fn!(N_fns, ii, N_buf, z_test)) isa Matrix{Float64}
+        # @inferred verifies that the return type is Nothing, not Any
+        @test @inferred(call_M_fn!(M_fns, ii, M_buf, z_test)) === nothing
+        @test @inferred(call_N_fn!(N_fns, ii, N_buf, z_test)) === nothing
     end
 
     @testset "compute_K_evals correctness with typed function vectors" begin

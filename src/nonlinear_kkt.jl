@@ -8,8 +8,11 @@
 
 # Concrete callable type for M_fn!/N_fn! evaluation functions.
 # Replaces Vector{Function} to eliminate runtime dispatch on the hot path.
-# Signature: (result::Matrix{Float64}, x::Vector{Float64}) -> Matrix{Float64}
-const MNFunctionWrapper = FunctionWrapper{Matrix{Float64}, Tuple{Matrix{Float64}, Vector{Float64}}}
+# Signature: (result::Matrix{Float64}, x::Vector{Float64}) -> Nothing
+# Note: build_function's in-place variant may return either the buffer or nothing
+# depending on the symbolic structure. We normalize to Nothing since callers
+# only use the mutated buffer, not the return value.
+const MNFunctionWrapper = FunctionWrapper{Nothing, Tuple{Matrix{Float64}, Vector{Float64}}}
 
 # Use Julia's built-in `something(x, default)` for value-or-default pattern
 # Note: something() returns the first non-nothing value, so something(x, default)
@@ -347,9 +350,14 @@ function setup_approximate_kkt_solver(
             Mᵢ = Symbolics.jacobian(πs_flat, ws[ii])
             Nᵢ = Symbolics.jacobian(πs_flat, ys[ii])
 
-            # Compile in-place function variants, wrapped for type-stable dispatch
-            M_fns_inplace[ii] = MNFunctionWrapper(SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)))
-            N_fns_inplace[ii] = MNFunctionWrapper(SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)))
+            # Compile in-place function variants, wrapped for type-stable dispatch.
+            # build_function may return either the buffer or nothing depending on symbolic
+            # structure, so we wrap to normalize the return type to Nothing.
+            let M_raw = SymbolicTracingUtils.build_function(Mᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse)),
+                N_raw = SymbolicTracingUtils.build_function(Nᵢ, augmented_variables[ii]; in_place=true, backend_options=(; cse))
+                M_fns_inplace[ii] = MNFunctionWrapper((buf, x) -> (M_raw(buf, x); nothing))
+                N_fns_inplace[ii] = MNFunctionWrapper((buf, x) -> (N_raw(buf, x); nothing))
+            end
         else
             augmented_variables[ii] = all_variables
         end
