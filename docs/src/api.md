@@ -12,6 +12,7 @@ MixedHierarchyGames
 AbstractMixedHierarchyGameSolver
 QPSolver
 NonlinearSolver
+NonlinearSolverOptions
 HierarchyGame
 HierarchyProblem
 QPPrecomputed

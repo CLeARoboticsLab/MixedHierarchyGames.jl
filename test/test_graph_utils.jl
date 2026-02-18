@@ -1,6 +1,6 @@
 using Test
 using Graphs: SimpleDiGraph, add_edge!
-using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all_followers
+using MixedHierarchyGames: is_root, is_leaf, has_leader, get_roots, get_all_leaders, get_all_followers
 
 @testset "Graph Utilities" begin
     @testset "Chain hierarchy: 1→2→3" begin
@@ -18,6 +18,11 @@ using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all
         @test is_leaf(G, 1) == false
         @test is_leaf(G, 2) == false
         @test is_leaf(G, 3) == true
+
+        # Has leader detection
+        @test has_leader(G, 1) == false
+        @test has_leader(G, 2) == true
+        @test has_leader(G, 3) == true
 
         # Leaders (ancestors)
         @test get_all_leaders(G, 1) == []
@@ -45,6 +50,11 @@ using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all
         @test is_leaf(G, 1) == false
         @test is_leaf(G, 2) == true
         @test is_leaf(G, 3) == true
+
+        # Has leader detection
+        @test has_leader(G, 1) == false
+        @test has_leader(G, 2) == true
+        @test has_leader(G, 3) == true
 
         # Leaders
         @test get_all_leaders(G, 1) == []
@@ -78,6 +88,24 @@ using MixedHierarchyGames: is_root, is_leaf, get_roots, get_all_leaders, get_all
         @test get_all_leaders(G, 3) == [2]
         @test get_all_followers(G, 2) == [3]
         @test get_all_followers(G, 1) == []
+    end
+
+    @testset "has_leader consistency with is_root" begin
+        # has_leader should always be the negation of is_root
+        G = SimpleDiGraph(4)
+        add_edge!(G, 1, 2)
+        add_edge!(G, 1, 3)
+        add_edge!(G, 2, 4)
+        add_edge!(G, 3, 4)
+
+        for v in 1:4
+            @test has_leader(G, v) == !is_root(G, v)
+        end
+
+        # Return types must be Bool
+        @test is_root(G, 1) isa Bool
+        @test is_leaf(G, 1) isa Bool
+        @test has_leader(G, 1) isa Bool
     end
 
     @testset "Diamond hierarchy: 1→{2,3}→4" begin

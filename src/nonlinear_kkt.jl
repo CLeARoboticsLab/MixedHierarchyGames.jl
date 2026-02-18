@@ -102,20 +102,25 @@ When `use_armijo=false`, returns α=1.0 (full Newton step).
 
 # Keyword Arguments
 - `use_armijo::Bool=true` - Whether to perform backtracking line search
+- `z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing` - Pre-allocated buffer for trial points.
+  When provided, avoids allocating `z_est + α*δz` each iteration. Must have same length as `z_est`.
 
 # Returns
 - `α::Float64` - Selected step size
 """
 function perform_linesearch(residual_norm_fn, z_est, δz, current_residual_norm;
-                            use_armijo::Bool=true)
+                            use_armijo::Bool=true,
+                            z_trial_buffer::Union{Nothing,Vector{Float64}}=nothing)
     α = 1.0
 
     if !use_armijo
         return α
     end
 
+    z_trial = something(z_trial_buffer, similar(z_est))
+
     for _ in 1:LINESEARCH_MAX_ITERS
-        z_trial = z_est .+ α .* δz
+        @. z_trial = z_est + α * δz
         trial_residual_norm = residual_norm_fn(z_trial)
 
         if trial_residual_norm < current_residual_norm
@@ -344,7 +349,7 @@ function setup_approximate_kkt_solver(
             augmented_variables[ii] = all_variables
         end
 
-        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(get(augmented_variables, ii, [])))"
+        verbose && @debug "Player $ii: $(π_sizes[ii]) KKT conditions, augmented vars: $(length(augmented_variables[ii]))"
     end
 
     # Build full augmented variable list
@@ -738,7 +743,7 @@ function _solve_K!(M::Matrix{Float64}, N::Matrix{Float64}, player_idx::Int; use_
         # Check for NaN/Inf in result (can occur with near-singular matrices)
         if any(!isfinite, K)
             @warn "K evaluation for player $player_idx produced non-finite values (near-singular M)"
-            return fill(NaN, size(K))
+            return fill!(K, NaN)
         end
 
         return K
@@ -863,6 +868,7 @@ function run_nonlinear_solver(
     # Allocate buffers
     n = length(all_variables)
     F_eval = zeros(n)
+    neg_F = zeros(n)    # Reused across Newton iterations for -F_eval
     F_trial = zeros(n)  # Reused across linesearch iterations
     ∇F = copy(mcp_obj.jacobian_z!.result_buffer)
     z_trial = Vector{Float64}(undef, n)
@@ -954,7 +960,8 @@ function run_nonlinear_solver(
         end
 
         @timeit_debug to "Newton step" begin
-            newton_result = compute_newton_step(linsolver, ∇F, -F_eval)
+            @. neg_F = -F_eval
+            newton_result = compute_newton_step(linsolver, ∇F, neg_F)
         end
 
         if !newton_result.success
@@ -982,10 +989,12 @@ function run_nonlinear_solver(
 
             if linesearch_method == :armijo
                 α = armijo_backtracking(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :geometric
                 α = geometric_reduction(residual_at_trial, z_est, δz, 1.0;
-                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS)
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :constant
                 α = 1.0
             else

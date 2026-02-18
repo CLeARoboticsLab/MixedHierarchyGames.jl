@@ -95,6 +95,78 @@ function make_nonlinear_test_problem(; T=3, state_dim=2, control_dim=2)
     return (; G, Js, gs, primal_dims, θs, state_dim, control_dim, T, N)
 end
 
+@testset "Allocation Optimization - Callback copy guard" begin
+    @testset "no-callback path avoids copy(z_est) allocation" begin
+        prob = make_nonlinear_test_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+        solve_kwargs = (; max_iters=50, tol=1e-8, verbose=false)
+
+        # Warmup both paths
+        run_nonlinear_solver(precomputed, initial_states, prob.G; solve_kwargs..., callback=nothing)
+        history = []
+        run_nonlinear_solver(precomputed, initial_states, prob.G; solve_kwargs..., callback=info -> push!(history, info))
+
+        # Measure allocations: no callback
+        allocs_no_cb = @allocated run_nonlinear_solver(
+            precomputed, initial_states, prob.G; solve_kwargs..., callback=nothing
+        )
+
+        # Measure allocations: with callback (forces copy(z_est) each iteration)
+        empty!(history)
+        allocs_with_cb = @allocated run_nonlinear_solver(
+            precomputed, initial_states, prob.G; solve_kwargs..., callback=info -> push!(history, info)
+        )
+
+        # With callback should allocate more due to copy(z_est) per iteration
+        # The callback path copies z_est each iteration, so it must allocate more
+        @test allocs_with_cb > allocs_no_cb
+        @test length(history) >= 1  # Sanity: callback was actually invoked
+    end
+
+    @testset "callback still receives independent z_est copies" begin
+        # Use tighter tolerance to force multiple iterations
+        prob = make_nonlinear_test_problem()
+
+        precomputed = preoptimize_nonlinear_solver(
+            prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs;
+            state_dim=prob.state_dim, control_dim=prob.control_dim
+        )
+
+        initial_states = Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5])
+
+        z_snapshots = Vector{Float64}[]
+        result = run_nonlinear_solver(
+            precomputed, initial_states, prob.G;
+            max_iters=100, tol=1e-14, verbose=false,
+            callback=info -> push!(z_snapshots, info.z_est)
+        )
+
+        @test length(z_snapshots) >= 1
+
+        if length(z_snapshots) >= 2
+            # Each snapshot must be an independent copy (different object identity)
+            @test z_snapshots[1] !== z_snapshots[2]
+
+            # Mutating snapshot 1 must not affect snapshot 2
+            saved_snap2_val = z_snapshots[2][1]
+            z_snapshots[1][1] = -12345.6789
+            @test z_snapshots[2][1] == saved_snap2_val  # Unchanged
+        else
+            # Even with one snapshot, verify it's a copy (not the solver's internal array)
+            # The solution should be close but the snapshot object should be independent
+            snapshot_ptr = pointer(z_snapshots[1])
+            sol_ptr = pointer(result.sol)
+            @test snapshot_ptr != sol_ptr
+        end
+    end
+end
+
 @testset "Allocation Optimization - Correctness" begin
 
     @testset "QPSolver: repeated solves produce identical results" begin
@@ -245,5 +317,29 @@ end
         # Initial states should match parameters
         @test isapprox(strategy.substrategies[1].xs[1], [0.0, 0.0], atol=1e-6)
         @test isapprox(strategy.substrategies[2].xs[1], [0.5, 0.5], atol=1e-6)
+    end
+
+    @testset "NonlinearSolver: neg_F buffer reuse correctness" begin
+        prob = make_nonlinear_test_problem()
+        solver = NonlinearSolver(prob.G, prob.Js, prob.gs, prob.primal_dims, prob.θs,
+                                prob.state_dim, prob.control_dim;
+                                max_iters=50, tol=1e-8, linesearch_method=:armijo)
+
+        # Solve with varying initial conditions to exercise neg_F buffer reuse
+        param_sets = [
+            Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5]),
+            Dict(1 => [1.0, -1.0], 2 => [0.0, 0.0]),
+            Dict(1 => [-0.5, 0.3], 2 => [0.8, -0.2]),
+            Dict(1 => [0.0, 0.0], 2 => [0.5, 0.5]),  # repeat first
+        ]
+
+        results = [solve_raw(solver, p) for p in param_sets]
+
+        # First and last use identical params — must produce identical results
+        @test results[1].converged
+        @test results[4].converged
+        @test isapprox(results[1].sol, results[4].sol, atol=1e-10)
+        @test results[1].iterations == results[4].iterations
+        @test isapprox(results[1].residual, results[4].residual, atol=1e-14)
     end
 end
