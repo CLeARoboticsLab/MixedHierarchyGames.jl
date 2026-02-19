@@ -1008,6 +1008,49 @@ function run_nonlinear_solver(
                 α = armijo_interpolation(residual_at_trial, z_est, δz, alpha_init;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
                     x_buffer=z_trial)
+            elseif linesearch_method == :twophase
+                # Two-phase linesearch: scout with cheap residual, verify with full K
+                # Scout uses stale param_vec (no K recomputation, ~0.3ms/eval)
+                # Verify recomputes K at the promising candidate (~3.3ms/eval)
+                ϕ_0_full = residual_norm^2  # cached from main loop convergence check
+
+                function residual_cheap(z)
+                    mcp_obj.f!(F_trial, z, param_vec)
+                    return F_trial
+                end
+
+                # Scout phase: find promising α using cheap evals
+                α = geometric_reduction(residual_cheap, z_est, δz, alpha_init;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
+
+                # Verify phase: confirm with full K recomputation
+                if α > 0.0 && recompute_policy_in_linesearch
+                    @. z_trial = z_est + α * δz
+                    param_full = first(params_for_z!(z_trial))
+                    mcp_obj.f!(F_trial, z_trial, param_full)
+                    ϕ_full = dot(F_trial, F_trial)
+
+                    if ϕ_full >= ϕ_0_full
+                        # Full eval rejected scout's choice — try neighbors
+                        found = false
+                        for factor in (LINESEARCH_BACKTRACK_FACTOR, LINESEARCH_BACKTRACK_FACTOR^2)
+                            α_try = α * factor
+                            @. z_trial = z_est + α_try * δz
+                            param_full = first(params_for_z!(z_trial))
+                            mcp_obj.f!(F_trial, z_trial, param_full)
+                            ϕ_try = dot(F_trial, F_trial)
+                            if ϕ_try < ϕ_0_full
+                                α = α_try
+                                found = true
+                                break
+                            end
+                        end
+                        if !found
+                            α = 0.0
+                        end
+                    end
+                end
             elseif linesearch_method == :constant
                 α = 1.0
             else
