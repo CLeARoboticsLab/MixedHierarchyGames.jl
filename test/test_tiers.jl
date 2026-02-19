@@ -24,6 +24,7 @@ const FAST_TEST_FILES = [
     "olse/test_qp_solver.jl",
     "test_warmstart_alpha.jl",
     "test_quadratic_linesearch.jl",
+    "test_cubic_linesearch.jl",
 ]
 
 const SLOW_TEST_FILES = [

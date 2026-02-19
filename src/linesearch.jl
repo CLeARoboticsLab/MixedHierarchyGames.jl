@@ -231,3 +231,115 @@ function armijo_quadratic_interp(
     @warn lazy"Quadratic interpolation line search failed to find sufficient decrease after $max_iters iterations"
     return 0.0
 end
+
+"""
+    armijo_interpolation(f, x, d, alpha_init; c1=1e-4, rho=0.5, max_iters=20, x_buffer=nothing)
+
+Armijo line search with quadratic + cubic interpolation (Nocedal & Wright §3.5).
+
+Same interface as `armijo_backtracking`. Uses quadratic interpolation after the first
+backtrack failure, then cubic interpolation using the two most recent rejected points
+for subsequent failures (eq 3.57-3.58).
+
+# Arguments
+- `f::Function` - Residual function evaluating at a point, returns a vector
+- `x::Vector` - Current point
+- `d::Vector` - Search direction (typically the Newton step)
+- `alpha_init::Float64` - Initial step size
+
+# Keyword Arguments
+- `c1::Float64=1e-4` - Sufficient decrease parameter (Armijo constant)
+- `rho::Float64=0.5` - Geometric fallback reduction factor
+- `max_iters::Int=20` - Maximum number of backtracking iterations
+- `x_buffer::Union{Nothing,Vector}=nothing` - Pre-allocated buffer for trial points
+
+# Returns
+- `α::Float64` - Selected step size, or `0.0` if no sufficient decrease found
+"""
+function armijo_interpolation(
+    f::Function,
+    x::Vector,
+    d::Vector,
+    alpha_init::Float64;
+    c1::Float64=1e-4,
+    rho::Float64=0.5,
+    max_iters::Int=20,
+    x_buffer::Union{Nothing,Vector}=nothing,
+)
+    f_x = f(x)
+    ϕ_0 = dot(f_x, f_x)
+    dϕ_0 = -2 * ϕ_0  # directional derivative approximation
+
+    x_new = something(x_buffer, similar(x))
+
+    # First trial
+    α = alpha_init
+    @. x_new = x + α * d
+    f_new = f(x_new)
+    ϕ_α = dot(f_new, f_new)
+
+    if ϕ_α <= ϕ_0 + c1 * α * dϕ_0
+        return α
+    end
+
+    # Track previous step for cubic interpolation
+    α_prev = α
+    ϕ_prev = ϕ_α
+
+    # Second trial: quadratic interpolation
+    denom = 2 * (ϕ_α - ϕ_0 - dϕ_0 * α)
+    if abs(denom) > 1e-30
+        α_quad = -dϕ_0 * α^2 / denom
+        α = clamp(α_quad, 0.1 * α, 0.5 * α)
+    else
+        α *= rho
+    end
+
+    @. x_new = x + α * d
+    f_new = f(x_new)
+    ϕ_α = dot(f_new, f_new)
+
+    if ϕ_α <= ϕ_0 + c1 * α * dϕ_0
+        return α
+    end
+
+    # Subsequent trials: cubic interpolation using two most recent points
+    for _ in 3:max_iters
+        # Cubic interpolation (Nocedal & Wright eq 3.57-3.58)
+        # Solve 2x2 system for coefficients a, b of cubic c(α) = a*α³ + b*α² + dϕ₀*α + ϕ₀
+        d1 = ϕ_α - ϕ_0 - dϕ_0 * α
+        d2 = ϕ_prev - ϕ_0 - dϕ_0 * α_prev
+        denom_cubic = (α - α_prev) * α^2 * α_prev^2
+
+        α_next = α * rho  # default fallback
+        if abs(denom_cubic) > 1e-30
+            a = (α_prev^2 * d1 - α^2 * d2) / denom_cubic
+            b = (-α_prev^3 * d1 + α^3 * d2) / denom_cubic
+
+            # Minimizer: α_min = (-b + √(b²-3aϕ'₀)) / (3a)
+            disc = b^2 - 3 * a * dϕ_0
+            if abs(a) > 1e-30 && disc >= 0.0
+                α_cubic = (-b + sqrt(disc)) / (3 * a)
+                α_next = clamp(α_cubic, 0.1 * α, 0.5 * α)
+            else
+                # Degenerate: a≈0 or negative discriminant → geometric fallback
+                α_next = α * rho
+            end
+        end
+
+        α_prev = α
+        ϕ_prev = ϕ_α
+        α = α_next
+
+        @. x_new = x + α * d
+        f_new = f(x_new)
+        ϕ_α = dot(f_new, f_new)
+
+        if ϕ_α <= ϕ_0 + c1 * α * dϕ_0
+            return α
+        end
+    end
+
+    @warn lazy"Interpolation line search failed to find sufficient decrease after $max_iters iterations"
+    return 0.0
+end

@@ -23,6 +23,7 @@
             "olse/test_qp_solver.jl",
             "test_warmstart_alpha.jl",
             "test_quadratic_linesearch.jl",
+            "test_cubic_linesearch.jl",
         ]
         @test Set(FAST_TEST_FILES) == Set(expected_fast)
     end
@@ -80,6 +81,7 @@
             "test_sparse_threshold.jl",
             "test_warmstart_alpha.jl",
             "test_quadratic_linesearch.jl",
+            "test_cubic_linesearch.jl",
         ])
         @test all_classified == expected_all
     end
