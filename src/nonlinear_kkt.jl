@@ -926,6 +926,7 @@ function run_nonlinear_solver(
 
     # Main iteration loop
     α = NaN  # track step size for progress display
+    α_prev = 1.0  # warm-start: track last accepted step size
     while true
         # Evaluate K matrices at current z
         @timeit_debug to "compute K evals" begin
@@ -989,12 +990,14 @@ function run_nonlinear_solver(
                 return F_trial
             end
 
+            alpha_init = min(1.0, 2 * α_prev)
+
             if linesearch_method == :armijo
-                α = armijo_backtracking(residual_at_trial, z_est, δz, 1.0;
+                α = armijo_backtracking(residual_at_trial, z_est, δz, alpha_init;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
                     x_buffer=z_trial)
             elseif linesearch_method == :geometric
-                α = geometric_reduction(residual_at_trial, z_est, δz, 1.0;
+                α = geometric_reduction(residual_at_trial, z_est, δz, alpha_init;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
                     x_buffer=z_trial)
             elseif linesearch_method == :constant
@@ -1002,6 +1005,11 @@ function run_nonlinear_solver(
             else
                 error("Unknown linesearch_method: $linesearch_method")
             end
+        end
+
+        # Warm-start: remember accepted α for next iteration (ignore failures)
+        if α > 0.0
+            α_prev = α
         end
 
         # Update estimate (in-place to avoid allocation)
