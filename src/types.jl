@@ -341,6 +341,7 @@ previously used for solver options.
 - `use_sparse::Symbol` - Strategy for M\\N solve: `:auto`, `:always`, or `:never` (default: `:auto`). Bool values (`true`/`false`) are accepted and normalized to `:always`/`:never`.
 - `show_progress::Bool` - Display iteration progress (default: false)
 - `regularization::Float64` - Tikhonov regularization parameter λ (default: 0.0)
+- `sparse_threshold::Int` - Minimum M matrix row count for sparse solve in `:auto` mode (default: 50). When `use_sparse=:auto`, players with `size(M, 1) >= sparse_threshold` use sparse factorization regardless of graph position.
 """
 struct NonlinearSolverOptions
     max_iters::Int
@@ -351,6 +352,7 @@ struct NonlinearSolverOptions
     use_sparse::Symbol
     show_progress::Bool
     regularization::Float64
+    sparse_threshold::Int
 end
 
 """
@@ -369,11 +371,13 @@ function NonlinearSolverOptions(;
     recompute_policy_in_linesearch::Bool = true,
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
-    regularization::Float64 = 0.0
+    regularization::Float64 = 0.0,
+    sparse_threshold::Int = 50
 )
     max_iters > 0 || throw(ArgumentError("max_iters must be positive, got $max_iters"))
     tol > 0 || throw(ArgumentError("tol must be positive, got $tol"))
     regularization >= 0 || throw(ArgumentError("regularization must be non-negative, got $regularization"))
+    sparse_threshold >= 0 || throw(ArgumentError("sparse_threshold must be non-negative, got $sparse_threshold"))
     if linesearch_method ∉ VALID_LINESEARCH_METHODS
         throw(ArgumentError(
             "Invalid linesearch_method :$linesearch_method. " *
@@ -390,7 +394,8 @@ function NonlinearSolverOptions(;
     end
     return NonlinearSolverOptions(
         max_iters, tol, verbose, linesearch_method,
-        recompute_policy_in_linesearch, use_sparse_sym, show_progress, regularization
+        recompute_policy_in_linesearch, use_sparse_sym, show_progress, regularization,
+        sparse_threshold
     )
 end
 
@@ -418,6 +423,7 @@ function NonlinearSolverOptions(nt::NamedTuple)
         use_sparse = get(nt, :use_sparse, :auto),
         show_progress = get(nt, :show_progress, false),
         regularization = get(nt, :regularization, 0.0),
+        sparse_threshold = get(nt, :sparse_threshold, 50),
     )
 end
 
@@ -471,6 +477,7 @@ Construct a NonlinearSolver from low-level problem components.
   Bool values are normalized to Symbol (true → :always, false → :never).
 - `show_progress::Bool=false` - Display iteration progress (iter, residual, step size, time)
 - `regularization::Float64=0.0` - Tikhonov regularization parameter λ for K = (M + λI)\\N. Improves stability for near-singular M matrices at the cost of solution bias. Default 0.0 (disabled).
+- `sparse_threshold::Int=50` - Minimum M matrix row count for sparse solve in `:auto` mode. Players with `size(M, 1) >= sparse_threshold` use sparse factorization regardless of graph position.
 - `cse::Bool=false` - Enable Common Subexpression Elimination during symbolic compilation.
   CSE can dramatically reduce construction time and memory for problems with redundant
   symbolic structure (e.g., quadratic costs), but may slightly increase per-solve runtime.
@@ -493,6 +500,7 @@ function NonlinearSolver(
     use_sparse::Union{Symbol,Bool} = :auto,
     show_progress::Bool = false,
     regularization::Float64 = 0.0,
+    sparse_threshold::Int = 50,
     cse::Bool = false,
     to::TimerOutput = TimerOutput()
 )
@@ -516,7 +524,8 @@ function NonlinearSolver(
         # Store solver options (validation happens inside NonlinearSolverOptions constructor)
         options = NonlinearSolverOptions(;
             max_iters, tol, verbose, linesearch_method,
-            recompute_policy_in_linesearch, use_sparse, show_progress, regularization
+            recompute_policy_in_linesearch, use_sparse, show_progress, regularization,
+            sparse_threshold
         )
     end
 
