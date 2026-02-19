@@ -22,6 +22,7 @@ const FAST_TEST_FILES = [
     "test_block_arrays.jl",
     "test_unified_interface.jl",
     "olse/test_qp_solver.jl",
+    "test_warmstart_alpha.jl",
 ]
 
 const SLOW_TEST_FILES = [

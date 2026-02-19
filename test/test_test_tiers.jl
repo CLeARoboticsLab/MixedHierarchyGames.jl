@@ -21,6 +21,7 @@
             "test_unified_interface.jl",
             "test_vcat_ordered.jl",
             "olse/test_qp_solver.jl",
+            "test_warmstart_alpha.jl",
         ]
         @test Set(FAST_TEST_FILES) == Set(expected_fast)
     end
@@ -76,6 +77,7 @@
             "test_unified_interface.jl",
             "test_vcat_ordered.jl",
             "test_sparse_threshold.jl",
+            "test_warmstart_alpha.jl",
         ])
         @test all_classified == expected_all
     end
