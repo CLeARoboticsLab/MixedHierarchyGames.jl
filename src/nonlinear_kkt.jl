@@ -1000,6 +1000,10 @@ function run_nonlinear_solver(
                 α = geometric_reduction(residual_at_trial, z_est, δz, alpha_init;
                     rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
                     x_buffer=z_trial)
+            elseif linesearch_method == :armijo_quadratic
+                α = armijo_quadratic_interp(residual_at_trial, z_est, δz, alpha_init;
+                    rho=LINESEARCH_BACKTRACK_FACTOR, max_iters=LINESEARCH_MAX_ITERS,
+                    x_buffer=z_trial)
             elseif linesearch_method == :constant
                 α = 1.0
             else

@@ -323,7 +323,7 @@ function QPSolver(
     return QPSolver(game.hierarchy_graph, Js, gs, primal_dims, θs, state_dim, control_dim; solver, to)
 end
 
-const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant)
+const VALID_LINESEARCH_METHODS = (:armijo, :geometric, :constant, :armijo_quadratic)
 const VALID_USE_SPARSE = (:auto, :always, :never)
 
 """

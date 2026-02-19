@@ -12,6 +12,7 @@
 # Standalone bootstrap: load packages when run directly
 if abspath(PROGRAM_FILE) == @__FILE__
     using Test
+    using Logging
     using MixedHierarchyGames
     using MixedHierarchyGames: armijo_quadratic_interp, setup_problem_parameter_variables
     using Graphs: SimpleDiGraph, add_edge!
