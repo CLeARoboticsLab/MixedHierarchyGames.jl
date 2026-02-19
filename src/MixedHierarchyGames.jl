@@ -59,7 +59,7 @@ export get_qp_kkt_conditions, strip_policy_constraints
 
 # Line search methods
 include("linesearch.jl")
-export armijo_backtracking, geometric_reduction, constant_step, armijo_quadratic_interp
+export armijo_backtracking, geometric_reduction, constant_step, armijo_quadratic_interp, armijo_interpolation
 
 include("nonlinear_kkt.jl")
 export setup_approximate_kkt_solver, preoptimize_nonlinear_solver, compute_K_evals, check_convergence, compute_newton_step, perform_linesearch
