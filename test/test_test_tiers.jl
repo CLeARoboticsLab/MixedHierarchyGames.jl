@@ -24,6 +24,7 @@
             "test_warmstart_alpha.jl",
             "test_quadratic_linesearch.jl",
             "test_cubic_linesearch.jl",
+            "test_twophase_linesearch.jl",
         ]
         @test Set(FAST_TEST_FILES) == Set(expected_fast)
     end
@@ -82,6 +83,7 @@
             "test_warmstart_alpha.jl",
             "test_quadratic_linesearch.jl",
             "test_cubic_linesearch.jl",
+            "test_twophase_linesearch.jl",
         ])
         @test all_classified == expected_all
     end

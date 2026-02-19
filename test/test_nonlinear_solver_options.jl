@@ -59,6 +59,7 @@
         @test_nowarn NonlinearSolverOptions(linesearch_method=:constant)
         @test_nowarn NonlinearSolverOptions(linesearch_method=:armijo_quadratic)
         @test_nowarn NonlinearSolverOptions(linesearch_method=:armijo_interp)
+        @test_nowarn NonlinearSolverOptions(linesearch_method=:twophase)
         @test_throws ArgumentError NonlinearSolverOptions(linesearch_method=:invalid)
     end
 

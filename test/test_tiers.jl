@@ -25,6 +25,7 @@ const FAST_TEST_FILES = [
     "test_warmstart_alpha.jl",
     "test_quadratic_linesearch.jl",
     "test_cubic_linesearch.jl",
+    "test_twophase_linesearch.jl",
 ]
 
 const SLOW_TEST_FILES = [
