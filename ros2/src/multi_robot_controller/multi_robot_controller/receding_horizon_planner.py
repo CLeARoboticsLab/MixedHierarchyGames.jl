@@ -214,9 +214,10 @@ def run_receding_horizon_planning(pre, initial_states, goal_position, dt=DT, max
     # Initialize current states [x, y, theta] for each robot
     current_states = [list(state) for state in initial_states]
     
-    # Storage for trajectories and controls
+    # Storage for trajectories, controls, and solving times
     trajectories = []
     controls = []
+    solving_times = []  # Time taken for each solver call (seconds)
     
     z_guess = None  # Warm-start guess for internal solver variables
     iteration = 0
@@ -244,6 +245,8 @@ def run_receding_horizon_planning(pre, initial_states, goal_position, dt=DT, max
             print(f"Final Robot 3 state: x={current_states[2][0]:.3f}, y={current_states[2][1]:.3f}, theta={current_states[2][2]:.3f}")
             print(f"Goal position: {goal_position}")
             print(f"Distance: {math.sqrt((current_states[2][0] - goal_position[0])**2 + (current_states[2][1] - goal_position[1])**2):.3f}")
+            # Record 0.0 for solving time since we didn't call the solver (goal already reached)
+            solving_times.append(0.0)
             break
         
         # Prepare current states for Julia solver (only position [px, py])
@@ -253,16 +256,21 @@ def run_receding_horizon_planning(pre, initial_states, goal_position, dt=DT, max
         julia_state3 = Main.eval(f"[{current_states[2][0]}; {current_states[2][1]}]")
         initial_state = [julia_state1, julia_state2, julia_state3]
         
-        # Call Julia solver
+        # Call Julia solver with timing
         try:
+            solver_start_time = time.perf_counter()
             if z_guess is None:
                 result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(
                     pre, initial_state, silence_logs=True)
             else:
                 result = Main.HardwareFunctions.hardware_nplayer_hierarchy_navigation(
                     pre, initial_state, z_guess, silence_logs=True)
+            solver_end_time = time.perf_counter()
+            solving_time = solver_end_time - solver_start_time
+            solving_times.append(solving_time)
         except Exception as e:
             print(f"Error in Julia solver at iteration {iteration}: {e}")
+            solving_times.append(0.0)  # Record 0 for failed iterations
             break
         
         # Extract results
@@ -336,12 +344,19 @@ def run_receding_horizon_planning(pre, initial_states, goal_position, dt=DT, max
     print(f"\nPlanning completed. Total iterations: {iteration}")
     print(f"Total trajectory points: {len(trajectories)}")
     print(f"Total control points: {len(controls)}")
+    if solving_times:
+        avg_solving_time = sum(solving_times) / len(solving_times)
+        total_solving_time = sum(solving_times)
+        print(f"Average solving time per step: {avg_solving_time*1000:.2f} ms")
+        print(f"Total solving time: {total_solving_time:.2f} s")
+        print(f"Max solving time: {max(solving_times)*1000:.2f} ms")
+        print(f"Min solving time: {min(solving_times)*1000:.2f} ms")
     
-    return trajectories, controls
+    return trajectories, controls, solving_times
 
 
-def save_results_to_csv(trajectories, controls, output_dir=None):
-    """Save trajectories and controls to CSV files."""
+def save_results_to_csv(trajectories, controls, solving_times=None, output_dir=None):
+    """Save trajectories, controls, and solving times to CSV files."""
     if output_dir is None:
         # Save to project root / ros2 directory
         project_root = Path(__file__).resolve().parents[4]
@@ -394,6 +409,30 @@ def save_results_to_csv(trajectories, controls, output_dir=None):
         print(f"Saved controls to: {controls_path} ({len(controls)} points)")
     except Exception as e:
         print(f"Failed to save controls CSV: {e}")
+    
+    # Save solving times
+    if solving_times is not None and len(solving_times) > 0:
+        times_path = output_dir / "receding_horizon_solving_times.csv"
+        try:
+            with open(times_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                # Write header
+                writer.writerow(['iteration', 'solving_time_seconds', 'solving_time_milliseconds'])
+                
+                # Write solving time data
+                for i, solving_time in enumerate(solving_times, start=1):
+                    writer.writerow([
+                        i,  # Iteration number
+                        solving_time,  # Time in seconds
+                        solving_time * 1000.0  # Time in milliseconds
+                    ])
+            
+            print(f"Saved solving times to: {times_path} ({len(solving_times)} points)")
+            if solving_times:
+                avg_time = sum(solving_times) / len(solving_times)
+                print(f"  Average: {avg_time*1000:.2f} ms, Total: {sum(solving_times):.2f} s")
+        except Exception as e:
+            print(f"Failed to save solving times CSV: {e}")
 
 
 def plot_trajectories(trajectories, goal_position, initial_states, output_dir=None):
@@ -658,7 +697,7 @@ def main():
     
     # Run receding horizon planning
     print("\n" + "=" * 60)
-    trajectories, controls = run_receding_horizon_planning(
+    trajectories, controls, solving_times = run_receding_horizon_planning(
         pre, 
         INITIAL_STATES, 
         GOAL_POSITION,
@@ -668,7 +707,7 @@ def main():
     # Save results
     print("\n" + "=" * 60)
     print("Saving results...")
-    save_results_to_csv(trajectories, controls)
+    save_results_to_csv(trajectories, controls, solving_times)
     
     # Plot and save visualizations
     print("\n" + "=" * 60)

@@ -11,8 +11,8 @@ import roslibpy
 
 # Robot configurations
 ROBOT_CONFIGS = [
-    {'name': 'Husky', 'ip': '192.168.131.1', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},
-    {'name': 'Bluebonnet', 'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},
+    {'name': 'Husky', 'ip': '192.168.50.2', 'port': 9090, 'topic': '/hookem/platform/cmd_vel'},
+    {'name': 'Bluebonnet', 'ip': '192.168.50.25', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},
 ]
 
 def ros_time():
@@ -140,7 +140,7 @@ def main():
     # Test 2: Both robots move forward at different speed
     print("\n2. Both robots forward (0.2 m/s) for 2 seconds...")
     for _ in range(20):
-        controller.send_to_all(0.2, duration=0.1)
+        controller.send_to_all(3, duration=0.1)
     
     # Stop
     print("   Stopping...")
@@ -150,8 +150,8 @@ def main():
     # Test 3: Individual control - both forward
     print("\n3. Husky forward (0.2 m/s), Bluebonnet forward (0.2 m/s) for 2 seconds...")
     for _ in range(20):
-        controller.send_individual(0, 0.2, duration=0.1)  # Husky forward
-        controller.send_individual(1, 0.2, duration=0.1)  # Bluebonnet forward
+        controller.send_individual(0, 3, duration=0.1)  # Husky forward
+        controller.send_individual(1, 3, duration=0.1)  # Bluebonnet forward
     
     # Stop
     print("   Stopping...")

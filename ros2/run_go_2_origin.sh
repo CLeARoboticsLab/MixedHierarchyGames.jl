@@ -4,4 +4,4 @@ source install/local_setup.bash
 # ros2 run multi_robot_controller controller_node
 # /usr/bin/python3.10 src/multi_robot_controller/multi_robot_controller/controller_node.py
 
-/usr/bin/python3.10 src/multi_robot_controller/multi_robot_controller/controller_node_open_loop.py
+python3 src/multi_robot_controller/multi_robot_controller/go_to_origin.py

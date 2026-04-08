@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build and run the pursuit_evasion_controller node
 
+source /opt/ros/foxy/setup.bash
+
 colcon build
 source install/setup.bash
 
@@ -16,7 +18,7 @@ export JULIA_SSL_LIBRARY=system
 
 # Increase Julia memory limits if needed (uncomment and adjust as necessary)
 export JULIA_GC_MAX_MEMORY=17179869184  # 16GB in bytes (increase if you have more RAM)
-export JULIA_GC_FULL_COLLECTIONS=1     # Force full GC more frequently
+# export JULIA_GC_FULL_COLLECTIONS=1     # Force full GC more frequently
 
 # Workaround for Qt6/FreeType compatibility issue:
 # LD_PRELOAD forces Qt6 to use system FreeType library instead of Julia artifacts

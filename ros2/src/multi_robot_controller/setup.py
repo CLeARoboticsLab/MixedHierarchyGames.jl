@@ -21,6 +21,8 @@ setup(
             'pursuit_evasion_controller = multi_robot_controller.pursuit_evasion_controller:main',
             'csv_cmd_vel_player = multi_robot_controller.csv_cmd_vel_player:main',
             'go_to_origin = multi_robot_controller.go_to_origin:main',
+            'hybrid_controller = multi_robot_controller.hybrid_controller:main',
+            'multi_jetracer_controller = multi_robot_controller.multi_jetracer_controller:main',
         ],
     },
 )

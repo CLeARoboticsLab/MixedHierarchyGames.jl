@@ -6,8 +6,8 @@ import roslibpy
 # ROBOT_IP = '192.168.131.1'
 ROBOT_IP = '192.168.50.2'
 PORT = 9090
-# TOPIC = '/bluebonnet/platform/cmd_vel'  # expects geometry_msgs/TwistStamped
-TOPIC = '/lonebot/platform/cmd_vel'
+TOPIC = '/lonebot/platform/cmd_vel'  # expects geometry_msgs/TwistStamped
+# TOPIC = '/hookem/platform/cmd_vel'
 
 client = roslibpy.Ros(host=ROBOT_IP, port=PORT)
 client.run()
@@ -33,11 +33,11 @@ def send(vx, wz, duration=3.0):
             }
         }
         pub.publish(roslibpy.Message(msg))
-        time.sleep(0.05)  # 20 Hz
+        time.sleep(0.01)  # 100 Hz
 
 # drive forward, then stop
 for t in range(100):
-    send(0.5, 0.0, duration=0.1)
+    send(-0.5, 0.0, duration=0.1)
 send(0.0, 0.0, duration=0.5)
 
 pub.unadvertise()

@@ -5,21 +5,21 @@ import math
 import time
 import roslibpy
 
-# Robot configuration for lonebot
-ROBOT_IP = '192.168.50.2'
+# Robot configuration for Husky
+ROBOT_IP = '192.168.50.49'
 ROBOT_PORT = 9090
-ROBOT_TOPIC = '/lonebot/platform/cmd_vel'
-POSE_TOPIC = '/vrpn_client_node/Lonebot/pose'
+ROBOT_TOPIC = '/hookem/platform/cmd_vel'
+POSE_TOPIC = '/vrpn_client_node/Husky/pose'
 
 # Goal position (origin)
 GOAL_POSITION = [0.0, 0.0]
-GOAL_THRESHOLD = 0.3  # meters - stop when within this distance
+GOAL_THRESHOLD = 0.6  # meters - stop when within this distance
 
 # Controller gains
 K_LINEAR = 0.5   # Proportional gain for linear velocity
 K_ANGULAR = 1.0  # Proportional gain for angular velocity
-MAX_LINEAR_VEL = 0.5   # m/s
-MAX_ANGULAR_VEL = 0.5  # rad/s
+MAX_LINEAR_VEL = 0.6   # m/s
+MAX_ANGULAR_VEL = 0.6  # rad/s
 
 
 def ros_time():
@@ -49,8 +49,20 @@ class GoToOriginController(Node):
         self.ros_publisher = None
         self._setup_robot_connection()
 
-        # Timer to run controller at 10 Hz
+        # Current commands to publish (updated by controller, published at high rate)
+        self.current_vx = 0.0
+        self.current_omega = 0.0
+        
+        # Previous commands for low-pass filtering
+        self.prev_vx = 0.0
+        self.prev_omega = 0.0
+
+        # Timer to run controller at 10 Hz (computes new commands)
         self.timer = self.create_timer(0.1, self.control_loop)
+        
+        # High-rate publisher timer at 100 Hz (0.01s) for smoother movement
+        # This publishes the current commands repeatedly during each 0.1s controller step
+        self.publisher_timer = self.create_timer(0.01, self._publish_current_command)
 
         self.get_logger().info("GoToOriginController node started.")
         self.get_logger().info(f"Goal: {GOAL_POSITION}, Threshold: {GOAL_THRESHOLD}m")
@@ -115,30 +127,39 @@ class GoToOriginController(Node):
         )
 
     def _send_command(self, vx, omega):
-        """Send velocity command to robot via roslibpy."""
+        """Update current commands (will be published at high rate by publisher_timer)."""
+        # Clip velocities to limits
+        vx = max(-MAX_LINEAR_VEL, min(MAX_LINEAR_VEL, vx))
+        omega = max(-MAX_ANGULAR_VEL, min(MAX_ANGULAR_VEL, omega))
+        
+        # Store commands for high-rate publishing
+        self.current_vx = vx
+        self.current_omega = omega
+    
+    def _publish_current_command(self):
+        """High-rate publisher that sends current commands repeatedly for smoother movement.
+        Runs at 100 Hz (every 0.01s) to publish commands multiple times during each 0.1s controller step."""
         if self.ros_publisher is None:
-            self.get_logger().warn("No publisher available, cannot send command")
             return
-
+        
         try:
-            # Clip velocities to limits
-            vx = max(-MAX_LINEAR_VEL, min(MAX_LINEAR_VEL, vx))
-            omega = max(-MAX_ANGULAR_VEL, min(MAX_ANGULAR_VEL, omega))
-
             msg = {
                 'header': {'stamp': ros_time(), 'frame_id': 'teleop_twist_joy'},
                 'twist': {
-                    'linear': {'x': float(vx), 'y': 0.0, 'z': 0.0},
-                    'angular': {'x': 0.0, 'y': 0.0, 'z': float(omega)}
+                    'linear': {'x': float(self.current_vx), 'y': 0.0, 'z': 0.0},
+                    'angular': {'x': 0.0, 'y': 0.0, 'z': float(self.current_omega)}
                 }
             }
             self.ros_publisher.publish(roslibpy.Message(msg))
         except Exception as e:
-            self.get_logger().error(f"Error sending command: {e}")
+            self.get_logger().error(f"Error publishing command: {e}")
 
     def _send_stop(self):
         """Send stop command to robot."""
-        self._send_command(0.0, 0.0)
+        self.current_vx = 0.0
+        self.current_omega = 0.0
+        self.prev_vx = 0.0
+        self.prev_omega = 0.0
 
     def control_loop(self):
         """Main control loop - runs at 10 Hz."""
@@ -155,8 +176,16 @@ class GoToOriginController(Node):
         if distance < GOAL_THRESHOLD:
             self.get_logger().info(
                 f"Goal reached! Distance: {distance:.3f}m < {GOAL_THRESHOLD}m")
-            self._send_stop()
+            # Stop timers and send stop command
             self.timer.cancel()
+            self.publisher_timer.cancel()
+            self.current_vx = 0.0
+            self.current_omega = 0.0
+            self._send_stop()
+            # Publish stop a few more times to ensure robot stops
+            for _ in range(5):
+                self._publish_current_command()
+                time.sleep(0.01)
             self._cleanup()
             self.destroy_node()
             rclpy.shutdown()
@@ -177,9 +206,29 @@ class GoToOriginController(Node):
 
         # Proportional controller
         # Linear velocity: proportional to distance, but reduce when angle error is large
-        vx = K_LINEAR * distance * math.cos(angle_error)
+        vx_cmd = K_LINEAR * distance * math.cos(angle_error)
         # Angular velocity: proportional to angle error
-        omega = K_ANGULAR * angle_error
+        omega_cmd = K_ANGULAR * angle_error
+        
+        # Apply low-pass filter to smooth out rapid changes and prevent stuck behavior
+        # This helps prevent oscillation and makes motion smoother
+        alpha_v = 0.7  # Filter coefficient for linear velocity: 70% new, 30% old
+        alpha_omega = 0.6  # Filter coefficient for angular velocity: 60% new, 40% old (more smoothing)
+        
+        vx = alpha_v * vx_cmd + (1.0 - alpha_v) * self.prev_vx
+        omega = alpha_omega * omega_cmd + (1.0 - alpha_omega) * self.prev_omega
+        
+        # Update stored values for next iteration
+        self.prev_vx = vx
+        self.prev_omega = omega
+        
+        # Apply deadband to prevent tiny oscillations that cause stuck behavior
+        deadband_v = 0.05  # 5 cm/s threshold
+        deadband_omega = 0.05  # 0.05 rad/s threshold
+        if abs(vx) < deadband_v:
+            vx = 0.0
+        if abs(omega) < deadband_omega:
+            omega = 0.0
 
         # Log status
         self.get_logger().info(
@@ -189,7 +238,7 @@ class GoToOriginController(Node):
             f"AngleErr: {math.degrees(angle_error):.1f}°, "
             f"Cmd: vx={vx:.3f}, omega={omega:.3f}")
 
-        # Send command
+        # Update commands (will be published at high rate by publisher_timer)
         self._send_command(vx, omega)
 
     def _cleanup(self):
@@ -207,6 +256,11 @@ class GoToOriginController(Node):
 
     def destroy_node(self):
         """Clean up before destroying node."""
+        # Cancel timers
+        if hasattr(self, 'timer'):
+            self.timer.cancel()
+        if hasattr(self, 'publisher_timer'):
+            self.publisher_timer.cancel()
         self._cleanup()
         super().destroy_node()
 

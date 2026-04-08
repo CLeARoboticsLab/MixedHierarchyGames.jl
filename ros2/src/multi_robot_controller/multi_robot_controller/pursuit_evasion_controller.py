@@ -22,9 +22,8 @@ GOAL_POSITION = [0.0, 0.0]
 # Robot configuration - modify these for your setup
 ROBOT_CONFIGS = [
     {'ip': '192.168.50.25', 'port': 9090, 'topic': '/bluebonnet/platform/cmd_vel'},  # Robot 1
-    # {'ip': '192.168.131.4', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
     {'ip': '192.168.50.2', 'port': 9090, 'topic': '/lonebot/platform/cmd_vel'},     # Robot 2
-    {'ip': '192.168.50.49', 'port': 9090, 'topic': '/skoll/platform/cmd_vel'},      # Robot 3 (update IP/topic as needed)
+    {'ip': '192.168.50.49', 'port': 9090, 'topic': '/hookem/platform/cmd_vel'},      # Robot 3 (update IP/topic as needed)
 ]
 
 
@@ -220,13 +219,17 @@ class PursuitEvasionController(Node):
 
         # Current commands to publish (updated by planner, published at high rate)
         self.current_commands = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]  # [(v1, omega1), (v2, omega2), (v3, omega3)]
+        
+        # Per-robot previous omega for low-pass filtering
+        self.prev_omega = [0.0, 0.0, 0.0]
 
         # Timer to run planner at 10 Hz (computes new commands)
         self.timer = self.create_timer(0.1, self.run_planner_step)
         
-        # High-rate publisher timer at 20 Hz (0.05s) for smoother movement
+        # High-rate publisher timer at 100 Hz (0.01s) for smoother movement
         # This publishes the current commands repeatedly during each 0.1s planner step
-        self.publisher_timer = self.create_timer(0.05, self._publish_current_commands)
+        # Rate matches test.py which works well (100 Hz with 0.01s sleep)
+        self.publisher_timer = self.create_timer(0.01, self._publish_current_commands)
 
         self.pre = pre
         self.z_guess = None  # optional warm-start guess for internal solver variables
@@ -281,13 +284,36 @@ class PursuitEvasionController(Node):
 
         return [x, y, theta, v]
 
-    def convert_to_cmd_vel(self, vx, vy, pose, target_pose, current_theta):
+    def convert_to_cmd_vel(self, vx, vy, pose, target_pose, current_theta, robot_idx=0):
         v = math.hypot(vx, vy)
         target_theta = math.atan2(target_pose[1] - pose[1], target_pose[0] - pose[0])
-        print("target_theta:", target_theta)
-        print("current_theta:", current_theta)
-
-        omega = (target_theta - current_theta)  # Assuming a time step of 0.1 seconds
+        
+        # Normalize angle difference to [-pi, pi] to avoid discontinuities
+        def _wrap_to_pi(angle):
+            return (angle + math.pi) % (2.0 * math.pi) - math.pi
+        
+        angle_error = _wrap_to_pi(target_theta - current_theta)
+        
+        # Proportional controller for angular velocity (less aggressive than dividing by dt)
+        # Robot 3 (Husky) is large and needs gentler control to prevent stuck behavior
+        if robot_idx == 2:  # Robot 3 (Husky) - large robot needs gentler control
+            k_omega = 0.8  # Lower gain for smoother, less aggressive turning
+        else:
+            k_omega = 1.5  # Normal gain for smaller robots
+        omega_cmd = k_omega * angle_error
+        
+        # Low-pass filter to smooth out rapid changes and prevent jitter/stuck behavior
+        # Robot 3 (Husky) needs more smoothing due to its large size
+        if robot_idx == 2:  # Robot 3 (Husky)
+            alpha = 0.4  # More smoothing (40% new, 60% old) for large robot
+        else:
+            alpha = 0.6  # Normal smoothing for smaller robots
+        prev_omega = self.prev_omega[robot_idx] if robot_idx < len(self.prev_omega) else 0.0
+        omega = alpha * omega_cmd + (1.0 - alpha) * prev_omega
+        
+        # Update stored value for next iteration
+        if robot_idx < len(self.prev_omega):
+            self.prev_omega[robot_idx] = omega
         
         return v, omega
     
@@ -327,7 +353,8 @@ class PursuitEvasionController(Node):
 
     def _publish_current_commands(self):
         """High-rate publisher that sends current commands repeatedly for smoother movement.
-        Runs at 20 Hz (every 0.05s) to publish commands multiple times during each 0.1s planner step."""
+        Runs at 100 Hz (every 0.01s) to publish commands multiple times during each 0.1s planner step.
+        This rate matches test.py which controls Husky well. Ensures commands are sent 10 times per planner cycle."""
         if self._shutdown_initiated:
             return
         
@@ -373,17 +400,17 @@ class PursuitEvasionController(Node):
 
     def run_planner_step(self):
         # if self.latest_odom_01 is None or self.latest_odom_02 is None or self.latest_odom_03 is None:
-        if self.latest_odom_02 is None:
+        if self.latest_odom_01 is None:
             self.get_logger().warn("Waiting for odometry...")
             return
 
-        # state1 = self.convert_odom_to_state(self.latest_odom_01)
-        state1 = [-2.0, 1.0, 0.0, 0.0]
+        state1 = self.convert_odom_to_state(self.latest_odom_01)
+        # state1 = [-2.0, 1.0, 0.0, 0.0]
         # state2 = [-2.0, -2.0, 0.0, 0.0]
         state2 = self.convert_odom_to_state(self.latest_odom_02)
-        state3 = [2.0, -2.0, 0.0, 0.0]
+        # state3 = [2.0, -2.0, 0.0, 0.0]
         # state2 = self.convert_odom_to_state(self.latest_odom_02)
-        # state3 = self.convert_odom_to_state(self.latest_odom_03)
+        state3 = self.convert_odom_to_state(self.latest_odom_03)
 
         # Julia solver expects vector of vectors: [[px; py], [px; py], [px; py]]
         # Create Julia vectors explicitly to ensure correct data structure
@@ -414,28 +441,51 @@ class PursuitEvasionController(Node):
         u3 = curr_controls[2]  # [vx3, vy3]
         
         # Convert [vx, vy] to linear velocity and angular velocity
-        v1, omega1 = self.convert_to_cmd_vel(u1[0], u1[1], [state1[0], state1[1]], next_states[0], state1[2])
-        v2, omega2 = self.convert_to_cmd_vel(u2[0], u2[1], [state2[0], state2[1]], next_states[1], state2[2])
-        v3, omega3 = self.convert_to_cmd_vel(u3[0], u3[1], [state3[0], state3[1]], next_states[2], state3[2])
+        v1, omega1 = self.convert_to_cmd_vel(u1[0], u1[1], [state1[0], state1[1]], next_states[0], state1[2], robot_idx=0)
+        v2, omega2 = self.convert_to_cmd_vel(u2[0], u2[1], [state2[0], state2[1]], next_states[1], state2[2], robot_idx=1)
+        v3, omega3 = self.convert_to_cmd_vel(u3[0], u3[1], [state3[0], state3[1]], next_states[2], state3[2], robot_idx=2)
 
         # Record odometry-based trajectory
         self.trajectory.append(((state1[0], state1[1]), (state2[0], state2[1]), (state3[0], state3[1])))
 
         # Clip angular velocities for safety
+        # Robot 3 (Husky) is large - use lower max angular velocity to prevent oscillation
         omega1 = np.clip(omega1, -0.5, 0.5)
         omega2 = np.clip(omega2, -0.5, 0.5)
-        omega3 = np.clip(omega3, -0.5, 0.5)
+        omega3 = np.clip(omega3, -0.3, 0.3)  # Lower max for large robot to prevent stuck behavior
 
         v1 = np.clip(v1, -0.5, 0.5)
         v2 = np.clip(v2, -0.5, 0.5)
         v3 = np.clip(v3, -0.5, 0.5)
+        v3 = 10 * v3  # Increase velocity of robot 3 to 10x
+        
+        # Apply deadband to prevent tiny oscillations that cause stuck behavior
+        # If commands are very small, set to zero to avoid jitter
+        # Robot 3 (Husky) is large and needs larger deadband
+        deadband_v = 0.05  # 5 cm/s threshold for v
+        deadband_omega = 0.05  # 0.05 rad/s threshold for omega
+        deadband_v3 = 0.1  # Larger deadband for large robot (10 cm/s)
+        deadband_omega3 = 0.08  # Larger deadband for large robot (0.08 rad/s)
+        
+        if abs(v1) < deadband_v:
+            v1 = 0.0
+        if abs(omega1) < deadband_omega:
+            omega1 = 0.0
+        if abs(v2) < deadband_v:
+            v2 = 0.0
+        if abs(omega2) < deadband_omega:
+            omega2 = 0.0
+        if abs(v3) < deadband_v3:
+            v3 = 0.0
+        if abs(omega3) < deadband_omega3:
+            omega3 = 0.0
         
         self.get_logger().info(f"v1: {v1}, omega1: {omega1}, v2: {v2}, omega2: {omega2}, v3: {v3}, omega3: {omega3}")
 
         if not goal_reached(state3[:2], GOAL_POSITION):
             # Update current commands (will be published at high rate by publisher_timer)
             self.current_commands = [(v1, omega1), (v2, omega2), (v3, omega3)]
-            # Commands are now published continuously at 20 Hz by _publish_current_commands()
+            # Commands are now published continuously at 100 Hz by _publish_current_commands()
         else:
             if not self._shutdown_initiated:
                 self.get_logger().info("Goal reached for robot 3, stopping.")
