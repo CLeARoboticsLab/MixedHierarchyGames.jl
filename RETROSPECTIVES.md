@@ -2829,3 +2829,285 @@ The `if callback !== nothing` guard was already in place from a prior PR (commit
 ### Action Items for Next PR
 
 - None identified — this was a small, focused change
+
+---
+
+## PR: perf/08-concrete-precomputed (PR #154)
+
+**Date:** 2026-02-16
+**Commits:** 1
+**Tests:** 1356 passing (15 new)
+
+### Summary
+
+Investigated whether `NonlinearSolver.precomputed` NamedTuple causes type instability (Perf #8). Found it does NOT — the NamedTuple is already fully concrete and type-stable. Added guard tests proving stability instead of refactoring.
+
+### TDD Compliance
+
+**Score: N/A — Investigation PR**
+
+This was an investigation-first PR. The process was:
+1. Read and understand the code structure
+2. Write diagnostic script with `@code_warntype`
+3. Empirically verify type stability
+4. Write tests documenting the finding
+
+### Clean Code
+
+- No source code changes, only test additions
+- Tests are well-documented with comments explaining WHY the NamedTuple is type-stable
+
+### Commits
+
+- Single commit: investigation findings + guard tests (appropriate for investigation PR)
+
+### CLAUDE.md Compliance
+
+- Followed expert review protocol checkpoints
+- Correctly identified "skip refactor" path per task instructions
+- Ran full test suite before PR
+
+### What Went Well
+
+- **Measure before optimizing**: Empirical `@code_warntype` testing prevented unnecessary refactoring
+- **Following instructions**: Task explicitly said to skip if type-stable, and we did
+- **Guard tests**: Added `@inferred`-based tests that will catch future regressions
+
+### What Could Be Improved
+
+- Investigation could have been faster — first diagnostic script had a bug in cost function construction
+
+### Action Items for Next PR
+
+- None identified — this was a focused investigation
+
+---
+
+## PR: perf/09-tight-problem-types
+
+**Date**: 2026-02-16
+**Scope**: Tighten HierarchyProblem type parameter bounds from AbstractDict/AbstractVector to Dict/Vector
+
+### TDD Compliance
+- [x] TDD followed: failing tests written first (3 rejection tests + 4 positive tests)
+- [x] RED phase verified: all 3 rejection tests failed before implementation
+- [x] GREEN phase verified: all 7 tests passed after one-line change
+- [x] No implementation before tests
+
+### Clean Code
+- [x] Single, focused change (one line in struct definition)
+- [x] Docstrings updated to reflect new constraints
+- [x] Test file well-organized with clear purpose per testset
+
+### Clean Architecture
+- [x] No behavioral change — purely tightening the API contract
+- [x] All 1369 existing tests continue to pass
+
+### Commit Hygiene
+- [x] 3 commits: (1) failing tests, (2) implementation, (3) verification + tier registration
+- [x] Each commit is small and focused
+- [x] Commit messages explain why, not just what
+
+### CLAUDE.md Compliance
+- [x] All instructions followed
+- [x] Expert review protocol applied at pre-implementation and post-implementation
+
+### What Went Well
+
+- **Thorough call-site analysis**: Exhaustive search confirmed all callers pass Dict/Vector, making the change safe
+- **Correct TDD cycle**: Clean red-green-refactor with verified failing tests
+- **Expert review identified nuance**: The parametric type already encoded concrete types via parameters, so the benefit is API enforcement rather than runtime performance
+
+### What Could Be Improved
+
+- Nothing significant — this was a straightforward, well-scoped change
+
+### Action Items for Next PR
+
+- None identified
+
+---
+
+## PR: perf/06-typed-function-vectors
+
+**Date:** 2026-02-16
+**Commits:** 5
+**Tests:** 1381 passing
+
+### Summary
+
+Replaced `Vector{Function}` with `Vector{MNFunctionWrapper}` for M_fns!/N_fns! in `setup_approximate_kkt_solver` using FunctionWrappers.jl. Eliminates runtime dispatch on every M_fn/N_fn call in the hot `compute_K_evals` path.
+
+### TDD Compliance
+
+- TDD followed correctly: wrote failing tests first (commit 1), then implementation (commit 2).
+- Tests used `@test_broken` in the red phase, converted to `@test` in the green phase.
+- Discovered a return type mismatch (`build_function` returns either `Matrix{Float64}` or `nothing` depending on symbolic structure) during the full test suite run — required an additional fix commit.
+
+### Clean Code
+
+- Minimal change: 3 lines in `nonlinear_kkt.jl` plus a type alias constant.
+- Used a `let` block for proper closure capture of `M_raw`/`N_raw`.
+- Exported `MNFunctionWrapper` so tests can reference the concrete type.
+
+### Clean Architecture
+
+- FunctionWrappers.jl is a well-established dependency in the SciML ecosystem.
+- The wrapper normalizes the return type to `Nothing` (callers don't use the return value), which is a clean abstraction boundary.
+
+### Commits
+
+- 5 commits, each focused on a single concern. The extra 2 commits (return type fix + test update) were necessitated by discovering that `build_function`'s return type varies.
+- **Improvement**: Should have tested with complex problems (dynamics constraints) before the first implementation commit, not just the simple 2-player case.
+
+### CLAUDE.md Compliance
+
+- All instructions followed. Expert review conducted at approach selection.
+
+### What Went Well
+
+- FunctionWrappers.jl was thoroughly validated on Julia 1.11.7 before committing to the approach.
+- @code_warntype verification confirmed the type instability was eliminated.
+- Zero allocations in M_fn calls confirmed via benchmark.
+
+### What Could Be Improved
+
+- Initial FunctionWrapper return type was `Matrix{Float64}` based on testing with simple problems only. The full test suite revealed `build_function` returns `nothing` for complex problems. Should have tested with representative problem sizes before the first implementation commit.
+
+### Action Items for Next PR
+
+- When wrapping external function outputs, always test with the most complex available test case, not just the simplest one.
+
+---
+
+## PR: perf/07-typed-dicts
+
+**Date:** 2026-02-16
+**Commits:** 3
+**Tests:** 1405 passing (24 new)
+
+### Summary
+
+Investigation PR for Perf #7: Dict{Int, Any} type instability in KKT construction.
+Traced the full call chain from `solve()` through `run_nonlinear_solver` through
+`compute_K_evals` to determine which dicts are hot-path vs cold-path.
+
+**Key finding:** All `Dict{Int, Any}` instances in `qp_kkt.jl` (lines 92-95) and
+`nonlinear_kkt.jl` (line 256) are **cold-path only** — used during one-time symbolic
+construction, never accessed in the Newton iteration loop. The hot-path containers
+were already well-typed from previous PRs (Perf #4, #5, #6).
+
+### TDD Compliance
+
+**Score: N/A (investigation PR)**
+
+This was primarily an investigation PR. Tests were written to document the existing
+type guarantees as regression tests, not to drive new implementation. The one code
+change (explicit `Dict{Int, Int}` annotation on `π_sizes_trimmed`) was already
+correctly inferred by Julia — the annotation is for documentation only.
+
+### Clean Code
+
+- Tests clearly document the hot-path vs cold-path distinction
+- Each testset has a descriptive name explaining WHY the type is what it is
+- Benchmark script included for reproducibility
+
+### Commits
+
+- 3 small, focused commits: tests, implementation+tier-registration, benchmarks
+- Each commit has descriptive message explaining the finding
+
+### CLAUDE.md Compliance
+
+- [x] Reviewed CLAUDE.md at PR start
+- [x] Expert review protocol followed (hot-path identification checkpoint)
+- [x] Investigation documented before implementation
+- [x] Pre-merge retrospective recorded
+
+### What Went Well
+
+- Thorough call chain analysis before writing any code prevented wasted effort
+- Correctly identified that no hot-path changes were needed
+- Regression tests add value even when no code changes are needed
+
+### What Could Be Improved
+
+- The initial task description assumed Dict{Int, Any} was on the hot path. Earlier
+  investigation (before writing the task) would have saved the entire PR effort.
+- The test_test_tiers.jl expected file list was initially missed, causing a stale
+  test failure on the first full test run.
+
+### Action Items for Next PR
+
+- Always update test_test_tiers.jl when adding new test files (easy to forget)
+- For performance investigation PRs, run a quick @code_warntype check BEFORE
+  creating the task to validate that the suspected instability exists
+
+---
+
+## PR: perf/sparse-threshold-heuristic
+
+Change :auto sparse heuristic from graph-position-based (!is_leaf) to
+size-based (size(M, 1) >= sparse_threshold). This makes leaf players
+with large M matrices benefit from sparse factorization too.
+
+### TDD Compliance
+
+**Score: Excellent (10/10)**
+
+- RED: Wrote 14 failing tests covering NonlinearSolverOptions field, validation,
+  _merge_options support, compute_K_evals kwarg, Nash game behavior, and full
+  solve_raw integration
+- GREEN: Implemented sparse_threshold across the full call chain, all tests pass
+- Clean three-commit structure: failing tests → implementation → benchmarks
+
+### Clean Code
+
+**Score: Excellent (10/10)**
+
+- Minimal change: one new field, one heuristic line changed
+- Backward-compatible: all defaults preserve existing API
+- No dead code, no over-engineering
+- Threshold is an explicit parameter (not a magic number buried in code)
+
+### Commit Hygiene
+
+**Score: Excellent (10/10)**
+
+- 3 commits as required: (1) failing tests, (2) implementation, (3) benchmarks
+- Each commit is small and focused
+- Implementation commit includes only src/ changes + test tier fix
+
+### CLAUDE.md Compliance
+
+- [x] TDD followed strictly (RED-GREEN-REFACTOR)
+- [x] Test tolerances at 1e-10 (not loosened)
+- [x] Full test suite passes (1419 tests)
+- [x] Retrospective written before PR landing
+- [x] test_test_tiers.jl updated (learned from previous PR)
+
+### Benchmark Results
+
+| Problem | :never (dense) | new :auto (threshold=50) | :always (sparse) |
+|---------|---------------|--------------------------|-------------------|
+| 3P chain (time) | 0.33ms | 0.18ms (-45%) | 0.18ms |
+| 3P chain (alloc) | 1238KB | 556KB (-55%) | 755KB |
+| 4P chain (time) | 9.56ms | 2.27ms (-76%) | 2.30ms |
+| 4P chain (alloc) | 11659KB | 6648KB (-43%) | 6648KB |
+
+New :auto matches or beats :always because small M matrices (Player 3 at
+24×24) stay on the faster dense path.
+
+### What Went Well
+
+- TDD followed from the start, no violations
+- The threshold of 50 correctly separates small (24×24 → dense) from large (56×64+ → sparse)
+- Expert review protocol caught no issues — the change is simple and well-bounded
+
+### What Could Be Improved
+
+- Nothing significant — this was a clean, focused PR
+
+### Action Items for Next PR
+
+- Continue the pattern of size-based heuristics for adaptive behavior
