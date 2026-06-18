@@ -17,9 +17,13 @@ const LINESEARCH_MAX_ITERS = 10
 const LINESEARCH_BACKTRACK_FACTOR = 0.5
 
 """
-    check_convergence(residual, tol; verbose=false, iteration=nothing)
+    check_convergence(residual, tol; verbose=false, iteration=nothing, rtol=Inf, initial_residual=nothing)
 
 Check whether the solver has converged based on the KKT residual norm.
+
+Convergence is declared when either:
+- `residual < tol` (absolute tolerance), or
+- `residual / initial_residual < rtol` (relative tolerance, only if `initial_residual` is provided and positive)
 
 Returns a named tuple `(converged, status)` where:
 - `converged::Bool` - whether the residual is below tolerance
@@ -27,13 +31,18 @@ Returns a named tuple `(converged, status)` where:
 
 # Arguments
 - `residual::Real` - Current KKT residual norm
-- `tol::Real` - Convergence tolerance
+- `tol::Real` - Absolute convergence tolerance
 
 # Keyword Arguments
 - `verbose::Bool=false` - Print convergence info
 - `iteration::Union{Nothing,Int}=nothing` - Current iteration number (for verbose output)
+- `rtol::Float64=Inf` - Relative convergence tolerance. Convergence when `residual/initial_residual < rtol`.
+  Default `Inf` disables the relative check.
+- `initial_residual::Union{Nothing,Float64}=nothing` - Initial residual for relative tolerance computation.
+  Must be provided (and positive) for `rtol` to have any effect.
 """
-function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing)
+function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing,
+                           rtol::Float64=Inf, initial_residual::Union{Nothing,Float64}=nothing)
     # Guard against NaN/Inf
     if !isfinite(residual)
         verbose && @warn "Residual contains NaN or Inf values"
@@ -45,7 +54,13 @@ function check_convergence(residual, tol; verbose::Bool=false, iteration=nothing
         @info "$(iter_str)residual = $residual"
     end
 
+    # Absolute tolerance check
     if residual < tol
+        return (; converged=true, status=:solved)
+    end
+
+    # Relative tolerance check (only when rtol is finite, initial_residual is provided and positive)
+    if isfinite(rtol) && !isnothing(initial_residual) && initial_residual > 0 && residual / initial_residual < rtol
         return (; converged=true, status=:solved)
     end
 
